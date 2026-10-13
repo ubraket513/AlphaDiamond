@@ -82,6 +82,64 @@ int main(int argc, char** argv) {
         balanced.validate();
         balanced.workers.games_per_iteration = 3;
         rejects([&] { balanced.validate(); }, "Soo must reject incomplete two-order cycles");
+
+        // Specialist runs keep only their three orders, while the default keeps
+        // historical canonical bytes (and therefore checkpoint identities).
+        ProductionConfig grouped_base;
+        grouped_base.model_name = "Min";
+        grouped_base.arena.games = 36;
+        grouped_base.self_play.balance_turn_orders = true;
+        grouped_base.workers.games_per_iteration = 6;
+        const auto grouped_config = [&](std::string group) {
+            auto value = grouped_base.to_json();
+            auto& self_play = std::get<JsonValue::Object>(
+                std::get<JsonValue::Object>(value.value).at("self_play").value);
+            self_play["turn_order_group"] = JsonValue{std::move(group)};
+            return ProductionConfig::from_json(value);
+        };
+        const auto default_group = grouped_config("all");
+        require(diamond_support::canonical_json(default_group.to_json()) ==
+                    diamond_support::canonical_json(grouped_base.to_json()),
+                "explicit all group must preserve historical canonical config bytes");
+        for (const std::string group : {"cyclic", "reverse"}) {
+            auto specialist = grouped_config(group);
+            specialist.workers.games_per_iteration = 3;
+            specialist.validate();
+            require(ProductionConfig::from_json(specialist.to_json()) == specialist,
+                    "specialist group must round trip");
+            const auto serialized = std::get<JsonValue::Object>(specialist.to_json().value);
+            const auto& self_play =
+                std::get<JsonValue::Object>(serialized.at("self_play").value);
+            require(std::get<std::string>(self_play.at("turn_order_group").value) == group,
+                    "specialist group must survive resolved config serialization");
+            specialist.workers.games_per_iteration = 4;
+            rejects([&] { specialist.validate(); },
+                    "specialist must reject incomplete three-order cycles");
+            specialist.workers.games_per_iteration = 6;
+            specialist.self_play.balance_turn_orders = false;
+            rejects([&] { specialist.validate(); },
+                    "specialist group must require turn-order balancing");
+            specialist.self_play.balance_turn_orders = true;
+            specialist.model_name = "Soo";
+            rejects([&] { specialist.validate(); }, "Soo must reject Min specialist groups");
+        }
+        for (const char* invalid_group : {"", "clockwise", "Cyclic"})
+            rejects([&] { (void)grouped_config(invalid_group); },
+                    "unknown turn-order group must be rejected");
+        const auto cyclic_config = grouped_config("cyclic");
+        const auto reverse_config = grouped_config("reverse");
+        rejects([&] {
+            (void)diamond_orchestration::validate_training_config_transition(
+                cyclic_config, reverse_config);
+        }, "resume must reject switching specialist group");
+        rejects([&] {
+            (void)diamond_orchestration::validate_training_config_transition(
+                grouped_base, cyclic_config);
+        }, "resume must reject converting shared replay to specialist replay");
+        rejects([&] {
+            (void)diamond_orchestration::validate_training_config_transition(
+                cyclic_config, grouped_base);
+        }, "resume must reject converting specialist replay to shared replay");
         require(RuntimeConfig{} == RuntimeConfig{.device = "cpu", .precision = "fp32"},
                 "runtime defaults changed");
         require(RunBudgetConfig{} == RunBudgetConfig{.max_iterations = 1,

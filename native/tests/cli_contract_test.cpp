@@ -11,6 +11,7 @@
 #include "diamond_orchestration/report.hpp"
 #include "diamond_orchestration/training_resources.hpp"
 #include "diamond_orchestration/training_wiring.hpp"
+#include "diamond_training/checkpoint.hpp"
 
 namespace {
 
@@ -436,6 +437,123 @@ int main(int argc, char** argv) {
         const auto result = report_object(result_path);
         CHECK_EQ(std::get<int64_t>(result.at("training_step").value), int64_t{2});
         CHECK_EQ(std::get<std::string>(result.at("stage").value), std::string("COMPLETE"));
+        if (family != "min") continue;
+
+        // Both specialists receive exactly the same goals-v2 weights, but own
+        // fresh optimizer state and independent replay/checkpoint directories.
+        const auto shared_checkpoint = goals_run / "iterations" / "1" / "candidate-checkpoint";
+        const auto shared_info = diamond_training::inspect_checkpoint_v2(shared_checkpoint);
+        const auto shared_artifact = scratch / "min-shared-goals-artifact";
+        const std::string export_shared = "\"" + checkpoint_binary.string() + "\" export \"" +
+            shared_checkpoint.string() + "\" --out \"" + shared_artifact.string() +
+            "\" --version 2.1.0";
+        REQUIRE(std::system(export_shared.c_str()) == 0, "cannot export shared specialist seed");
+        const auto shared_metadata = report_object(shared_artifact / "metadata.json");
+        std::vector<std::filesystem::path> specialist_runs;
+        std::vector<std::filesystem::path> specialist_configs;
+        std::vector<std::filesystem::path> replay_manifests;
+        std::vector<std::string> replay_snapshots;
+        std::vector<diamond_training::CheckpointInfo> specialist_checkpoints;
+        for (const std::string group : {"cyclic", "reverse"}) {
+            auto specialist_json = goals.to_json();
+            auto& object = std::get<JsonValue::Object>(specialist_json.value);
+            std::get<JsonValue::Object>(object.at("self_play").value)["turn_order_group"] =
+                JsonValue{group};
+            std::get<JsonValue::Object>(object.at("workers").value)["games_per_iteration"] =
+                JsonValue{int64_t{3}};
+            std::get<JsonValue::Object>(object.at("run_budget").value)["max_iterations"] =
+                JsonValue{int64_t{1}};
+            const auto specialist = ProductionConfig::from_json(specialist_json);
+            const auto specialist_path = scratch / ("min-" + group + ".json");
+            std::ofstream(specialist_path) << diamond_support::canonical_json(specialist.to_json());
+            const auto specialist_run = scratch / "min" / ("expert-" + group);
+            const std::string train_specialist = "\"" + train_binary.string() +
+                "\" train --run-dir \"" + specialist_run.string() + "\" --config \"" +
+                specialist_path.string() + "\" --warm-start \"" + shared_artifact.string() + "\"";
+            REQUIRE(std::system(train_specialist.c_str()) == 0, "specialist warm start failed");
+            const auto initial = diamond_training::inspect_checkpoint_v2(
+                specialist_run / "initial-champion-checkpoint");
+            REQUIRE(initial.lineage.has_value(), "specialist initial checkpoint lacks lineage");
+            const auto initial_artifact = scratch / ("min-" + group + "-initial-artifact");
+            const std::string export_initial = "\"" + checkpoint_binary.string() + "\" export \"" +
+                (specialist_run / "initial-champion-checkpoint").string() + "\" --out \"" +
+                initial_artifact.string() + "\" --version 2.1.0";
+            REQUIRE(std::system(export_initial.c_str()) == 0, "cannot inspect specialist seed weights");
+            const auto initial_metadata = report_object(initial_artifact / "metadata.json");
+            CHECK_EQ(std::get<std::string>(initial_metadata.at("model_sha256").value),
+                     std::get<std::string>(shared_metadata.at("model_sha256").value));
+            CHECK_EQ(initial.lineage->source_digest,
+                     std::optional<std::string>{
+                         std::get<std::string>(shared_metadata.at("runtime_sha256").value)});
+            CHECK_EQ(initial.training_step, uint64_t{0});
+            CHECK(initial.lineage->optimizer_reset);
+            CHECK(!initial.lineage->optimizer_restored);
+            CHECK_EQ(initial.lineage->source_training_step, std::optional<uint64_t>{2});
+            CHECK_EQ(initial.lineage->initialization_mode,
+                     diamond_training::CheckpointInitializationMode::warm_start);
+            specialist_checkpoints.push_back(diamond_training::inspect_checkpoint_v2(
+                specialist_run / "iterations" / "0" / "candidate-checkpoint"));
+            CHECK_EQ(specialist_checkpoints.back().training_step, uint64_t{1});
+            const auto metrics = report_object(
+                specialist_run / "iterations" / "0" / "selfplay.metrics.json");
+            const auto& orders = std::get<JsonValue::Object>(metrics.at("turn_orders").value);
+            const std::vector<std::string> expected_orders = group == "cyclic"
+                ? std::vector<std::string>{"1-2-3", "2-3-1", "3-1-2"}
+                : std::vector<std::string>{"1-3-2", "2-1-3", "3-2-1"};
+            CHECK_EQ(orders.size(), expected_orders.size());
+            for (const auto& order : expected_orders) {
+                REQUIRE(orders.contains(order), "specialist omitted a required turn order");
+                const auto& counts = std::get<JsonValue::Object>(orders.at(order).value);
+                CHECK_EQ(std::get<int64_t>(counts.at("requested").value), int64_t{1});
+            }
+            const auto ingest = report_object(
+                specialist_run / "iterations" / "0" / "replay-ingest.json");
+            const auto manifest = std::filesystem::path(
+                std::get<std::string>(ingest.at("replay_manifest").value));
+            CHECK_EQ(manifest.lexically_relative(specialist_run).begin()->string(),
+                     std::string("replay"));
+            replay_manifests.push_back(manifest);
+            replay_snapshots.push_back(diamond_support::canonical_json(JsonValue{report_object(manifest)}));
+            specialist_runs.push_back(specialist_run);
+            specialist_configs.push_back(specialist_path);
+        }
+        CHECK(replay_manifests[0] != replay_manifests[1]);
+        CHECK_EQ(diamond_support::canonical_json(JsonValue{report_object(replay_manifests[0])}),
+                 replay_snapshots[0]);
+
+        // A group change must fail before advancing a stage or mutating replay.
+        const auto wrong_group_result = scratch / "wrong-expert-resume.json";
+        const std::string wrong_group_resume = "\"" + train_binary.string() +
+            "\" resume --run-dir \"" + specialist_runs[0].string() + "\" --config \"" +
+            specialist_configs[1].string() + "\" --max-additional-iterations 1 > \"" +
+            wrong_group_result.string() + "\"";
+        CHECK(std::system(wrong_group_resume.c_str()) != 0);
+        const auto rejected = report_object(wrong_group_result);
+        CHECK_EQ(std::get<std::string>(rejected.at("status").value), std::string("error"));
+        CHECK(!std::filesystem::exists(specialist_runs[0] / "iterations" / "1"));
+        CHECK(!std::filesystem::exists(specialist_runs[0] / "active-config.json"));
+        CHECK_EQ(diamond_support::canonical_json(JsonValue{report_object(replay_manifests[0])}),
+                 replay_snapshots[0]);
+        const std::string resume_specialist = "\"" + train_binary.string() +
+            "\" resume --run-dir \"" + specialist_runs[0].string() +
+            "\" --max-additional-iterations 1";
+        REQUIRE(std::system(resume_specialist.c_str()) == 0, "same-group resume failed");
+        const auto resumed = diamond_training::inspect_checkpoint_v2(
+            specialist_runs[0] / "iterations" / "1" / "candidate-checkpoint");
+        REQUIRE(resumed.lineage.has_value(), "resumed specialist checkpoint lacks lineage");
+        CHECK_EQ(resumed.training_step, uint64_t{2});
+        CHECK(resumed.lineage->optimizer_restored);
+        CHECK_EQ(resumed.lineage->source_digest,
+                 std::optional<std::string>{specialist_checkpoints[0].model_digest});
+        const auto untouched = diamond_training::inspect_checkpoint_v2(
+            specialist_runs[1] / "iterations" / "0" / "candidate-checkpoint");
+        CHECK_EQ(untouched.model_digest, specialist_checkpoints[1].model_digest);
+        CHECK_EQ(untouched.optimizer_digest, specialist_checkpoints[1].optimizer_digest);
+        CHECK_EQ(diamond_support::canonical_json(JsonValue{report_object(replay_manifests[1])}),
+                 replay_snapshots[1]);
+        const auto shared_after = diamond_training::inspect_checkpoint_v2(shared_checkpoint);
+        CHECK_EQ(shared_after.model_digest, shared_info.model_digest);
+        CHECK_EQ(shared_after.optimizer_digest, shared_info.optimizer_digest);
     }
     return soo_test::report("cli_contract_test");
 }

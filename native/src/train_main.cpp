@@ -32,6 +32,7 @@
 #include "diamond_training/trainer.hpp"
 #include "soo/board.hpp"
 #include "soo/arena_router.hpp"
+#include "soo/min_experts.hpp"
 #include "soo/rules.hpp"
 #include <torch/version.h>
 
@@ -442,8 +443,12 @@ diamond_pipeline::IterationRequest iteration_job(const ProductionConfig& config,
         };
         job.jobs.push_back({start, state.derive_seed(seed_identity)});
     }
-    if (config.self_play.balance_turn_orders)
-        soo::balance_episode_turn_orders(job.match, job.jobs);
+    if (config.self_play.balance_turn_orders) {
+        const auto group = config.self_play.turn_order_group == "all"
+            ? std::nullopt
+            : std::optional{soo::min_turn_order_group_from_name(config.self_play.turn_order_group)};
+        soo::balance_episode_turn_orders(job.match, job.jobs, group);
+    }
     job.training_batch_size = wiring.training_batch_size;
     job.training_steps = wiring.training_steps;
     job.iteration = static_cast<uint64_t>(iteration);

@@ -23,6 +23,8 @@
 
 namespace soo {
 
+enum class MinTurnOrderGroup;
+
 // One lane's pending request, as the evaluator sees it.
 //
 // Pointers into lane storage, not copies: the lane owns the encoded features
@@ -46,6 +48,9 @@ struct BatchItem {
     // The actual player choosing a move. Unlike state->current_player, this
     // stays fixed while a search evaluates descendants belonging to other seats.
     uint8_t root_player = 0;
+    // The complete game geometry and turn order, including finished players.
+    // Like the request's other pointers, this stays alive for the dispatch.
+    const Match* match = nullptr;
 };
 
 // Whatever answers a batch. The dummy is native and sleeps; the Gate D one
@@ -117,8 +122,10 @@ struct EpisodeJob {
     std::optional<Match> match; // Per-game turn order; absent keeps the batch default.
 };
 
-// Assign every permutation equally, preserving camps and seeds. Opening jobs only.
-void balance_episode_turn_orders(const Match& match, std::vector<EpisodeJob>& jobs);
+// Assign every supported permutation equally, preserving camps and seeds.
+// A selected Min group has three orders; otherwise use all orders. Opening jobs only.
+void balance_episode_turn_orders(const Match& match, std::vector<EpisodeJob>& jobs,
+                                std::optional<MinTurnOrderGroup> group = std::nullopt);
 
 // One recorded move.  The features are the *request* the evaluator answered, so
 // a sample is exactly what the network saw, not a re-encoding of it.

@@ -19,6 +19,7 @@
 #include "soo/batcher.hpp"
 #include "soo/encoder.hpp"
 #include "soo/evaluator.hpp"
+#include "soo/min_experts.hpp"
 #include "soo/prior.hpp"
 #include "soo/rules.hpp"
 
@@ -282,7 +283,7 @@ SchedulerMetrics run_scheduler(const Match& match, const State& opening,
                     BatchItem item{&lane.session.pending_state(),
                                    &lane.session.pending_features(),
                                    &lane.session.pending_actions(), lane.salt, &lane.outcome,
-                                   1, -1, lane.state.current_player};
+                                   1, -1, lane.state.current_player, &match};
                     batch_evaluator.prepare(item);
                     lane.submitted_at = Clock::now();
                     waiting.fetch_add(1, std::memory_order_relaxed);
@@ -364,7 +365,7 @@ SchedulerMetrics run_scheduler(const Match& match, const State& opening,
                 items.push_back(BatchItem{&lane.session.pending_state(),
                                           &lane.session.pending_features(),
                                           &lane.session.pending_actions(), lane.salt,
-                                          &lane.outcome, 1, -1, lane.state.current_player});
+                                          &lane.outcome, 1, -1, lane.state.current_player, &match});
             }
             const auto eval_start = Clock::now();
             batch_evaluator.evaluate(items);
@@ -507,9 +508,16 @@ struct EpisodeLane {
 
 }  // namespace
 
-void balance_episode_turn_orders(const Match& match, std::vector<EpisodeJob>& jobs) {
+void balance_episode_turn_orders(const Match& match, std::vector<EpisodeJob>& jobs,
+                                std::optional<MinTurnOrderGroup> group) {
     if (match.count != 2 && match.count != 3)
         throw std::invalid_argument("balanced episodes require two or three players");
+    if (group) {
+        // Validate before changing any job, including unsupported geometry and
+        // invalid enum values supplied by native callers.
+        (void)min_turn_order_group_name(*group);
+        (void)min_turn_order_group(match);
+    }
     std::vector<uint8_t> ids;
     for (int seat = 0; seat < match.count; ++seat)
         ids.push_back(match.players[seat].id);
@@ -519,7 +527,7 @@ void balance_episode_turn_orders(const Match& match, std::vector<EpisodeJob>& jo
         Match ordered = match;
         for (int seat = 0; seat < match.count; ++seat)
             ordered.players[seat] = match.by_id(ids[seat]);
-        orders.push_back(ordered);
+        if (!group || min_turn_order_group(ordered) == *group) orders.push_back(ordered);
     } while (std::next_permutation(ids.begin(), ids.end()));
     if (jobs.size() % orders.size() != 0)
         throw std::invalid_argument("episode count must contain complete turn-order cycles");
@@ -734,7 +742,7 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                                    &lane.outcome,
                                    lane.session.value_width(),
                                    static_cast<int>(lane.job_index),
-                                   lane.state.current_player};
+                                   lane.state.current_player, &lane.match};
                     batch_evaluator.prepare(item);
                     if (config.bootstrap_prior) {
                         vacancy_prior(lane.session.pending_actions(),
@@ -889,7 +897,7 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                     BatchItem{&lane.session.pending_state(), &lane.session.pending_features(),
                               &lane.session.pending_actions(), 0, &lane.outcome,
                               lane.session.value_width(), static_cast<int>(lane.job_index),
-                              lane.state.current_player});
+                              lane.state.current_player, &lane.match});
             }
             const auto eval_start = Clock::now();
             batch_evaluator.evaluate(items);

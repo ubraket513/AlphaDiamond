@@ -4,6 +4,7 @@ option(DIAMOND_ENABLE_CUDA_TESTS "Register tests that require a real CUDA-enable
 set(SOO_CORE_SOURCES
     src/board.cpp
     src/encoder.cpp
+    src/min_experts.cpp
     src/prior.cpp
     src/rules.cpp
     src/topology_gen.cpp
@@ -95,6 +96,7 @@ if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS)
     diamond_add_native_test(action_codec_test)
     diamond_add_native_test(encoder_version_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/encoder-v2")
     diamond_add_native_test(arena_root_routing_test)
+    diamond_add_native_test(min_experts_test)
     diamond_add_native_test(topology_test "${DIAMOND_GOLDEN_DIR}/topology")
     diamond_add_native_test(rules_golden_test
         "${DIAMOND_GOLDEN_DIR}" "${DIAMOND_GOLDEN_DIR}/topology")
@@ -276,6 +278,21 @@ if(DIAMOND_BUILD_LIBTORCH)
         target_link_libraries(min_vacancy_realizability PRIVATE
             alphadiamond::diamond_native_pipeline alphadiamond::diamond_orchestration)
 
+        add_executable(min_expert_arena benchmarks/min_expert_arena.cpp)
+        target_link_libraries(min_expert_arena PRIVATE
+            alphadiamond::diamond_native_pipeline alphadiamond::diamond_orchestration)
+        if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS)
+            add_executable(min_expert_arena_cli_test tests/min_expert_arena_cli_test.cpp)
+            target_link_libraries(min_expert_arena_cli_test PRIVATE
+                alphadiamond::diamond_orchestration alphadiamond::diamond_training)
+            target_include_directories(min_expert_arena_cli_test PRIVATE tests)
+            add_dependencies(min_expert_arena_cli_test min_expert_arena)
+            add_test(NAME min_expert_arena_cli_test COMMAND min_expert_arena_cli_test
+                "${CMAKE_CURRENT_BINARY_DIR}/min-expert-arena-scratch"
+                "$<TARGET_FILE:min_expert_arena>")
+            set_tests_properties(min_expert_arena_cli_test PROPERTIES LABELS "orchestration;training")
+        endif()
+
         add_executable(end_to_end_benchmark benchmarks/end_to_end_benchmark.cpp)
         target_link_libraries(end_to_end_benchmark PRIVATE
             alphadiamond::diamond_native_pipeline)
@@ -283,7 +300,7 @@ if(DIAMOND_BUILD_LIBTORCH)
         foreach(benchmark IN ITEMS
                 training_step_benchmark checkpoint_benchmark replay_benchmark
                 selfplay_benchmark min_learning_diagnostic min_vacancy_realizability
-                end_to_end_benchmark)
+                min_expert_arena end_to_end_benchmark)
             target_compile_features(${benchmark} PRIVATE cxx_std_20)
         endforeach()
     endif()
@@ -326,7 +343,7 @@ if(DIAMOND_BUILD_LIBTORCH)
     if(DIAMOND_BUILD_BENCHMARKS)
         foreach(benchmark IN ITEMS
                 training_step_benchmark checkpoint_benchmark replay_benchmark
-                selfplay_benchmark min_vacancy_realizability end_to_end_benchmark)
+                selfplay_benchmark min_vacancy_realizability min_expert_arena end_to_end_benchmark)
             target_compile_definitions(${benchmark} PRIVATE
                 DIAMOND_SOURCE_GIT_COMMIT="${DIAMOND_SOURCE_GIT_COMMIT}"
                 DIAMOND_SOURCE_DIRTY=${DIAMOND_SOURCE_DIRTY})
@@ -642,7 +659,8 @@ if(DIAMOND_BUILD_LIBTORCH)
         set_tests_properties(rating_sync_test PROPERTIES LABELS orchestration)
 
         add_executable(cli_contract_test tests/cli_contract_test.cpp)
-        target_link_libraries(cli_contract_test PRIVATE alphadiamond::diamond_orchestration)
+        target_link_libraries(cli_contract_test PRIVATE
+            alphadiamond::diamond_orchestration alphadiamond::diamond_training)
         add_dependencies(cli_contract_test alphadiamond-train alphadiamond-checkpoint)
         target_include_directories(cli_contract_test PRIVATE tests)
         target_compile_features(cli_contract_test PRIVATE cxx_std_20)

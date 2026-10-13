@@ -1,12 +1,19 @@
-// Canonical player-relative encoding; mirrors diamond.alphazero.encoder.
+// Versioned camp-relative encoding; v1 preserves the frozen Python oracle.
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 #include "soo/state.hpp"
 
 namespace soo {
+
+enum class EncodingVersion { legacy_v1, goals_v2 };
+
+std::string_view encoding_version_name(EncodingVersion encoding);
+EncodingVersion encoding_version_from_name(std::string_view name);
+int encoded_feature_count(int players, EncodingVersion encoding);
 
 struct Encoded {
     // Row-major [73][feature_count]; rows are indexed by canonical position id.
@@ -15,7 +22,10 @@ struct Encoded {
     int feature_count = 0;
 };
 
-Encoded encode(const State& state, const Match& match);
+// V1: occupancy, then finished flags. V2 appends each canonical player's
+// target-camp membership, using the same actor-relative spatial rotation.
+Encoded encode(const State& state, const Match& match,
+               EncodingVersion encoding = EncodingVersion::legacy_v1);
 
 // Turn-order seat ids rotated to start at ``state.current_player``.
 void canonical_player_ids(const State& state, const Match& match, std::vector<uint8_t>& out);

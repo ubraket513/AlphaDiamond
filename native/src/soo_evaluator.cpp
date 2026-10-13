@@ -8,13 +8,18 @@ namespace diamond_model {
 
 SooEvaluator::SooEvaluator(SooModel model) : model_(std::move(model)) {
     if (!model_) throw std::invalid_argument("SooEvaluator requires a model");
+    if ((model_->input_features() != 4 && model_->input_features() != 6) ||
+        model_->value_size() != 1)
+        throw std::invalid_argument("SooEvaluator requires a supported Soo architecture");
     model_->eval();
 }
 
 soo::EvalOutcome SooEvaluator::evaluate(const soo::Encoded& encoded,
                                         const std::vector<int32_t>& legal_actions) {
-    if (encoded.feature_count != 4 || encoded.node_features.size() != 73U * 4U) {
-        throw std::invalid_argument("Soo evaluator requires one [73,4] encoded state");
+    const auto features_per_node = model_->input_features();
+    if (encoded.feature_count != features_per_node ||
+        encoded.node_features.size() != 73U * static_cast<size_t>(features_per_node)) {
+        throw std::invalid_argument("Soo encoding does not match model input features");
     }
     if (legal_actions.empty()) throw std::invalid_argument("Soo evaluator requires legal actions");
     for (const auto action : legal_actions) {
@@ -25,7 +30,8 @@ soo::EvalOutcome SooEvaluator::evaluate(const soo::Encoded& encoded,
 
     torch::NoGradGuard no_grad;
     auto features = torch::from_blob(
-                         const_cast<float*>(encoded.node_features.data()), {1, 73, 4}, torch::kFloat32)
+                         const_cast<float*>(encoded.node_features.data()),
+                         {1, 73, features_per_node}, torch::kFloat32)
                          .clone();
     const auto [policy, value] = model_->forward(features);
     const auto action_index = torch::tensor(legal_actions, torch::TensorOptions().dtype(torch::kLong));

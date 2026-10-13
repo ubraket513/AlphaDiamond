@@ -74,7 +74,8 @@ int run(int argc, char** argv) {
     torch::set_num_interop_threads(1);
     const auto artifact = diamond_model::validate_deployment_artifact(args.artifact, "soo");
     auto compatibility = diamond_training::Compatibility::soo(
-        artifact.model_version, {.residual_blocks = artifact.residual_blocks, .width = artifact.width});
+        artifact.model_version, {.residual_blocks = artifact.residual_blocks, .width = artifact.width},
+        soo::encoding_version_from_name(artifact.encoder_version));
     auto model = diamond_model::DiamondModel(artifact.width, artifact.residual_blocks,
                                              artifact.input_features, artifact.value_size);
     model->load_weights(artifact.weights);

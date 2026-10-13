@@ -8,6 +8,32 @@
 
 namespace soo {
 
+std::string_view encoding_version_name(EncodingVersion encoding) {
+    switch (encoding) {
+    case EncodingVersion::legacy_v1: return "diamond-camp-relative-v1";
+    case EncodingVersion::goals_v2: return "diamond-camp-relative-goals-v2";
+    }
+    throw std::invalid_argument("unknown encoding version");
+}
+
+EncodingVersion encoding_version_from_name(std::string_view name) {
+    if (name == encoding_version_name(EncodingVersion::legacy_v1))
+        return EncodingVersion::legacy_v1;
+    if (name == encoding_version_name(EncodingVersion::goals_v2))
+        return EncodingVersion::goals_v2;
+    throw std::invalid_argument("unknown encoding version name");
+}
+
+int encoded_feature_count(int players, EncodingVersion encoding) {
+    if (players != 2 && players != 3)
+        throw std::invalid_argument("encoding requires two or three players");
+    switch (encoding) {
+    case EncodingVersion::legacy_v1: return 2 * players;
+    case EncodingVersion::goals_v2: return 3 * players;
+    }
+    throw std::invalid_argument("unknown encoding version");
+}
+
 void canonical_player_ids(const State& state, const Match& match, std::vector<uint8_t>& out) {
     const int start = match.seat_of(state.current_player);
     out.clear();
@@ -16,13 +42,13 @@ void canonical_player_ids(const State& state, const Match& match, std::vector<ui
     }
 }
 
-Encoded encode(const State& state, const Match& match) {
+Encoded encode(const State& state, const Match& match, EncodingVersion encoding) {
     const Topology& topo = topology();
     Encoded encoded;
     canonical_player_ids(state, match, encoded.canonical_player_ids);
 
     const int players = match.count;
-    const int features = 2 * players;  // occupancy channels, then finished flags
+    const int features = encoded_feature_count(players, encoding);
     encoded.feature_count = features;
     encoded.node_features.assign(static_cast<size_t>(kBoardSize) * features, 0.0f);
 
@@ -53,6 +79,16 @@ Encoded encode(const State& state, const Match& match) {
         }
         for (int channel = 0; channel < players; ++channel) {
             row[players + channel] = finished[channel];
+        }
+    }
+    if (encoding == EncodingVersion::goals_v2) {
+        for (int channel = 0; channel < players; ++channel) {
+            const auto& player = match.by_id(encoded.canonical_player_ids[channel]);
+            for (const auto physical : topo.camp_positions[player.target_camp]) {
+                const int canonical = mapping[physical];
+                encoded.node_features[static_cast<size_t>(canonical) * features +
+                                      2 * players + channel] = 1.0f;
+            }
         }
     }
     return encoded;

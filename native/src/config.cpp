@@ -639,6 +639,9 @@ void ProductionConfig::validate() const {
         throw ConfigError("model_name must be Soo or Min");
     if (!non_blank(model_version))
         throw ConfigError("model_version must be a non-empty string");
+    if (encoder_version != "diamond-camp-relative-v1" &&
+        encoder_version != "diamond-camp-relative-goals-v2")
+        throw ConfigError("unsupported encoder_version");
     network.validate();
     runtime.validate();
     mcts.validate();
@@ -666,7 +669,7 @@ void ProductionConfig::validate() const {
 
 Json ProductionConfig::to_json() const {
     validate();
-    return Json{Object{{"arena", arena.to_json()},
+    Object result{{"arena", arena.to_json()},
                        {"inference", inference.to_json()},
                        {"mcts", mcts.to_json()},
                        {"model_name", Json{model_name}},
@@ -681,7 +684,10 @@ Json ProductionConfig::to_json() const {
                        {"schema_version", Json{schema_version}},
                        {"self_play", self_play.to_json()},
                        {"training", training.to_json()},
-                       {"workers", workers.to_json()}}};
+                       {"workers", workers.to_json()}};
+    if (encoder_version != "diamond-camp-relative-v1")
+        result.emplace("encoder_version", Json{encoder_version});
+    return Json{std::move(result)};
 }
 
 ProductionConfig ProductionConfig::from_json(const Json& value) {
@@ -690,11 +696,11 @@ ProductionConfig ProductionConfig::from_json(const Json& value) {
         integer(field(input, "schema_version", "production config"), "schema_version");
     if (schema_version == 1)
         throw ConfigError(std::string(kV1MigrationError));
-    require_exact_keys(input,
+    require_keys(input,
                        {"arena", "inference", "mcts", "model_name", "model_version", "network",
                         "opening_suite", "promotion_statistics", "replay", "run_budget", "run_seed",
                         "runtime", "schema_version", "self_play", "training", "workers"},
-                       "production config");
+                       {"encoder_version"}, "production config");
     ProductionConfig result{
         .schema_version = schema_version,
         .model_name = string(field(input, "model_name", "production config"), "model_name"),
@@ -715,6 +721,8 @@ ProductionConfig ProductionConfig::from_json(const Json& value) {
         .promotion_statistics = PromotionStatisticsConfig::from_json(
             field(input, "promotion_statistics", "production config")),
         .run_seed = non_negative_seed(field(input, "run_seed", "production config"), "run_seed")};
+    if (const auto found = input.find("encoder_version"); found != input.end())
+        result.encoder_version = string(found->second, "encoder_version");
     result.validate();
     return result;
 }

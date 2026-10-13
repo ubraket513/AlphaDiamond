@@ -65,6 +65,7 @@ add_library(diamond_pipeline STATIC
     src/training_sample.cpp
 )
 add_library(alphadiamond::diamond_pipeline ALIAS diamond_pipeline)
+target_link_libraries(diamond_pipeline PUBLIC alphadiamond::soo_core)
 target_include_directories(diamond_pipeline PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
@@ -92,6 +93,8 @@ if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS)
     endfunction()
 
     diamond_add_native_test(action_codec_test)
+    diamond_add_native_test(encoder_version_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/encoder-v2")
+    diamond_add_native_test(arena_root_routing_test)
     diamond_add_native_test(topology_test "${DIAMOND_GOLDEN_DIR}/topology")
     diamond_add_native_test(rules_golden_test
         "${DIAMOND_GOLDEN_DIR}" "${DIAMOND_GOLDEN_DIR}/topology")
@@ -188,6 +191,11 @@ if(DIAMOND_BUILD_LIBTORCH)
         add_executable(checkpoint_export_test tests/checkpoint_export_test.cpp)
         target_link_libraries(checkpoint_export_test PRIVATE alphadiamond::diamond_training)
         add_test(NAME checkpoint_export_test COMMAND checkpoint_export_test "${CMAKE_CURRENT_BINARY_DIR}/checkpoint-export-scratch")
+        add_executable(goal_input_migration_test tests/goal_input_migration_test.cpp)
+        target_link_libraries(goal_input_migration_test PRIVATE
+            alphadiamond::diamond_training alphadiamond::diamond_pipeline)
+        add_test(NAME goal_input_migration_test COMMAND goal_input_migration_test
+            "${CMAKE_CURRENT_BINARY_DIR}/goal-input-migration-scratch")
     endif()
 
     add_executable(alphadiamond-checkpoint src/checkpoint_main.cpp)
@@ -635,12 +643,12 @@ if(DIAMOND_BUILD_LIBTORCH)
 
         add_executable(cli_contract_test tests/cli_contract_test.cpp)
         target_link_libraries(cli_contract_test PRIVATE alphadiamond::diamond_orchestration)
-        add_dependencies(cli_contract_test alphadiamond-train)
+        add_dependencies(cli_contract_test alphadiamond-train alphadiamond-checkpoint)
         target_include_directories(cli_contract_test PRIVATE tests)
         target_compile_features(cli_contract_test PRIVATE cxx_std_20)
         add_test(NAME cli_contract_test
                  COMMAND cli_contract_test "${CMAKE_CURRENT_BINARY_DIR}/cli-contract-scratch"
-                         "$<TARGET_FILE:alphadiamond-train>")
+                         "$<TARGET_FILE:alphadiamond-train>" "$<TARGET_FILE:alphadiamond-checkpoint>")
         set_tests_properties(cli_contract_test PROPERTIES LABELS orchestration)
 
         add_executable(device_test tests/device_test.cpp)

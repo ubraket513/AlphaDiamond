@@ -40,6 +40,7 @@ TrainingIterationWiring wire_training_iteration(const ProductionConfig& config) 
                 .repeat_window = native_int(config.mcts.repeat_window, "mcts.repeat_window"),
                 .bootstrap_prior = config.self_play.bootstrap_prior != kBootstrapPriorNone,
                 .bootstrap_prior_weight = config.self_play.bootstrap_prior_weight,
+                .encoding = soo::encoding_version_from_name(config.encoder_version),
             },
         .games_per_iteration = static_cast<std::size_t>(config.workers.games_per_iteration),
         .training_batch_size = static_cast<std::size_t>(config.training.batch_size),
@@ -155,6 +156,7 @@ soo::EpisodeConfig wire_arena_episode(const ProductionConfig& config, std::size_
         // prior from the config removes it from here.
         .bootstrap_prior = config.self_play.bootstrap_prior != kBootstrapPriorNone,
         .bootstrap_prior_weight = config.self_play.bootstrap_prior_weight,
+        .encoding = soo::encoding_version_from_name(config.encoder_version),
     };
 }
 

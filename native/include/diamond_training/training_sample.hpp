@@ -5,6 +5,8 @@
 #include <utility>
 #include <vector>
 
+#include "soo/encoder.hpp"
+
 namespace diamond_training {
 
 struct NetworkConfig {
@@ -30,9 +32,12 @@ struct Compatibility {
     std::string value_semantics_version;
     NetworkConfig network_config;
 
-    static Compatibility soo(std::string version, NetworkConfig network);
-    static Compatibility min(std::string version, NetworkConfig network);
+    static Compatibility soo(std::string version, NetworkConfig network,
+                             soo::EncodingVersion encoding = soo::EncodingVersion::legacy_v1);
+    static Compatibility min(std::string version, NetworkConfig network,
+                             soo::EncodingVersion encoding = soo::EncodingVersion::legacy_v1);
     std::string family() const;
+    int64_t input_features() const;
     void validate() const;
 
     bool operator==(const Compatibility&) const = default;

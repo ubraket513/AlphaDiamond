@@ -1,4 +1,6 @@
 #include "diamond_model/deployment_artifact.hpp"
+
+#include "soo/encoder.hpp"
 #include "diamond_model/model_index.hpp"
 #include "diamond_support/json.hpp"
 
@@ -316,17 +318,18 @@ DeploymentArtifact validate_deployment_artifact(const std::filesystem::path& roo
     const JsonValue::Object& contract = object_field(*object, "game_contract");
     require_keys(contract, contract_keys, "game_contract");
     require_string(contract, "topology", "diamond73-v1");
-    require_string(contract, "encoder", "diamond-camp-relative-v1");
+    const std::string encoder_version = string_field(contract, "encoder");
+    const auto encoding = soo::encoding_version_from_name(encoder_version);
     require_string(contract, "action_space", "diamond73-srcdst-v1");
 
     const std::string family = string_field(*object, "model_family");
     int64_t input_features = 0;
     int64_t value_size = 0;
     if (family == "soo") {
-        input_features = 4;
+        input_features = soo::encoded_feature_count(2, encoding);
         value_size = 1;
     } else if (family == "min") {
-        input_features = 6;
+        input_features = soo::encoded_feature_count(3, encoding);
         value_size = 3;
     } else {
         throw std::runtime_error("unknown model family: " + family);
@@ -406,7 +409,7 @@ DeploymentArtifact validate_deployment_artifact(const std::filesystem::path& roo
 
     return DeploymentArtifact{root,       weights,        family,         model_version,
                               model_hash, runtime_hash,  width,          blocks,
-                              input_features, value_size};
+                              input_features, value_size, encoder_version};
 }
 
 DeploymentArtifact validate_deployment_artifact(const std::filesystem::path& root,

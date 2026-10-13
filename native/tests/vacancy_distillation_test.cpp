@@ -20,16 +20,23 @@
 
 namespace {
 
-diamond_training::TrainingSample sample() {
+diamond_training::TrainingSample sample(
+    soo::EncodingVersion encoding = soo::EncodingVersion::legacy_v1) {
     diamond_training::TrainingSample value;
-    value.compatibility =
-        diamond_training::Compatibility::min("2.0.0", {.residual_blocks = 1, .width = 8});
-    value.node_features.assign(soo::kBoardSize * 6, 0.0F);
+    value.compatibility = diamond_training::Compatibility::min(
+        "2.0.0", {.residual_blocks = 1, .width = 8}, encoding);
+    const std::size_t width = encoding == soo::EncodingVersion::legacy_v1 ? 6 : 9;
+    value.node_features.assign(soo::kBoardSize * width, 0.0F);
     for (int position = 0; position < 10; ++position)
-        value.node_features[static_cast<std::size_t>(position) * 6] = 1.0F;
-    value.node_features[70 * 6 + 3] = 1.0F;
-    value.node_features[69 * 6 + 4] = 1.0F;
-    value.node_features[68 * 6 + 5] = 1.0F;
+        value.node_features[static_cast<std::size_t>(position) * width] = 1.0F;
+    value.node_features[70 * width + 3] = 1.0F;
+    value.node_features[69 * width + 4] = 1.0F;
+    value.node_features[68 * width + 5] = 1.0F;
+    if (encoding == soo::EncodingVersion::goals_v2) {
+        value.node_features[70 * width + 6] = 1.0F;
+        value.node_features[69 * width + 7] = 1.0F;
+        value.node_features[68 * width + 8] = 1.0F;
+    }
     value.canonical_player_ids = {0, 1, 2};
     value.sparse_policy = {{soo::encode_action(0, 70), 1.0F},
                            {soo::encode_action(1, 69), 0.0F},
@@ -47,11 +54,12 @@ bool throws_invalid(const std::function<void()>& action) {
     return false;
 }
 
-diamond_training::Trainer trainer() {
+diamond_training::Trainer trainer(
+    soo::EncodingVersion encoding = soo::EncodingVersion::legacy_v1) {
     torch::manual_seed(17);
-    const auto compatibility =
-        diamond_training::Compatibility::min("2.0.0", {.residual_blocks = 1, .width = 8});
-    auto model = diamond_model::DiamondModel(8, 1, 6, 3);
+    const auto compatibility = diamond_training::Compatibility::min(
+        "2.0.0", {.residual_blocks = 1, .width = 8}, encoding);
+    auto model = diamond_model::DiamondModel(8, 1, compatibility.input_features(), 3);
     model->set_adjacency(torch::zeros({6, soo::kBoardSize, soo::kBoardSize}));
     return diamond_training::Trainer(model, compatibility,
                                      {.learning_rate = 1e-2, .weight_decay = 0.0},
@@ -85,6 +93,12 @@ int main() {
     }
     CHECK(std::abs(sum - 1.0) < 1e-12);
 
+    // Goal planes must not change the vacancy teacher's occupancy interpretation.
+    const auto goal_target = diamond_pipeline::vacancy_target(sample(soo::EncodingVersion::goals_v2));
+    CHECK_EQ(goal_target.actions, target.actions);
+    CHECK_EQ(goal_target.probabilities, target.probabilities);
+    CHECK_EQ(goal_target.progress, target.progress);
+
     auto empty = sample();
     empty.sparse_policy.clear();
     CHECK(throws_invalid([&] { (void)diamond_pipeline::vacancy_target(empty); }));
@@ -105,50 +119,88 @@ int main() {
     out_of_range.sparse_policy.front().first = soo::kActionSize;
     CHECK(throws_invalid([&] { (void)diamond_pipeline::vacancy_target(out_of_range); }));
 
-    std::vector<diamond_training::TrainingSample> samples(8, sample());
-    {
-        auto learner = trainer();
-        const auto before = snapshot(learner);
-        const auto result = diamond_pipeline::run_vacancy_distillation(
-            learner, samples, samples,
-            {.arm = diamond_pipeline::DistillationArm::policy_head,
-             .steps = 10,
-             .batch_size = 4,
-             .evaluation_batch = 4});
-        CHECK_EQ(learner.training_step(), uint64_t{10});
-        CHECK(result.trainable_update_l2 > 0.0);
-        CHECK(result.trainable_gradient_l2 > 0.0);
-        CHECK(result.final.legal_kl < result.initial.legal_kl);
-        for (const auto& parameter : learner.model()->named_parameters()) {
-            const bool policy = parameter.key().starts_with("policy_source.") ||
-                                parameter.key().starts_with("policy_destination.");
-            CHECK(torch::equal(before.at(parameter.key()), parameter.value()) == !policy);
+    for (const auto encoding : {soo::EncodingVersion::legacy_v1, soo::EncodingVersion::goals_v2}) {
+        std::vector<diamond_training::TrainingSample> samples(8, sample(encoding));
+        {
+            auto learner = trainer(encoding);
+            const auto before = snapshot(learner);
+            const auto result = diamond_pipeline::run_vacancy_distillation(
+                learner, samples, samples,
+                {.arm = diamond_pipeline::DistillationArm::policy_head,
+                 .steps = 10,
+                 .batch_size = 4,
+                 .evaluation_batch = 4});
+            CHECK_EQ(learner.training_step(), uint64_t{10});
+            CHECK(result.trainable_update_l2 > 0.0);
+            CHECK(result.trainable_gradient_l2 > 0.0);
+            CHECK(result.final.legal_kl < result.initial.legal_kl);
+            for (const auto& parameter : learner.model()->named_parameters()) {
+                const bool policy = parameter.key().starts_with("policy_source.") ||
+                                    parameter.key().starts_with("policy_destination.");
+                CHECK(torch::equal(before.at(parameter.key()), parameter.value()) == !policy);
+            }
+        }
+        {
+            auto learner = trainer(encoding);
+            const auto before = snapshot(learner);
+            (void)diamond_pipeline::run_vacancy_distillation(
+                learner, samples, samples,
+                {.arm = diamond_pipeline::DistillationArm::trunk_policy,
+                 .steps = 2,
+                 .batch_size = 4,
+                 .evaluation_batch = 4});
+            bool trunk_changed = false;
+            bool policy_changed = false;
+            for (const auto& parameter : learner.model()->named_parameters()) {
+                const bool value = parameter.key().starts_with("value_linear");
+                const bool changed = !torch::equal(before.at(parameter.key()), parameter.value());
+                if (parameter.key().starts_with("blocks.") ||
+                    parameter.key().starts_with("input_projection."))
+                    trunk_changed = trunk_changed || changed;
+                if (parameter.key().starts_with("policy_"))
+                    policy_changed = policy_changed || changed;
+                if (value)
+                    CHECK(!changed);
+            }
+            CHECK(trunk_changed);
+            CHECK(policy_changed);
         }
     }
-    {
-        auto learner = trainer();
-        const auto before = snapshot(learner);
-        (void)diamond_pipeline::run_vacancy_distillation(
-            learner, samples, samples,
-            {.arm = diamond_pipeline::DistillationArm::trunk_policy,
-             .steps = 2,
-             .batch_size = 4,
-             .evaluation_batch = 4});
-        bool trunk_changed = false;
-        bool policy_changed = false;
-        for (const auto& parameter : learner.model()->named_parameters()) {
-            const bool value = parameter.key().starts_with("value_linear");
-            const bool changed = !torch::equal(before.at(parameter.key()), parameter.value());
-            if (parameter.key().starts_with("blocks.") ||
-                parameter.key().starts_with("input_projection."))
-                trunk_changed = trunk_changed || changed;
-            if (parameter.key().starts_with("policy_"))
-                policy_changed = policy_changed || changed;
-            if (value)
-                CHECK(!changed);
+
+    // Equal tensor widths cannot excuse an incompatible encoder declaration.
+    // A mismatch in either set, including a later row, must precede all mutations.
+    for (const auto encoding : {soo::EncodingVersion::legacy_v1, soo::EncodingVersion::goals_v2}) {
+        const auto other_encoding = encoding == soo::EncodingVersion::legacy_v1
+                                        ? soo::EncodingVersion::goals_v2
+                                        : soo::EncodingVersion::legacy_v1;
+        const std::vector<diamond_training::TrainingSample> matching(2, sample(encoding));
+        auto mismatched = matching;
+        mismatched.back().compatibility = sample(other_encoding).compatibility;
+        for (const bool mismatch_training : {false, true}) {
+            auto learner = trainer(encoding);
+            const auto before = snapshot(learner);
+            const bool was_training = learner.model()->is_training();
+            const auto optimizer_states = learner.optimizer().state().size();
+            std::unordered_map<std::string, bool> requires_grad;
+            for (const auto& parameter : learner.model()->named_parameters())
+                requires_grad.emplace(parameter.key(), parameter.value().requires_grad());
+            CHECK(throws_invalid([&] {
+                (void)diamond_pipeline::run_vacancy_distillation(
+                    learner, mismatch_training ? mismatched : matching,
+                    mismatch_training ? matching : mismatched,
+                    {.arm = diamond_pipeline::DistillationArm::policy_head,
+                     .steps = 1,
+                     .batch_size = 1,
+                     .evaluation_batch = 1});
+            }));
+            CHECK_EQ(learner.training_step(), uint64_t{0});
+            CHECK_EQ(learner.model()->is_training(), was_training);
+            CHECK_EQ(learner.optimizer().state().size(), optimizer_states);
+            for (const auto& parameter : learner.model()->named_parameters()) {
+                CHECK(torch::equal(before.at(parameter.key()), parameter.value()));
+                CHECK_EQ(parameter.value().requires_grad(), requires_grad.at(parameter.key()));
+            }
         }
-        CHECK(trunk_changed);
-        CHECK(policy_changed);
     }
 
     return soo_test::report("vacancy_distillation_test");

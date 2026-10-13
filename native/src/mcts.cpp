@@ -59,7 +59,7 @@ void SearchSession::begin(const State& state, double temperature, bool trace) {
 
 void SearchSession::prepare_expansion(uint32_t node_index) {
     pending_state_ = arena_.node(node_index).state;
-    pending_encoded_ = soo::encode(pending_state_, match_);
+    pending_encoded_ = soo::encode(pending_state_, match_, config_.encoding);
     pending_actions_.clear();
     pending_actions_.reserve(64);
     canonical_legal_action_ids(pending_state_, match_, pending_actions_);

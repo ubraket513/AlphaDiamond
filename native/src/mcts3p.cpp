@@ -65,7 +65,7 @@ void SearchSession3P::begin(const State& state, double temperature) {
 
 void SearchSession3P::prepare_expansion(uint32_t node_index) {
     pending_state_ = nodes_[node_index].state;
-    pending_encoded_ = soo::encode(pending_state_, match_);
+    pending_encoded_ = soo::encode(pending_state_, match_, config_.encoding);
     pending_actions_.clear();
     canonical_legal_action_ids(pending_state_, match_, pending_actions_);
 }

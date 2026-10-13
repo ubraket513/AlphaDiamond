@@ -22,15 +22,17 @@ struct Evaluation {
 
 torch::Tensor feature_tensor(std::span<const diamond_training::TrainingSample> samples,
                              torch::Device device) {
+    const auto feature_width = samples.front().compatibility.input_features();
+    const auto feature_count = static_cast<std::size_t>(soo::kBoardSize * feature_width);
     std::vector<float> values;
-    values.reserve(samples.size() * soo::kBoardSize * 6);
+    values.reserve(samples.size() * feature_count);
     for (const auto& sample : samples) {
-        if (sample.node_features.size() != soo::kBoardSize * 6)
-            throw std::invalid_argument("vacancy distillation requires Min feature width 6");
+        if (sample.node_features.size() != feature_count)
+            throw std::invalid_argument("vacancy distillation feature shape is incompatible");
         values.insert(values.end(), sample.node_features.begin(), sample.node_features.end());
     }
     return torch::from_blob(values.data(),
-                            {static_cast<int64_t>(samples.size()), soo::kBoardSize, 6},
+                            {static_cast<int64_t>(samples.size()), soo::kBoardSize, feature_width},
                             torch::TensorOptions().dtype(torch::kFloat32))
         .clone()
         .to(device);
@@ -146,9 +148,9 @@ Evaluation evaluate(diamond_training::Trainer& trainer,
 VacancyTarget vacancy_target(const diamond_training::TrainingSample& sample) {
     if (sample.compatibility.model_name != "Min" || sample.compatibility.player_count != 3)
         throw std::invalid_argument("vacancy distillation requires a Min sample");
-    constexpr std::size_t feature_width = 6;
+    const auto feature_width = static_cast<std::size_t>(sample.compatibility.input_features());
     if (sample.node_features.size() != soo::kBoardSize * feature_width)
-        throw std::invalid_argument("vacancy distillation requires Min feature width 6");
+        throw std::invalid_argument("vacancy distillation feature shape is incompatible");
     if (sample.sparse_policy.empty())
         throw std::invalid_argument("vacancy distillation requires legal actions");
 
@@ -200,6 +202,19 @@ run_vacancy_distillation(diamond_training::Trainer& trainer,
     if (training_samples.empty() || held_out_samples.empty() || config.steps == 0 ||
         config.batch_size == 0 || config.evaluation_batch == 0)
         throw std::invalid_argument("vacancy distillation counts must be non-zero");
+
+    const auto feature_count =
+        static_cast<std::size_t>(soo::kBoardSize * trainer.compatibility().input_features());
+    const auto validate_samples = [&](std::span<const diamond_training::TrainingSample> samples) {
+        for (const auto& sample : samples) {
+            if (sample.compatibility != trainer.compatibility())
+                throw std::invalid_argument("vacancy distillation sample compatibility mismatch");
+            if (sample.node_features.size() != feature_count)
+                throw std::invalid_argument("vacancy distillation feature shape is incompatible");
+        }
+    };
+    validate_samples(training_samples);
+    validate_samples(held_out_samples);
 
     for (const auto& parameter : trainer.model()->named_parameters()) {
         const bool policy = parameter.key().starts_with("policy_source.") ||

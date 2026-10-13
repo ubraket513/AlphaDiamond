@@ -30,9 +30,7 @@ namespace {
 constexpr int64_t kHoleCount = 73;
 constexpr int64_t kActionCount = kHoleCount * kHoleCount;
 constexpr double kPolicySumTolerance = 1e-5;
-constexpr int64_t kSooInputFeatures = 4;
 constexpr int64_t kSooValueSize = 1;
-constexpr int64_t kMinInputFeatures = 6;
 constexpr int64_t kMinValueSize = 3;
 
 using NamedTensors = std::map<std::string, torch::Tensor>;
@@ -258,7 +256,7 @@ void require_expected_architecture(const diamond_model::DiamondModel& model,
     }
 
     const bool is_soo = compatibility.family() == "soo";
-    const int64_t expected_features = is_soo ? kSooInputFeatures : kMinInputFeatures;
+    const int64_t expected_features = compatibility.input_features();
     const int64_t expected_values = is_soo ? kSooValueSize : kMinValueSize;
     if (model->input_features() != expected_features || model->value_size() != expected_values) {
         throw std::invalid_argument("model architecture does not match compatibility family");
@@ -403,6 +401,58 @@ diamond_model::DiamondModel snapshot_model(const diamond_model::DiamondModel& so
         parameter.value().set_requires_grad(trainable);
     }
     return snapshot;
+}
+
+diamond_model::DiamondModel migrate_goal_inputs(const diamond_model::DiamondModel& source,
+                                                const Compatibility& target,
+                                                const ResolvedDevice& device) {
+    target.validate();
+    if (soo::encoding_version_from_name(target.encoder_version) != soo::EncodingVersion::goals_v2)
+        throw std::invalid_argument("goal migration requires goals-v2 target compatibility");
+    auto legacy = target;
+    legacy.encoder_version = soo::encoding_version_name(soo::EncodingVersion::legacy_v1);
+    require_expected_architecture(source, legacy);
+    const auto source_device = model_device(source);
+    auto migrated = diamond_model::DiamondModel(source->width(), source->residual_blocks(),
+                                                target.input_features(), source->value_size());
+    torch::NoGradGuard no_grad;
+    migrated->to(device.torch_device);
+    auto source_parameters = collect_named_tensors(source, true);
+    auto target_parameters = collect_named_tensors(migrated, true);
+    const auto target_input = target_parameters.at("input_projection.weight");
+    // Validate every unchanged tensor before performing any copy. Validate the
+    // retained input slice by the same name/shape/device checks as snapshots.
+    target_parameters.at("input_projection.weight") =
+        target_input.narrow(1, 0, source->input_features());
+    require_matching_named_tensors(source_parameters, target_parameters, source_device,
+                                   device.torch_device, "parameter");
+    const auto source_buffers = collect_named_tensors(source, false);
+    const auto target_buffers = collect_named_tensors(migrated, false);
+    require_matching_named_tensors(source_buffers, target_buffers, source_device,
+                                   device.torch_device, "buffer");
+    target_input.zero_();
+    for (const auto& [name, tensor] : source_parameters) target_parameters.at(name).copy_(tensor);
+    for (const auto& [name, tensor] : source_buffers) target_buffers.at(name).copy_(tensor);
+    migrated->train();
+    return migrated;
+}
+
+void migrate_goal_inputs(const diamond_model::DiamondModel& source, Trainer& target) {
+    if (target.training_step() != 0 || !target.optimizer().state().empty())
+        throw std::invalid_argument("goal migration requires a fresh optimizer at step zero");
+    require_expected_architecture(target.learner(), target.compatibility());
+    const auto migrated = migrate_goal_inputs(source, target.compatibility(), target.device());
+    const auto source_parameters = collect_named_tensors(migrated, true);
+    const auto target_parameters = collect_named_tensors(target.learner(), true);
+    const auto source_buffers = collect_named_tensors(migrated, false);
+    const auto target_buffers = collect_named_tensors(target.learner(), false);
+    require_matching_named_tensors(source_parameters, target_parameters, target.device().torch_device,
+                                   target.device().torch_device, "parameter");
+    require_matching_named_tensors(source_buffers, target_buffers, target.device().torch_device,
+                                   target.device().torch_device, "buffer");
+    torch::NoGradGuard no_grad;
+    for (const auto& [name, tensor] : source_parameters) target_parameters.at(name).copy_(tensor);
+    for (const auto& [name, tensor] : source_buffers) target_buffers.at(name).copy_(tensor);
 }
 
 void zero_value_head(const diamond_model::DiamondModel& model) {

@@ -397,6 +397,20 @@ int main(int argc, char** argv) {
             .run_seed = 7,
         };
         const JsonValue production_json = production.to_json();
+        {
+            auto goal_config = std::get<JsonValue::Object>(production_json.value);
+            goal_config["encoder_version"] = JsonValue{"diamond-camp-relative-goals-v2"};
+            const auto parsed = ProductionConfig::from_json(JsonValue{goal_config});
+            const auto roundtrip = std::get<JsonValue::Object>(parsed.to_json().value);
+            require(std::get<std::string>(roundtrip.at("encoder_version").value) ==
+                        "diamond-camp-relative-goals-v2",
+                    "goal-aware configuration must survive persistence");
+            goal_config["encoder_version"] = JsonValue{"unknown-encoder"};
+            rejects([&] { (void)ProductionConfig::from_json(JsonValue{goal_config}); },
+                    "unknown encoder must fail before training");
+            require(!std::get<JsonValue::Object>(production_json.value).contains("encoder_version"),
+                    "legacy config serialization must preserve old run identities");
+        }
         require(diamond_support::canonical_json(
                     ProductionConfig::from_json(production_json).to_json()) ==
                     diamond_support::canonical_json(production_json),

@@ -281,7 +281,8 @@ SchedulerMetrics run_scheduler(const Match& match, const State& opening,
                     // than on the evaluator thread.
                     BatchItem item{&lane.session.pending_state(),
                                    &lane.session.pending_features(),
-                                   &lane.session.pending_actions(), lane.salt, &lane.outcome};
+                                   &lane.session.pending_actions(), lane.salt, &lane.outcome,
+                                   1, -1, lane.state.current_player};
                     batch_evaluator.prepare(item);
                     lane.submitted_at = Clock::now();
                     waiting.fetch_add(1, std::memory_order_relaxed);
@@ -363,7 +364,7 @@ SchedulerMetrics run_scheduler(const Match& match, const State& opening,
                 items.push_back(BatchItem{&lane.session.pending_state(),
                                           &lane.session.pending_features(),
                                           &lane.session.pending_actions(), lane.salt,
-                                          &lane.outcome});
+                                          &lane.outcome, 1, -1, lane.state.current_player});
             }
             const auto eval_start = Clock::now();
             batch_evaluator.evaluate(items);
@@ -562,6 +563,7 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
     search_config.simulations = config.simulations;
     search_config.dirichlet_alpha = config.dirichlet_alpha;
     search_config.dirichlet_epsilon = config.dirichlet_epsilon;
+    search_config.encoding = config.encoding;
 
     // SooSelfPlayRunner's schedule exactly: full temperature for the first
     // ``temperature_moves`` moves, greedy after.
@@ -731,7 +733,8 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                                    0,
                                    &lane.outcome,
                                    lane.session.value_width(),
-                                   static_cast<int>(lane.job_index)};
+                                   static_cast<int>(lane.job_index),
+                                   lane.state.current_player};
                     batch_evaluator.prepare(item);
                     if (config.bootstrap_prior) {
                         vacancy_prior(lane.session.pending_actions(),
@@ -885,7 +888,8 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                 items.push_back(
                     BatchItem{&lane.session.pending_state(), &lane.session.pending_features(),
                               &lane.session.pending_actions(), 0, &lane.outcome,
-                              lane.session.value_width(), static_cast<int>(lane.job_index)});
+                              lane.session.value_width(), static_cast<int>(lane.job_index),
+                              lane.state.current_player});
             }
             const auto eval_start = Clock::now();
             batch_evaluator.evaluate(items);

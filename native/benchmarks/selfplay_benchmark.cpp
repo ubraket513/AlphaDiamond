@@ -289,7 +289,7 @@ int dominant_cycle_period(const std::vector<uint64_t>& tail, int longest = 32) {
 
 Totals run_once(const Options& options, const soo::Match& match, const soo::State& initial,
                 diamond_pipeline::ModelPool& evaluator, bool bootstrap_prior,
-                double bootstrap_prior_weight) {
+                double bootstrap_prior_weight, soo::EncodingVersion encoding) {
     const soo::EpisodeConfig config{
         .lanes = static_cast<int>(options.lanes),
         .threads = static_cast<int>(options.threads),
@@ -309,6 +309,7 @@ Totals run_once(const Options& options, const soo::Match& match, const soo::Stat
         .repeat_window = static_cast<int>(options.repeat_window.value_or(0)),
         .bootstrap_prior = bootstrap_prior,
         .bootstrap_prior_weight = bootstrap_prior_weight,
+        .encoding = encoding,
     };
     const std::size_t job_count = options.games != 0 ? options.games : options.lanes;
     std::vector<soo::EpisodeJob> jobs;
@@ -504,24 +505,26 @@ int main(int argc, char** argv) {
         diamond_model::DiamondModel model;
         std::string model_sha256;
         std::string runtime_sha256;
+        soo::EncodingVersion encoding = soo::EncodingVersion::legacy_v1;
         bool min_model = false;
         bool bootstrap_prior = false;
         double bootstrap_prior_weight = 0.0;
         if (options.checkpoint) {
             const auto config = read_config(*options.config);
+            encoding = soo::encoding_version_from_name(config.encoder_version);
             min_model = config.model_name == "Min";
             compatibility = min_model
                                 ? diamond_training::Compatibility::min(
                                       config.model_version,
                                       {.residual_blocks = config.network.residual_blocks,
-                                       .width = config.network.width})
+                                       .width = config.network.width}, encoding)
                                 : diamond_training::Compatibility::soo(
                                       config.model_version,
                                       {.residual_blocks = config.network.residual_blocks,
-                                       .width = config.network.width});
+                                       .width = config.network.width}, encoding);
             model = diamond_model::DiamondModel(config.network.width,
                                                 config.network.residual_blocks,
-                                                min_model ? 6 : 4, min_model ? 3 : 1);
+                                                compatibility.input_features(), min_model ? 3 : 1);
             const auto checkpoint =
                 diamond_training::load_checkpoint_v2_weights(*options.checkpoint, model, device);
             model_sha256 = checkpoint.model_digest;
@@ -541,9 +544,10 @@ int main(int argc, char** argv) {
         } else {
             const auto artifact =
                 diamond_model::validate_deployment_artifact(options.artifact, "soo");
+            encoding = soo::encoding_version_from_name(artifact.encoder_version);
             compatibility = diamond_training::Compatibility::soo(
                 artifact.model_version,
-                {.residual_blocks = artifact.residual_blocks, .width = artifact.width});
+                {.residual_blocks = artifact.residual_blocks, .width = artifact.width}, encoding);
             model = diamond_model::DiamondModel(artifact.width, artifact.residual_blocks,
                                                 artifact.input_features, artifact.value_size);
             model->load_weights(artifact.weights);
@@ -573,7 +577,7 @@ int main(int argc, char** argv) {
         const soo::State initial = opening(match);
         for (std::size_t warmup = 0; warmup < options.warmups; ++warmup)
             (void)run_once(options, match, initial, evaluator, bootstrap_prior,
-                           bootstrap_prior_weight);
+                           bootstrap_prior_weight, encoding);
 
         Totals totals;
         std::vector<double> seconds;
@@ -581,7 +585,7 @@ int main(int argc, char** argv) {
         for (std::size_t repetition = 0; repetition < options.repetitions; ++repetition) {
             const auto started = std::chrono::steady_clock::now();
             Totals current = run_once(options, match, initial, evaluator, bootstrap_prior,
-                                      bootstrap_prior_weight);
+                                      bootstrap_prior_weight, encoding);
             seconds.push_back(
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count());
             accumulate(totals, std::move(current));

@@ -158,9 +158,10 @@ int main(int argc, char** argv) {
         const auto device = diamond_training::resolve_device(options.device);
         const auto compatibility = diamond_training::Compatibility::min(
             config.model_version,
-            {.residual_blocks = config.network.residual_blocks, .width = config.network.width});
-        auto model =
-            diamond_model::DiamondModel(config.network.width, config.network.residual_blocks, 6, 3);
+            {.residual_blocks = config.network.residual_blocks, .width = config.network.width},
+            soo::encoding_version_from_name(config.encoder_version));
+        auto model = diamond_model::DiamondModel(config.network.width, config.network.residual_blocks,
+                                                compatibility.input_features(), 3);
         diamond_training::Trainer trainer(
             model, compatibility,
             {.learning_rate = config.training.learning_rate,

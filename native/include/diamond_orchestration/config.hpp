@@ -199,6 +199,8 @@ struct ProductionConfig final {
     OpeningSuiteConfig opening_suite;
     PromotionStatisticsConfig promotion_statistics;
     uint64_t run_seed = 0;
+    // Absent in historical resolved configs; preserve their serialized identity.
+    std::string encoder_version = "diamond-camp-relative-v1";
 
     void validate() const;
     diamond_support::JsonValue to_json() const;

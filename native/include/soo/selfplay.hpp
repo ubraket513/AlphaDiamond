@@ -43,6 +43,9 @@ struct BatchItem {
     // which sends the candidate's turns to a different model in every game --
     // cannot key on the lane or on the outcome pointer.
     int job = -1;
+    // The actual player choosing a move. Unlike state->current_player, this
+    // stays fixed while a search evaluates descendants belonging to other seats.
+    uint8_t root_player = 0;
 };
 
 // Whatever answers a batch. The dummy is native and sleeps; the Gate D one
@@ -259,6 +262,7 @@ struct EpisodeConfig {
     // is seat-agnostic and applies to Min exactly as it does to Soo.
     bool bootstrap_prior = false;
     double bootstrap_prior_weight = 1.0;
+    EncodingVersion encoding = EncodingVersion::legacy_v1;
 };
 
 std::vector<double> blend_legal_priors(const std::vector<double>& vacancy,

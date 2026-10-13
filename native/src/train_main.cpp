@@ -31,6 +31,7 @@
 #include "diamond_training/device.hpp"
 #include "diamond_training/trainer.hpp"
 #include "soo/board.hpp"
+#include "soo/arena_router.hpp"
 #include "soo/rules.hpp"
 #include <torch/version.h>
 
@@ -166,8 +167,12 @@ diamond_training::Compatibility wire(const ProductionConfig& config) {
     const diamond_training::NetworkConfig network{config.network.residual_blocks,
                                                   config.network.width};
     return config.model_name == "Soo"
-               ? diamond_training::Compatibility::soo(config.model_version, network)
-               : diamond_training::Compatibility::min(config.model_version, network);
+               ? diamond_training::Compatibility::soo(
+                     config.model_version, network,
+                     soo::encoding_version_from_name(config.encoder_version))
+               : diamond_training::Compatibility::min(
+                     config.model_version, network,
+                     soo::encoding_version_from_name(config.encoder_version));
 }
 diamond_pipeline::InferencePrecision actor_precision(const ProductionConfig& config) {
     if (config.runtime.precision == "fp16") return diamond_pipeline::InferencePrecision::fp16;
@@ -218,7 +223,7 @@ uint64_t arena_seed(const diamond_orchestration::MaterializedOpening& opening,
 }
 diamond_model::DiamondModel model(const ProductionConfig& config) {
     auto built = diamond_model::DiamondModel(config.network.width, config.network.residual_blocks,
-                                             config.model_name == "Soo" ? 4 : 6,
+                                             wire(config).input_features(),
                                              config.model_name == "Soo" ? 1 : 3);
     built->set_adjacency(diamond_model::topology_adjacency());
     // Min starts from a neutral value, not a random one. Applied here rather
@@ -245,40 +250,7 @@ soo::Match ordered_match(const ProductionConfig& config, const auto& turn_order)
     return match;
 }
 
-// Which model answers a request depends on the seat to move *in that game*, and
-// a batch now carries requests from several games at once. The candidate seat is
-// therefore held per job rather than once for the run.
-class ArenaModelRouter final : public soo::BatchEvaluator {
-  public:
-    ArenaModelRouter(diamond_pipeline::ModelPool& candidate, diamond_pipeline::ModelPool& champion,
-                     std::vector<int> candidate_player_by_job)
-        : candidate_(candidate), champion_(champion),
-          candidate_player_by_job_(std::move(candidate_player_by_job)) {}
-
-    void evaluate(std::vector<soo::BatchItem>& batch) override {
-        std::vector<soo::BatchItem> candidate;
-        std::vector<soo::BatchItem> champion;
-        candidate.reserve(batch.size());
-        champion.reserve(batch.size());
-        for (const auto& item : batch) {
-            if (!item.state)
-                throw std::invalid_argument("arena evaluation requires a state");
-            if (item.job < 0 ||
-                static_cast<std::size_t>(item.job) >= candidate_player_by_job_.size())
-                throw std::invalid_argument("arena evaluation requires a known job");
-            const int candidate_player =
-                candidate_player_by_job_[static_cast<std::size_t>(item.job)];
-            (item.state->current_player == candidate_player ? candidate : champion).push_back(item);
-        }
-        candidate_.evaluate(candidate);
-        champion_.evaluate(champion);
-    }
-
-  private:
-    diamond_pipeline::ModelPool& candidate_;
-    diamond_pipeline::ModelPool& champion_;
-    std::vector<int> candidate_player_by_job_;
-};
+using ArenaModelRouter = soo::ArenaModelRouter;
 
 // Every game of the arena schedule, indexed [block][cell] in schedule order.
 //
@@ -657,22 +629,38 @@ IterationSource load_iteration_source(const CommandRequest& request, const Produ
             const auto expected_family = request.model_name == "Soo" ? "soo" : "min";
             const auto artifact = diamond_model::validate_deployment_artifact(
                 request.warm_start_path, expected_family);
-            if (artifact.model_version != trainer.compatibility().model_version ||
+            const bool add_goal_inputs =
+                artifact.encoder_version == "diamond-camp-relative-v1" &&
+                trainer.compatibility().encoder_version == "diamond-camp-relative-goals-v2";
+            if ((!add_goal_inputs &&
+                 artifact.model_version != trainer.compatibility().model_version) ||
                 artifact.width != trainer.model()->width() ||
                 artifact.residual_blocks != trainer.model()->residual_blocks() ||
-                artifact.input_features != trainer.model()->input_features() ||
+                (!add_goal_inputs &&
+                 (artifact.input_features != trainer.model()->input_features() ||
+                  artifact.encoder_version != trainer.compatibility().encoder_version)) ||
                 artifact.value_size != trainer.model()->value_size()) {
                 throw CommandArtifactError(
                     "warm-start artifact is incompatible with resolved config");
             }
-            trainer.model()->load_weights(artifact.weights);
+            if (add_goal_inputs) {
+                diamond_model::DiamondModel source(artifact.width, artifact.residual_blocks,
+                                                   artifact.input_features, artifact.value_size);
+                source->load_weights(artifact.weights);
+                // Preserve the learner's parameter identities: AdamW already owns them.
+                diamond_training::migrate_goal_inputs(source, trainer);
+            } else {
+                trainer.model()->load_weights(artifact.weights);
+            }
             validate_board_adjacency(trainer.model()->adjacency);
             return {.training_step = 0,
                     .model_digest = artifact.runtime_sha256,
                     .mode = diamond_training::CheckpointInitializationMode::warm_start,
                     .source_training_step = deployment_training_step(request.warm_start_path),
                     .optimizer_reset = true,
-                    .optimizer_reset_reason = "deployment_weight_warm_start"};
+                    .optimizer_reset_reason = add_goal_inputs
+                        ? "goal_input_migration_zero_padded_warm_start"
+                        : "deployment_weight_warm_start"};
         }
         if (request.initialization ==
             diamond_orchestration::CommandInitialization::native_checkpoint) {

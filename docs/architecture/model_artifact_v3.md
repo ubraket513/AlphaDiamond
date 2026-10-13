@@ -94,9 +94,18 @@ corrupting a tensor in one is still caught.
 
 ## Min
 
+The `game_contract.encoder` field also selects the observation layout. The
+legacy `diamond-camp-relative-v1` uses occupancy and finished planes;
+`diamond-camp-relative-goals-v2` appends one target-camp membership plane per
+canonical player. Both use the same actor-relative spatial rotation and player
+channel order. Goal-aware Soo therefore has 6 input features and goal-aware Min
+has 9. The validator checks family, encoder and tensor dimensions together;
+format-v3 packaging does not change. See
+[goal-aware training](../model-training/goal-aware-training.md) for migration.
+
 `DiamondModel` (the former `SooModelImpl`, generalised) takes the input-feature
 count and value-head width from the artifact, so one implementation serves both
-families: Soo is 4 features and a scalar value, Min is 6 features and one value
+families: legacy Soo is 4 features and a scalar value, legacy Min is 6 features and one value
 per seat. `model_parity_test` runs the artifact's own deterministic corpus
 through the native model for each family and compares against the outputs
 PyTorch produced at export time; both currently match exactly.

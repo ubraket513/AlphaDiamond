@@ -22,6 +22,7 @@ struct MCTSConfig {
     double dirichlet_alpha = 0.3;
     double dirichlet_epsilon = 0.0;
     uint64_t seed = 0;
+    EncodingVersion encoding = EncodingVersion::legacy_v1;
 };
 
 // One expansion, as observed from outside the search.  Comparing this sequence

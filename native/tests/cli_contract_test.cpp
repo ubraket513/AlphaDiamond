@@ -61,9 +61,10 @@ JsonValue::Object report_object(const std::filesystem::path& path) {
 } // namespace
 
 int main(int argc, char** argv) {
-    REQUIRE(argc == 3, "usage: cli_contract_test <scratch> <alphadiamond-train>");
+    REQUIRE(argc == 4, "usage: cli_contract_test <scratch> <alphadiamond-train> <alphadiamond-checkpoint>");
     const auto scratch = std::filesystem::path(argv[1]);
     const auto train_binary = std::filesystem::path(argv[2]);
+    const auto checkpoint_binary = std::filesystem::path(argv[3]);
     std::filesystem::remove_all(scratch);
     std::filesystem::create_directories(scratch);
     const auto config = write_config(scratch);
@@ -210,6 +211,21 @@ int main(int argc, char** argv) {
     CHECK_EQ(wiring.games_per_iteration, std::size_t{9});
     CHECK_EQ(wiring.training_batch_size, std::size_t{3});
     CHECK_EQ(wiring.training_steps, std::size_t{2});
+    {
+        auto goals = wiring_config;
+        goals.encoder_version = "diamond-camp-relative-goals-v2";
+        CHECK(diamond_orchestration::wire_training_iteration(goals).selfplay.encoding ==
+              soo::EncodingVersion::goals_v2);
+        CHECK(diamond_orchestration::wire_arena_episode(goals, 4).encoding ==
+              soo::EncodingVersion::goals_v2);
+        bool rejected = false;
+        try {
+            (void)diamond_orchestration::validate_training_config_transition(wiring_config, goals);
+        } catch (const diamond_orchestration::ConfigError&) {
+            rejected = true;
+        }
+        CHECK(rejected);
+    }
     wiring_config.training.policy_loss_domain = "legal";
     CHECK_EQ(diamond_orchestration::wire_training_iteration(wiring_config).policy_loss_domain,
              std::string{"legal"});
@@ -382,5 +398,44 @@ int main(int argc, char** argv) {
     const auto& search_targets = std::get<JsonValue::Object>(sidecar.at("search_targets").value);
     const auto& all_targets = std::get<JsonValue::Object>(search_targets.at("all").value);
     CHECK(std::get<int64_t>(all_targets.at("rows").value) > 0);
+    // Exercise the production migration path, self-play feature selection and
+    // second-iteration checkpoint resume for both families.
+    for (const std::string family : {"soo", "min"}) {
+        auto legacy = smoke_config;
+        legacy.model_name = family == "soo" ? "Soo" : "Min";
+        legacy.model_version = "2.0.0";
+        legacy.self_play.balance_turn_orders = true;
+        legacy.workers.games_per_iteration = family == "soo" ? 2 : 6;
+        legacy.arena.games = family == "soo" ? 4 : 36;
+        if (family == "min") legacy.network = {.width = 16, .residual_blocks = 1};
+        const auto legacy_run = family == "soo" ? smoke_run : scratch / family / "legacy-source";
+        if (family == "min") {
+            const auto legacy_path = scratch / "min-legacy.json";
+            std::ofstream(legacy_path) << diamond_support::canonical_json(legacy.to_json());
+            const std::string command = "\"" + train_binary.string() + "\" train --run-dir \"" +
+                legacy_run.string() + "\" --config \"" + legacy_path.string() + "\" --scratch";
+            CHECK_EQ(std::system(command.c_str()), 0);
+        }
+        const auto artifact = scratch / (family + "-legacy-artifact");
+        const auto checkpoint = legacy_run / "iterations" / "0" / "candidate-checkpoint";
+        const std::string export_command = "\"" + checkpoint_binary.string() + "\" export \"" +
+            checkpoint.string() + "\" --out \"" + artifact.string() + "\" --version 2.0.0";
+        CHECK_EQ(std::system(export_command.c_str()), 0);
+        auto goals = legacy;
+        goals.model_version = "2.1.0";
+        goals.encoder_version = "diamond-camp-relative-goals-v2";
+        goals.run_budget.max_iterations = 2;
+        const auto goals_path = scratch / (family + "-goals.json");
+        std::ofstream(goals_path) << diamond_support::canonical_json(goals.to_json());
+        const auto goals_run = scratch / family / "goal-migration";
+        const auto result_path = scratch / (family + "-goals-result.json");
+        const std::string command = "\"" + train_binary.string() + "\" train --run-dir \"" +
+            goals_run.string() + "\" --config \"" + goals_path.string() + "\" --warm-start \"" +
+            artifact.string() + "\" > \"" + result_path.string() + "\"";
+        CHECK_EQ(std::system(command.c_str()), 0);
+        const auto result = report_object(result_path);
+        CHECK_EQ(std::get<int64_t>(result.at("training_step").value), int64_t{2});
+        CHECK_EQ(std::get<std::string>(result.at("stage").value), std::string("COMPLETE"));
+    }
     return soo_test::report("cli_contract_test");
 }

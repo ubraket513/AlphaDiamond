@@ -61,6 +61,7 @@ class SooSearchRuntime::Impl {
     std::unique_ptr<diamond_model::SooEvaluator> evaluator;
     diamond_model::DiamondModel min_model{nullptr};
     std::string loaded_family;
+    soo::EncodingVersion encoding = soo::EncodingVersion::legacy_v1;
 
     void ensure_loaded(const std::string& family) {
         if (!loaded_family.empty()) {
@@ -79,6 +80,7 @@ class SooSearchRuntime::Impl {
         const std::string root = (artifact_root.isEmpty() ? resolve_artifact(family)
                                                            : artifact_root).toStdString();
         const auto artifact = diamond_model::validate_deployment_artifact(root, family);
+        encoding = soo::encoding_version_from_name(artifact.encoder_version);
         diamond_model::DiamondModel model(artifact.width, artifact.residual_blocks,
                                           artifact.input_features, artifact.value_size);
         model->load_weights(artifact.weights);
@@ -100,7 +102,8 @@ class SooSearchRuntime::Impl {
             const auto& encoded = session.pending_features();
             const auto& actions = session.pending_actions();
             auto features = torch::from_blob(const_cast<float*>(encoded.node_features.data()),
-                                             {1, soo::kBoardSize, 6}, torch::kFloat32);
+                                             {1, soo::kBoardSize, min_model->input_features()},
+                                             torch::kFloat32);
             const auto [logits, values] = min_model->forward(features);
             const auto indices = torch::tensor(actions, torch::TensorOptions().dtype(torch::kLong));
             const auto priors = torch::softmax(logits.index_select(1, indices), 1).contiguous();
@@ -160,6 +163,7 @@ AiSearchResult SooSearchRuntime::search(const soo::State& state, const soo::Matc
     config.simulations = simulations;
     config.c_puct = 1.5;
     config.dirichlet_epsilon = 0.0;
+    config.encoding = impl_->encoding;
     const auto started = std::chrono::steady_clock::now();
     const soo::SearchResult result = match.count == 3
         ? impl_->search_min(state, match, config)

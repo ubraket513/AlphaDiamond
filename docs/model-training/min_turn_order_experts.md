@@ -72,3 +72,15 @@ CPU arena with completed and aborted games. An independent review found no
 correctness blocker. Arena output is saved after each order batch; if interrupted,
 games from the active batch may still appear pending. Preserve the executable
 hash and source commit alongside each experimental invocation.
+
+## Pilot execution
+
+The experiment started October 14, 2026 at 01:06 KST from implementation commit
+`6a960ba850ec01e8e0c7afa9c6561945fcea6749`. Saved binaries, configs, launch hashes,
+logs and results live under `artifacts/min-experts-20261014/`. The cyclic expert
+finished 256 updates with 767 of 768 games completed and one move-limit abort;
+all data remained in its three-order group. JAX verified identical initial
+weights, finite final weights, and updates in all three goal columns. Reverse
+training began at 01:16 KST; matched shared training and the held-out arena are
+queued. These checks establish execution integrity; playing-strength results
+remain pending.

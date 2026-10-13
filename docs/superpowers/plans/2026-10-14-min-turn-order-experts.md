@@ -44,9 +44,23 @@
   provenance/groups/shapes; use existing opening schedules and native model
   pools. Persist raw outcomes, source identities and per-arm/group summaries.
   Add a small CPU CLI contract test including negative inputs.
-- [ ] Integration: run the native training suite and CUDA smoke, obtain fresh
+- [x] Integration: run the native training suite and CUDA smoke, obtain fresh
   review, save a clean source commit and executable copies, prepare pilot configs.
 - [ ] Experiment: stop old shared run after preserving durable work, train both
   specialists (and optional matched control), verify group isolation and updates,
   run the held-out arena and analyze all orders with opening-block statistics.
 - [ ] Record results and limitations; keep artifacts and checkpoints available.
+
+## Execution ledger
+
+- Implementation committed as `6a960ba850ec01e8e0c7afa9c6561945fcea6749`;
+  all 56 tests passed, including four CUDA tests. Independent code review found
+  no correctness blocker. Clean-revision binaries and config snapshots are saved.
+- Experiment started October 14 at 01:06 KST. The cyclic arm completed 256
+  updates with 767/768 games completed and one move-limit abort. JAX verified
+  finite changed weights and updates in all three goal-input columns.
+- Reverse training started at 01:16 KST from identical baseline weights with
+  fresh optimizer state. The shared control and paired arena are queued in the
+  saved runner. Strength comparison remains pending.
+- The `finish-min-expert-comparison` heartbeat continues verification and final
+  analysis when the runner finishes; it must disable itself after reporting.

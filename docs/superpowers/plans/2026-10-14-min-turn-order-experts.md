@@ -46,10 +46,10 @@
   Add a small CPU CLI contract test including negative inputs.
 - [x] Integration: run the native training suite and CUDA smoke, obtain fresh
   review, save a clean source commit and executable copies, prepare pilot configs.
-- [ ] Experiment: stop old shared run after preserving durable work, train both
+- [x] Experiment: stop old shared run after preserving durable work, train both
   specialists (and optional matched control), verify group isolation and updates,
   run the held-out arena and analyze all orders with opening-block statistics.
-- [ ] Record results and limitations; keep artifacts and checkpoints available.
+- [x] Record results and limitations; keep artifacts and checkpoints available.
 
 ## Execution ledger
 
@@ -59,8 +59,13 @@
 - Experiment started October 14 at 01:06 KST. The cyclic arm completed 256
   updates with 767/768 games completed and one move-limit abort. JAX verified
   finite changed weights and updates in all three goal-input columns.
-- Reverse training started at 01:16 KST from identical baseline weights with
-  fresh optimizer state. The shared control and paired arena are queued in the
-  saved runner. Strength comparison remains pending.
-- The `finish-min-expert-comparison` heartbeat continues verification and final
-  analysis when the runner finishes; it must disable itself after reporting.
+- Both specialists completed 256 updates and the matched control completed 512.
+  Training totals and runtime model identities passed final verification.
+- Both 432-game arena arms finished at 02:27 KST. Specialists had four aborts;
+  the control had seven. The six complete paired opening blocks favor experts
+  overall by +0.301 utility [95% CI +0.204, +0.431]. All-opening abort sensitivity
+  supports the overall and cyclic benefit; extra reverse benefit is less certain.
+  Full group/order tables and limitations are recorded in the training document.
+- On the user's request, the machine-reboot handoff preserves all checkpoints
+  and results. The `finish-min-expert-comparison` heartbeat is paused, and the
+  completed experiment has no remaining training or arena process.

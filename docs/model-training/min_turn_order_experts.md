@@ -77,10 +77,97 @@ hash and source commit alongside each experimental invocation.
 
 The experiment started October 14, 2026 at 01:06 KST from implementation commit
 `6a960ba850ec01e8e0c7afa9c6561945fcea6749`. Saved binaries, configs, launch hashes,
-logs and results live under `artifacts/min-experts-20261014/`. The cyclic expert
-finished 256 updates with 767 of 768 games completed and one move-limit abort;
-all data remained in its three-order group. JAX verified identical initial
-weights, finite final weights, and updates in all three goal columns. Reverse
-training began at 01:16 KST; matched shared training and the held-out arena are
-queued. These checks establish execution integrity; playing-strength results
-remain pending.
+logs and results live under `artifacts/min-experts-20261014/`. Training and both
+arena arms finished successfully at 02:27 KST. All models started with identical
+weights and fresh optimizers. JAX verified finite losses and final weights,
+changes in all three goal columns, and exact training-group isolation. Arena
+runtime model digests match the exported final checkpoints and frozen baseline.
+
+| Training arm | Updates | Completed / requested games | Aborted | Retained rows |
+| --- | ---: | ---: | ---: | ---: |
+| Cyclic | 256 | 767 / 768 | 1 | 83,562 |
+| Reverse | 256 | 728 / 768 | 40 | 116,908 |
+| Shared control | 512 | 1,495 / 1,536 | 41 | 188,132 |
+
+## Pilot results
+
+The specialists improved the aggregate result against the frozen reference and
+outperformed the matched shared continuation. The clearest benefit is the cyclic
+group: shared continuation regressed there. The reverse group's additional gain
+is less certain when aborted games and all opening blocks are considered.
+This pilot does not establish improvement in every individual turn order.
+
+The arena recorded all 432 scheduled results per arm. Specialists completed 428
+games (216 first, 164 second, 48 third), with four move-limit aborts. The shared
+control completed 425 (152 first, 166 second, 107 third), with seven move-limit
+aborts. No games remain pending. Completed-game descriptive utilities are +0.393
+and +0.106 respectively; these are not paired inferential estimates.
+
+The predeclared inference method excludes an entire opening block if any of its
+36 games is incomplete. Nine blocks remain for experts, eight for the shared
+control, and six are complete in both arms. The table below uses exactly those
+same six paired blocks for both means and their difference. Utility is +1/0/−1
+for first/second/third place against two copies of the frozen shared reference.
+Intervals are pointwise 95% percentile intervals from 100,000 JAX opening-block
+bootstrap replicates, seed 20261014.
+
+| Group or order | Expert utility | Shared-control utility | Paired expert gain [95% CI] |
+| --- | ---: | ---: | --- |
+| All | +0.398 | +0.097 | +0.301 [+0.204, +0.431] |
+| Cyclic | +0.130 | −0.241 | +0.370 [+0.167, +0.574] |
+| Reverse | +0.667 | +0.435 | +0.231 [+0.056, +0.370] |
+| 123 | −0.056 | −0.222 | +0.167 [−0.167, +0.556] |
+| 132 | +0.500 | +0.361 | +0.139 [−0.111, +0.389] |
+| 213 | +0.722 | +0.528 | +0.194 [−0.056, +0.444] |
+| 231 | +0.333 | −0.222 | +0.556 [+0.333, +0.778] |
+| 312 | +0.111 | −0.278 | +0.389 [+0.000, +0.778] |
+| 321 | +0.778 | +0.417 | +0.361 [+0.028, +0.667] |
+
+After correction across six order comparisons, only order 231 retains an interval
+strictly above zero. Both group intervals remain positive after a separate
+two-group correction, conditional on the retained six blocks. Using each arm's
+own complete blocks, expert cyclic utility is +0.210 [+0.062, +0.358] and reverse
+is +0.586 [+0.475, +0.698]; shared cyclic is −0.215 [−0.319, −0.125] and reverse
+is +0.424 [+0.375, +0.486]. Different retained block sets explain why these means
+differ from the paired table.
+
+### Abort sensitivity and interpretation
+
+Complete-block selection discards half the planned paired openings. As a
+secondary sensitivity check, assign every aborted game any hypothetical utility
+between −1 and +1 and retain all twelve openings. The overall expert gain is
+bounded between +0.259 and +0.310, with a bootstrap sensitivity envelope of
+[+0.185, +0.396]. Cyclic has no arena aborts: its all-opening gain is +0.486,
+with interval [+0.324, +0.644]. Reverse's gain is bounded between +0.032 and
++0.134, but its sensitivity envelope spans [−0.134, +0.259]. Thus the overall and
+cyclic benefit is more robust than a claim of additional reverse-group benefit.
+The sensitivity envelope supplements, rather than replaces, the predeclared
+complete-block analysis.
+
+This is one training seed and twelve held-out opening clusters, not exhaustive
+board coverage. Games and optimizer examples were matched in aggregate, but
+retained data volume and per-group replay exposure differ: the specialist pair
+retained 200,470 rows versus 188,132 for the control. Shared replay contains
+85,138 cyclic rows (45.3%); specialists allocate half the combined optimizer
+updates to cyclic training. The experiment supports specialization as a practical
+improvement here, but does not isolate gradient interference as the sole cause.
+
+Evidence is preserved locally in `artifacts/min-experts-20261014/`:
+
+- `launch.json`: clean source revision, saved executable/config hashes and budgets.
+- `verification/training-audit-jax.json`: initialization, updates and group audit.
+- `comparison/{experts,shared-control}/matches.json`: every completed/aborted outcome.
+- `comparison/paired-analysis-jax.json`: paired means, confidence intervals and source hashes.
+- `comparison/abort-sensitivity-jax.json`: all-opening bounded-outcome sensitivity.
+
+## Reboot handoff
+
+The experiment is complete. Its systemd service exited with status zero and the
+`finish-min-expert-comparison` heartbeat is paused. Checkpoints, replay, exports,
+saved binaries and arena evidence are preserved. Final checkpoints are
+`runs/min/{cyclic,reverse}/iterations/1/candidate-checkpoint` and
+`runs/min/shared-control/iterations/3/candidate-checkpoint` under the artifact
+directory; the frozen reference remains in the earlier goal-aware run. See the
+artifact directory's `RESTART.md` and `SHA256SUMS` for post-reboot verification.
+The original experiment runner is a completed, single-use launcher; subsequent
+training should use the appropriate saved checkpoint/run rather than rerun it.

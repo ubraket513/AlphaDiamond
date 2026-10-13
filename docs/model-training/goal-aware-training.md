@@ -60,6 +60,16 @@ The native training suite passed all 54 tests, including four CUDA tests.
 The Qt inference changes were reviewed but could not be compiled on this
 machine because Qt development packages are unavailable.
 
+The local Min pilot started October 14, 2026 at 00:09 KST using implementation
+commit `626f8decea067f3f404548d64bbccfe2d0675e4e`. Its first checkpoint validates
+at step 128: 382 of 384 games completed, all six turn orders contributed, and
+58,410 rows entered replay. Two games reached the move limit. JAX verification
+found finite weights and losses, exact preservation of the original weights
+at initialization, and nonzero updates in all three appended goal columns.
+The launch receipt and numerical checks are in the ignored
+`artifacts/goal-aware-20261013/` directory. These first-update checks precede
+arena results and do not establish playing-strength improvement.
+
 These checks establish the representation/routing contracts for supported
 configurations. They do not enumerate every reachable arrangement or establish
 playing-strength improvement. Report strength separately for both canonical

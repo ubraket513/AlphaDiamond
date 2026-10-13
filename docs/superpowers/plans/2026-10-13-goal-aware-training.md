@@ -36,7 +36,7 @@
 - [x] Compatibility/model migration, checkpoint/replay rejection, artifact export/reload and gradient tests.
 - [x] Config and production wiring, version-aware GUI inference, CLI warm-start migration with durable provenance.
 - [x] Native core/training suites and available Qt checks; independent review of changed interfaces.
-- [ ] CUDA smoke, new balanced Min run with immutable config/checkpoints, verify completed self-play and actual learning updates before handoff.
+- [x] CUDA smoke, new balanced Min run with immutable config/checkpoints, verify completed self-play and actual learning updates before handoff.
 
 ## Execution ledger
 
@@ -45,3 +45,4 @@
 - Baseline: clean tree; previous diagnostic work verified core/training suites and preserved artifacts.
 - All 54 native training tests passed, including the four CUDA tests, after final integration. Independent production review found no consequential issue. Generic self-play, learning and training-step benchmarks passed with v2 inputs; vacancy distillation passed both encoder contracts after reproducing and removing its six-feature assumption. A v2 Min CUDA self-play smoke also passed.
 - Qt inference wiring was reviewed, but this machine lacks Qt development packages, so the Qt application could not be compiled here.
+- Min pilot started October 14 at 00:09 KST from clean implementation commit `626f8decea067f3f404548d64bbccfe2d0675e4e`, using a preserved executable in `artifacts/goal-aware-20261013/bin/`. The first checkpoint validates at step 128 after 382 completed games and 58,410 replay rows, covering all six turn orders. Two games hit the move limit. JAX checks found finite weights/losses and nonzero updates in all three goal-input columns. Arena evaluation is pending; no strength improvement is claimed.

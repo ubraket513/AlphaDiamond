@@ -19,6 +19,8 @@
   let logElement = $state();
   let speedMetric = $state('samples_per_second');
   let job = $derived(jobs.find((item) => item.pid === selectedPid));
+  let evaluating = $derived(job?.kind === 'evaluation');
+  let summary = $derived(job?.evaluation?.summary);
   let latest = $derived(job?.metrics.at(-1));
   let draft = $derived.by(() => { try { return JSON.parse(configText); } catch { return null; } });
   let latestSelfplay = $derived(job?.iterations.map((item) => item.stages['selfplay.metrics.json']).filter(Boolean).at(-1));
@@ -53,7 +55,10 @@
     try {
       const data = await api('status');
       jobs = data.jobs;
-      if (!jobs.some((item) => item.pid === selectedPid)) selectedPid = jobs[0]?.pid ?? null;
+      if (!jobs.some((item) => item.pid === selectedPid)) {
+        selectedPid = jobs[0]?.pid ?? null;
+        tab = 'console';
+      }
       lastUpdate = new Date();
       error = '';
       await tick();
@@ -114,17 +119,17 @@
 <div class="workspace">
   <aside class="sidebar">
     <div class="sidebar-heading"><h2>실행 중</h2><span class="count">{jobs.length}</span></div>
-    <nav aria-label="실행 중인 훈련">
+    <nav aria-label="실행 중인 훈련과 평가">
       {#each jobs as item (item.pid)}
         <button class:active={item.pid === selectedPid} class="run-item" onclick={() => { selectedPid = item.pid; tab = 'console'; }}>
-          <span class="run-model">{item.config?.model_name ?? 'Training'} <span class="status-dot"></span></span>
+          <span class="run-model">{item.kind === 'evaluation' ? 'Expert arena' : item.config?.model_name ?? 'Training'} <span class="status-dot"></span></span>
           <strong>{basename(item.runDir)}</strong>
-          <span class="run-stage">{item.state?.stage ?? 'STARTING'} <span>#{number((item.state?.iteration ?? 0) + 1)}</span></span>
+          <span class="run-stage">{item.state?.stage ?? 'STARTING'} <span>{#if item.kind === 'evaluation'}{number(item.evaluation?.matches?.length)} / {number(item.evaluation?.summary?.scheduled_matches)}{:else}#{number((item.state?.iteration ?? 0) + 1)}{/if}</span></span>
           <small>PID {item.pid}</small>
         </button>
-      {:else}<p class="sidebar-empty">실행 중인 훈련이 없습니다.</p>{/each}
+      {:else}<p class="sidebar-empty">실행 중인 훈련·평가가 없습니다.</p>{/each}
     </nav>
-    <div class="sidebar-note"><span>CLI + WEB</span><p>CLI나 Agent가 시작한 훈련도<br />이 화면에 자동으로 나타납니다.</p></div>
+    <div class="sidebar-note"><span>CLI + WEB</span><p>CLI나 Agent가 시작한 훈련·평가도<br />이 화면에 자동으로 나타납니다.</p></div>
   </aside>
 
   <main>
@@ -160,12 +165,22 @@
 
     {#if job}
       <div class="run-heading">
-        <div><span class="eyebrow">{job.config?.model_name ?? 'TRAINING'} / {job.config?.self_play?.turn_order_group ?? 'all'}</span><h1>{basename(job.runDir)}</h1><p class="path">{job.runDir}</p></div>
-        <div class="run-actions"><button class="quiet" onclick={copySettings}>설정 복사</button><button class="danger" onclick={() => stop(job.pid)}><span>■</span> 즉시 중지</button></div>
+        <div><span class="eyebrow">{#if evaluating}MIN / EXPERT ARENA{:else}{job.config?.model_name ?? 'TRAINING'} / {job.config?.self_play?.turn_order_group ?? 'all'}{/if}</span><h1>{basename(job.runDir)}</h1><p class="path">{job.runDir}</p></div>
+        <div class="run-actions">{#if !evaluating}<button class="quiet" onclick={copySettings}>설정 복사</button>{/if}<button class="danger" onclick={() => stop(job.pid)}><span>■</span> 즉시 중지</button></div>
       </div>
 
-      <div class="run-meta"><span class="stage"><i class="status-dot"></i>{job.state?.stage ?? 'STARTING'}</span><span>{job.config?.runtime?.device} · {job.config?.runtime?.precision}</span><span>PID {job.pid}</span>{#if job.startedAt}<span>시작 {new Date(job.startedAt).toLocaleTimeString('ko-KR')}</span>{/if}</div>
+      <div class="run-meta"><span class="stage"><i class="status-dot"></i>{job.state?.stage ?? 'STARTING'}</span>{#if !evaluating}<span>{job.config?.runtime?.device} · {job.config?.runtime?.precision}</span>{/if}<span>PID {job.pid}</span>{#if job.startedAt}<span>시작 {new Date(job.startedAt).toLocaleTimeString('ko-KR')}</span>{/if}</div>
 
+      {#if evaluating}
+      <div class="stats">
+        <div><span>RECORDED / SCHEDULED</span><strong>{number(job.evaluation.matches?.length)}<small> / {number(summary?.scheduled_matches)}</small></strong></div>
+        <div><span>COMPLETED</span><strong>{number(summary?.completed_matches)}</strong></div>
+        <div><span>ABORTED</span><strong>{number(summary?.aborted_matches)}</strong></div>
+        <div><span>PENDING</span><strong>{number(summary?.pending_matches)}</strong></div>
+        <div><span>ELAPSED <small>최근 기록</small></span><strong>{number(summary?.elapsed_seconds, 1)}<small> seconds</small></strong></div>
+      </div>
+      <p class="cadence">평가 진행률은 native turn-order 그룹이 끝날 때 기록됩니다. 그룹 실행 중에는 이전 기록을 표시하며, 출력은 아래 콘솔에서 확인할 수 있습니다.</p>
+      {:else}
       <div class="stats">
         <div><span>ITERATION</span><strong>{number((job.state?.iteration ?? 0) + 1)}<small> / {number(job.config?.run_budget?.max_iterations)}</small></strong></div>
         <div><span>TRAINING STEP</span><strong>{number(job.state?.training_step)}</strong></div>
@@ -179,15 +194,16 @@
         <div class="speed-chart"><label class="metric-select"><span class="sr-only">차트 지표</span><select bind:value={speedMetric}>{#each Object.entries(speedOptions) as [key, value]}<option value={key}>{value[0]}</option>{/each}</select></label><Chart metrics={job.metrics} keys={[speedMetric]} labels={[speedOptions[speedMetric][0]]} title="Performance" unit={speedOptions[speedMetric][1]} /></div>
       </div>
       <p class="cadence">상태·지표는 native 단계가 끝날 때 기록됩니다. 실행 중 출력은 아래 콘솔에서 확인할 수 있습니다.</p>
+      {/if}
 
       <section class="detail-panel">
         <div class="detail-toolbar">
-          <div class="tabs" role="tablist" aria-label="훈련 세부 정보">{#each [['console', '콘솔'], ['config', '실행 설정'], ['metadata', '전체 메타데이터']] as [key, label]}<button role="tab" aria-selected={tab === key} class:selected={tab === key} onclick={() => { tab = key; }}>{label}</button>{/each}</div>
+          <div class="tabs" role="tablist" aria-label="실행 세부 정보">{#each (evaluating ? [['console', '콘솔'], ['metadata', '전체 메타데이터']] : [['console', '콘솔'], ['config', '실행 설정'], ['metadata', '전체 메타데이터']]) as [key, label]}<button role="tab" aria-selected={tab === key} class:selected={tab === key} onclick={() => { tab = key; }}>{label}</button>{/each}</div>
           {#if tab === 'console'}<label class="follow"><input type="checkbox" bind:checked={followLog} />자동 스크롤</label>{/if}
         </div>
         {#if tab === 'console'}<pre class="console" bind:this={logElement}>{job.log || '아직 CLI 출력이 없습니다.'}</pre>
         {:else if tab === 'config'}<pre>{pretty(job.config)}</pre>
-        {:else}<pre>{pretty({ state: job.state, iterations: job.iterations })}</pre>{/if}
+        {:else}<pre>{pretty(evaluating ? { state: job.state, evaluation: job.evaluation } : { state: job.state, iterations: job.iterations })}</pre>{/if}
       </section>
       <p class="command"><span>CLI</span><code>{Array.isArray(job.command) ? job.command.join(' ') : job.command}</code></p>
     {:else if !launcherOpen}

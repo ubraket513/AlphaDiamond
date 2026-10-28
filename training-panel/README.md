@@ -21,6 +21,15 @@ otherwise the path is passed as `--warm-start`. Native startup errors appear
 in the form. The CLI validates the configuration.
 
 Active CLI and Agent jobs appear automatically through Linux process discovery.
+The list also includes active `min_expert_arena --out PATH` evaluations, with
+relative output paths resolved against the process working directory. Evaluation
+views show recorded/scheduled, completed, aborted and pending match counts, plus
+the native invocation, schedule, summary and match metadata. Progress snapshots
+update after each complete turn-order group; individual games do not stream into
+the panel. Evaluation console output comes from its actual stdout destination
+when that is a regular file, even outside the output directory. Pipes are never
+read. Evaluation launching remains with the existing CLI or Agent workflow.
+
 To retain live output for a job launched from a terminal or Agent, redirect both
 output streams into `console.log` inside its run directory:
 
@@ -40,7 +49,7 @@ every 1.5 seconds. Completed or stopped processes leave the active list.
 Settings and configuration copying use `active-config.json` after an accepted
 resume transition; runs without a transition use their initial `resolved-config.json`.
 
-**Stop immediately sends SIGKILL** to the selected training process, or its
+**Stop immediately sends SIGKILL** to the selected training or evaluation process, or its
 process group when it leads that group. The in-flight stage stops immediately;
 earlier durable checkpoints remain in the run directory. An external supervisor
 should exit on a stopped child rather than automatically relaunch it.

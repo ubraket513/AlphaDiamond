@@ -1,7 +1,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { open, readFile, readdir, readlink, mkdir, writeFile } from 'node:fs/promises';
-import { basename, dirname, extname, join, resolve, sep } from 'node:path';
+import { open, readFile, readdir, readlink, stat, mkdir, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -23,23 +23,25 @@ async function optionalDirectory(path) {
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
 }
 
-async function trainingProcess(pid, binary, bootTime) {
+async function nativeProcess(pid, binary, bootTime) {
   try {
     const proc = `/proc/${pid}`;
     const argv = (await readFile(`${proc}/cmdline`, 'utf8')).split('\0').filter(Boolean);
     // Native binaries use argv[0]; executable scripts retain the interpreter first.
     const index = [0, 1].find(i => argv[i] &&
-      (basename(argv[i]) === 'alphadiamond-train' || argv[i] === binary));
-    if (index === undefined || !['train', 'resume'].includes(argv[index + 1])) return null;
-    const args = argv.slice(index + 2);
-    const runIndex = args.indexOf('--run-dir');
+      (['alphadiamond-train', 'min_expert_arena'].includes(basename(argv[i])) || argv[i] === binary));
+    if (index === undefined) return null;
+    const kind = basename(argv[index]) === 'min_expert_arena' ? 'evaluation' : 'training';
+    if (kind === 'training' && !['train', 'resume'].includes(argv[index + 1])) return null;
+    const args = argv.slice(index + (kind === 'evaluation' ? 1 : 2));
+    const runIndex = args.indexOf(kind === 'evaluation' ? '--out' : '--run-dir');
     if (runIndex < 0 || !args[runIndex + 1]) return null;
     const cwd = await readlink(`${proc}/cwd`);
     const stat = await readFile(`${proc}/stat`, 'utf8');
     const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
     if (fields[0] === 'Z') return null;
     return {
-      pid: Number(pid), runDir: resolve(cwd, args[runIndex + 1]), command: argv,
+      pid: Number(pid), kind, runDir: resolve(cwd, args[runIndex + 1]), command: argv,
       startedAt: new Date((bootTime + Number(fields[19]) / clockTicks) * 1000).toISOString(),
       pgid: Number(fields[2]), startTicks: fields[19],
     };
@@ -54,11 +56,25 @@ async function discover(binary) {
   const stat = await readFile('/proc/stat', 'utf8');
   const bootTime = Number(stat.match(/^btime (\d+)$/m)[1]);
   const pids = (await readdir('/proc')).filter(name => /^\d+$/.test(name));
-  return (await Promise.all(pids.map(pid => trainingProcess(pid, binary, bootTime))))
+  return (await Promise.all(pids.map(pid => nativeProcess(pid, binary, bootTime))))
     .filter(Boolean).sort((a, b) => a.pid - b.pid);
 }
 
 async function nativeJob({ pgid, startTicks, ...job }) {
+  if (job.kind === 'evaluation') {
+    const [invocation, schedule, summary, matches] = await Promise.all([
+      'invocation.json', 'schedule.json', 'experts/summary.json', 'experts/matches.json',
+    ].map(path => optionalFile(join(job.runDir, path), true)));
+    let log = '';
+    try {
+      const output = await readlink(`/proc/${job.pid}/fd/1`);
+      if (isAbsolute(output) && (await stat(output)).isFile()) log = await optionalFile(output);
+    } catch (error) {
+      if (!['ENOENT', 'ESRCH', 'EACCES'].includes(error.code)) throw error;
+    }
+    return { ...job, state: { stage: 'EVALUATE' }, config: null, metrics: [], iterations: [],
+      evaluation: { invocation, schedule, summary, matches }, log };
+  }
   const [state, config, log, numbers] = await Promise.all([
     optionalFile(join(job.runDir, 'state.json'), true),
     optionalFile(join(job.runDir, 'active-config.json'), true)
@@ -156,12 +172,12 @@ export function createPanelServer({ root = repository, binary = process.env.ALPH
       } else if (request.method === 'POST' && /^\/api\/runs\/\d+\/stop$/.test(pathname)) {
         const pid = Number(pathname.split('/')[3]);
         const selected = (await discover(binary)).find(job => job.pid === pid);
-        if (!selected) throw httpError(404, 'Active training process not found');
+        if (!selected) throw httpError(404, 'Active native process not found');
         // Re-read identity before signalling; a supervisor's shared group must survive.
-        const current = await trainingProcess(pid, binary, 0);
-        if (!current || current.startTicks !== selected.startTicks) throw httpError(404, 'Training process exited');
+        const current = await nativeProcess(pid, binary, 0);
+        if (!current || current.startTicks !== selected.startTicks) throw httpError(404, 'Native process exited');
         try { process.kill(current.pgid === pid ? -pid : pid, 'SIGKILL'); }
-        catch (error) { if (error.code === 'ESRCH') throw httpError(404, 'Training process exited'); throw error; }
+        catch (error) { if (error.code === 'ESRCH') throw httpError(404, 'Native process exited'); throw error; }
         send(200, { stopped: true });
       } else if (request.method === 'GET' && !pathname.startsWith('/api/')) {
         const file = resolve(dist, '.' + decodeURIComponent(pathname === '/' ? '/index.html' : pathname));

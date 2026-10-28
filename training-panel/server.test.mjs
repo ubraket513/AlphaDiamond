@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, open, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -31,6 +31,8 @@ console.log('native output'); console.error('native stderr');
 process.on('SIGTERM',()=>{});
 setInterval(()=>{}, 1000);
 `, { mode: 0o755 });
+  const arena = join(root, 'min_expert_arena');
+  await writeFile(arena, (await readFile(binary, 'utf8')).replace("'--run-dir'", "'--out'"), { mode: 0o755 });
   const children = [];
   t.after(async () => {
     for (const child of children) {
@@ -56,10 +58,78 @@ setInterval(()=>{}, 1000);
   };
   const runDir = join(root, 'runs/min/fixture');
   await mkdir(runDir, { recursive: true });
-  return { root, binary, runDir, request, children, url };
+  return { root, binary, arena, runDir, request, children, url };
 }
 
 describe('native CLI bridge', { concurrency: true }, () => {
+test('discovers an independent arena with relative output, native snapshots and its actual stdout log', async t => {
+  const { root, arena, runDir, request, children } = await fixture(t);
+  await mkdir(join(runDir, 'experts'));
+  await writeFile(join(runDir, 'schedule.json'), JSON.stringify({ orders: [[0, 1, 2, 3]], custom: 'native schedule' }));
+  await writeFile(join(runDir, 'experts/summary.json'), JSON.stringify({ scheduled_matches: 144, completed_matches: 71, aborted_matches: 1, pending_matches: 72, placements: [1, 2, 3], elapsed_seconds: 5, groups: { cyclic: { completed_matches: 71 } }, orders: { '[0,1,2]': { completed_matches: 71 } }, opening_blocks: { opening1: { completed_matches: 71 } } }));
+  await writeFile(join(runDir, 'experts/matches.json'), JSON.stringify([{ winner: 'expert', native_field: 42 }]));
+  await writeFile(join(runDir, 'console.log'), 'not the arena stdout');
+  const output = await open(join(root, 'arena-stdout.log'), 'a');
+  const child = spawn(arena, ['--out', 'runs/min/fixture'], { cwd: root, stdio: ['ignore', output.fd, 'pipe'] });
+  children.push(child);
+  await once(child.stderr, 'data');
+  await output.close();
+  const result = await request('/api/status');
+  assert.equal(result.status, 200);
+  const job = result.data.jobs.find(job => job.pid === child.pid);
+  assert.ok(job, 'must find an arena without panel registration');
+  assert.equal(job.kind, 'evaluation');
+  assert.equal(job.runDir, runDir);
+  assert.equal(job.state.stage, 'EVALUATE');
+  assert.deepEqual(job.metrics, []);
+  assert.deepEqual(job.iterations, []);
+  assert.equal(job.config, null);
+  assert.deepEqual(job.evaluation.invocation, ['--out', 'runs/min/fixture']);
+  assert.equal(job.evaluation.schedule.custom, 'native schedule');
+  assert.equal(job.evaluation.summary.pending_matches, 72);
+  assert.deepEqual(job.evaluation.summary.placements, [1, 2, 3]);
+  assert.equal(job.evaluation.matches[0].native_field, 42);
+  assert.equal(job.log, 'native output\n');
+  assert.ok(Math.abs(Date.parse(job.startedAt) - Date.now()) < 10000);
+  await writeFile(join(runDir, 'experts/summary.json'), JSON.stringify({ scheduled_matches: 144, completed_matches: 143, aborted_matches: 1, pending_matches: 0 }));
+  const updated = (await request('/api/status')).data.jobs.find(job => job.pid === child.pid);
+  assert.equal(updated.evaluation.summary.completed_matches, 143);
+  assert.equal(updated.evaluation.summary.pending_matches, 0);
+});
+
+test('returns an arena before snapshots exist without reading its stdout pipe', async t => {
+  const { root, arena, runDir, request, children } = await fixture(t);
+  const child = spawn(arena, ['--out', runDir], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] });
+  children.push(child);
+  await once(child.stdout, 'data');
+  const result = await Promise.race([
+    request('/api/status'),
+    delay(1500).then(() => { throw new Error('status must not block on an arena stdout pipe'); }),
+  ]);
+  assert.equal(result.status, 200);
+  const job = result.data.jobs.find(job => job.pid === child.pid);
+  assert.ok(job);
+  assert.equal(job.log, '');
+  assert.equal(job.evaluation.summary, null);
+  assert.equal(job.evaluation.schedule, null);
+  assert.equal(job.evaluation.matches, null);
+});
+
+test('immediately stops only the selected arena in a shared process group', async t => {
+  const { root, arena, runDir, request, children } = await fixture(t);
+  const child = spawn(arena, ['--out', runDir], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] });
+  const peer = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+  children.push(child, peer);
+  await Promise.all([once(child.stdout, 'data'), once(peer, 'spawn')]);
+  const exited = once(child, 'exit');
+  const started = performance.now();
+  assert.deepEqual(await request(`/api/runs/${child.pid}/stop`, {}), { status: 200, data: { stopped: true } });
+  assert.equal((await exited)[1], 'SIGKILL');
+  assert.ok(performance.now() - started < 1000);
+  assert.equal(peer.exitCode, null);
+  assert.equal(process.kill(peer.pid, 0), true);
+});
+
 test('discovers an independently launched resume and preserves ordered native metadata', async t => {
   const { root, binary, runDir, request, children } = await fixture(t);
   await writeFile(join(runDir, 'state.json'), JSON.stringify({ stage: 'SELF_PLAY', iteration: 11 }));

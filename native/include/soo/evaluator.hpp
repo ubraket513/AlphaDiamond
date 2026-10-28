@@ -2,7 +2,7 @@
 //
 // The reference evaluator is a pure function of the request and deliberately
 // NOT a constant: a constant makes every edge tie and hides selection bugs
-// (docs/native_selfplay_phase0.md section 7, Gate B).  It is specified in
+// (docs/native-selfplay/native_selfplay_phase0.md section 7, Gate B).  It is specified in
 // integer arithmetic so a Python implementation can reproduce it bit-for-bit;
 // tests/native/reference_evaluator.py is that implementation.
 #pragma once

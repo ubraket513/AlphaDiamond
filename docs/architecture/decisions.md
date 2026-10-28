@@ -1,7 +1,9 @@
 # Decisions
 
-Short, dated, and binding. Each one changes what the project promises, so it is
-recorded here rather than inferred from the code.
+Dated migration decisions, preserved with their original rationale. The frozen
+corpus contract still applies. Decision 1's Python control plane and the bridge
+references below were superseded by the native-only migration; see
+[products.md](products.md) for current ownership and commands.
 
 ---
 

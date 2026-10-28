@@ -1,111 +1,75 @@
-# Three products, one core
+# Native products, one core
 
-Written 2026-08-24. This is the boundary the native migration is organised
-around. It is not a plan to rewrite Python in C++.
+The application, trainer, checkpoint tools, arena, and release tools are native
+C++. They share one implementation of board geometry, rules, encoding, search,
+and self-play. The Python trainer and pybind bridge were retired; the completed
+migration brief and intermediate progress log are available in Git history.
 
-| Product | What it is | Language |
+| Component | Responsibility | Location |
 |---|---|---|
-| **Native application** | The shipped Qt program: board, search, inference. Runs with no Python installed. | C++ |
-| **Python trainer** | Training loop, experiments, arena statistics, reports, release tooling. | Python |
-| **Bridge** | The pybind extension and the cross-language parity gates. Exists for the migration and for feeding the native core to the trainer. | both |
+| Core and search | Board, rules, encoders, two- and three-player MCTS, self-play | `native/include/soo/`, `native/src/` |
+| Qt application | Controller confirmation flow, rendering, model inference | `native/qt/` |
+| Training and pipeline | LibTorch training, replay, checkpoints, diagnostics | `native/include/diamond_training/`, `native/include/diamond_pipeline/` |
+| Orchestration | Run stages, schedules, arena, ratings, reports | `native/include/diamond_orchestration/` |
+| Model and release | Deployment validation, model loading, promotion | `native/include/diamond_model/`, `native/include/diamond_release/` |
 
-The core rules, encoder, search, self-play **and board geometry** are one
-implementation, in C++. Python reaches them through the bridge. There is no
-second implementation: `src/diamond/game/` was deleted once the native golden
-tests had taken over every contract it proved (decision 3).
+QML renders state and forwards input. Native rules own legality; the controller
+keeps proposals separate from confirmed commits. Two-player Soo uses scalar
+values; three-player Min keeps a value for each seat. Shared search mechanics
+must preserve those distinct value semantics.
 
-```text
-          C++ core (rules, encoder, MCTS, self-play, inference)
-                     |                         |
-        native Qt application        pybind module (bridge)
-                                               |
-                                     Python training / research
-```
+Python is not part of the supported runtime, build, or test path. The two
+offline analysis summarizers allowlisted by `cmake/VerifyPythonZero.cmake` are
+research tooling only.
 
-## What "the C++ tests do not need Python" means
+## Build and validation
 
-`make test-native` configures with CMake, builds and runs CTest on a clean
-checkout with no interpreter, no pytest and no pybind11. The tests get their
-board topology and their expected answers from committed fixtures under
-`tests/golden/`, not from a running Python process.
+CMake owns targets and dependencies. `CMakePresets.json` defines configurations;
+the Makefile is a command facade. Use a compiler supporting the required C++26
+dialect. See the [README](../../README.md) for setup and supported commands.
 
-## The golden contract
-
-A C++ test that calls one C++ function and compares it with another C++
-function proves nothing about the port. So the Python oracle's answers are
-frozen into a language-neutral file:
-
-* `tests/golden/` and `tests/native/fixtures/positions.jsonl` are frozen. The
-  Python oracle that produced them is preserved in Git history and is not in
-  the source tree; regenerating them is a deliberate contract change, not a
-  build step (decision 3).
-* `tests/golden/topology/*` are the exported board tables — the same five files
-  the deployment artifact ships. Nothing in `native/` transcribes them.
-* `tests/golden/rules-v1.txt` holds, per corpus position, the legal actions
-  (ordered), every successor state, the canonical encoding and the bootstrap
-  prior — folded into FNV-1a 64 digests, except the prior, which is floating
-  point and is compared as max and an order-sensitive dot product.
-* `tests/golden/MANIFEST.json` records the corpus's provenance and
-  `tests/test_golden_contract.py` verifies it. CI no longer regenerates the
-  corpus from Python: doing so declared C++ the authority while leaving the
-  Python implementation holding the back door to the specification. See
-  [decisions.md](decisions.md), decision 2.
-
-### What each native test covers
-
-| Test | Proves |
-|---|---|
-| `action_codec_test` | every source/destination pair round-trips; out-of-range ids throw |
-| `topology_test` | the core's *generated* geometry equals the frozen tables; loader rejects malformed input; neighbour symmetry, camp structure, distance metric, canonical rotation is a distance-preserving bijection |
-| `budget_test` | the wall-clock search budget: unlimited is not spent, a spent budget still returns a move, a live one cuts the search short |
-| `rules_golden_test` | Gate A: ordered legal actions, every successor, the encoding, the prior |
-| `mcts_golden_test` | Gate B: root statistics *and* the evaluator request sequence, q values bit-exact |
-| `batcher_test` | no minimum batch, batch cap, arrival order, `stop()` drains |
-| `selfplay_test` | lane trajectories do not depend on the worker count; episodes reproduce from a job list |
-| `model_index_test` | a packaged `models/index.json` is refused when a default names no bundled model, a path escapes the package, or a digest is malformed |
-
-With LibTorch (`-DDIAMOND_BUILD_LIBTORCH_PROBE=ON`, artifacts exported first):
-
-| Test | Proves |
-|---|---|
-| `soo_artifact_contract` | v3 metadata validation: missing/unknown fields at every nesting level, a family declared over the wrong shapes, an architecture that no longer matches the tensors, a foreign game contract, corrupt or missing weights |
-| `model_parity_test` | native inference reproduces PyTorch's own outputs on the artifact's corpus, per family |
-
-Ordering is part of the contract, not cosmetic: `add_dirichlet_noise` draws one
-`gammavariate` per prior entry, so the same set in a different order is a
-different search.
-
-## Retiring a Python gate
-
-**All of them are retired** — there is one rule implementation, so nothing in
-`tests/native/` compares two any more. The rule that got them there is worth
-keeping for the next time a Python test is replaced by a C++ one: a gate is
-retired only after its C++ replacement has been shown to catch the mutations
-that gate catches. The minimum demonstration is to mutate the golden
-expectation (or the native code) and watch the C++ test go red.
-
-`tools/mutation_check.py` is the record of that being done thirteen times. The
-same standard was applied to `topology_test` and `budget_test` when they took
-over from Python coverage.
-
-## CI lanes
-
-| Lane | Needs Python? | What it proves |
+| Command | Coverage | Additional dependency |
 |---|---|---|
-| `native-core` (Linux/macOS/Windows) | no | the shipped core builds and its tests pass |
-| `native-sanitizers` (Linux) | no | the same tests under ASan/UBSan |
-| `native-qt` (Linux) | no | the shipped Qt application builds and passes its contract headless |
-| `core` (3.12) | yes (and the extension) | the trainer and control plane, plus repository hygiene |
-| `bridge` | yes | the pybind boundary: callback ABI, GIL contract, pool, selector |
-| `lint` | yes | ruff over changed files |
+| `make test-native` | Rules, encoders, search, self-play, replay, repository policies | None beyond the native toolchain |
+| `make test-training` | Model, training, checkpoint, arena, rating, CLI contracts | LibTorch |
+| `make test-qt` | Controller, analysis, rendering, model integration | Qt and LibTorch |
+| `make test-native-asan` | Core contracts under ASan/UBSan | Supported sanitizer toolchain |
 
-`core` runs on one interpreter, not three. The suite's failures are almost
-never version-specific, the game's own contract is proven by CTest with no
-interpreter at all, and three extension builds plus three full runs on every
-push is a standing tax for a rare class of bug. A version-specific problem is
-worth a deliberate matrix when there is one.
+For explicit concurrency, use `cmake --build --preset <preset> --parallel <jobs>`
+and `ctest --preset <preset> --parallel <workers> --output-on-failure`.
+Choose counts for the host's available CPU and memory, including threads
+started by the tests themselves.
 
-There is no `gui` lane: the PySide suite it ran was deleted with the last GUI
-test. The Qt application under test now is the native one, and `native-qt` is
-its lane. The `-m "not gui"` filter went with it — the marker selected nothing
-and was defined nowhere.
+CI defines `native-core`, `native-sanitizers`, `native-training`, `native-qt`,
+and `native-format` in [ci.yml](../../.github/workflows/ci.yml). There are no
+Python trainer, bridge, or lint lanes.
+
+## Frozen contracts
+
+`tests/golden/` and `tests/native/fixtures/` preserve the retired oracle's
+answers. Do not regenerate them from the implementation under test. A deliberate
+rules change requires a versioned contract change and an independently justified
+corpus. `golden_manifest_test` checks the committed fixture provenance.
+
+The golden search tests pin ordered actions, evaluator requests, root statistics,
+and floating-point results. Stochastic and self-play tests cover distributions,
+seed determinism, and lane scheduling. These independent expectations remain
+valid when production code shares helpers.
+
+Replay is the exception: `tests/golden/replay-v1/` is a historical record,
+unreadable by the current schema-4/5 store. Replay tests construct their stores
+natively. See [replay stateless sampling](replay_stateless_sampling.md).
+
+## Historical evidence
+
+- [Decisions](decisions.md) records the original migration decisions and the
+  frozen-corpus contract; dated Python control-plane descriptions are historical.
+- [Retiring the Python engine](retiring_the_python_engine.md) preserves deletion
+  order, parity evidence, and why the oracle cannot be regenerated.
+- [Python-zero final acceptance](../superpowers/reports/2026-08-25-python-zero-final-acceptance.md)
+  records native training and Windows package validation.
+- [Model artifact v3](model_artifact_v3.md) defines the deployment boundary.
+
+Measured performance reports and experiment handoffs stay with their evidence.
+Completed plans describe their original implementation, not current commands or
+a new work queue. Use this page and the README for the current product layout.

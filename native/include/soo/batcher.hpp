@@ -2,7 +2,7 @@
 //
 // Work-conserving: the timer bounds only how long we wait for *future*
 // arrivals, never how long an already-queued request sits. Section 5 of
-// docs/native_selfplay_phase0.md.
+// docs/native-selfplay/native_selfplay_phase0.md.
 //
 // There is no minimum batch size, and there must not be one. A lane has at
 // most one request outstanding, so a floor above the number of lanes in flight
@@ -26,7 +26,6 @@ class Batcher {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             queue_.push_back(lane_id);
-            ++submitted_;
         }
         arrival_.notify_one();
     }
@@ -59,7 +58,6 @@ class Batcher {
     std::condition_variable arrival_;
     std::vector<int> queue_;
     bool stopped_ = false;
-    uint64_t submitted_ = 0;
     uint64_t wakeups_ = 0;
 };
 

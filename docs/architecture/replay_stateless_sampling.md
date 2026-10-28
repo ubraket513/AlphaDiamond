@@ -45,15 +45,13 @@ change the manifest, so its digest — which checkpoint provenance records and
 `validate_checkpoint_context` enforces — is stable across a TRAIN stage by
 construction rather than by convention.
 
-Schema 2 and 3 manifests still load; their sampler and transaction fields are
-read past and dropped on the next write. Schema 1 (`persistent-replay-v1`)
-still loads and migrates, because the frozen fixtures under
-`tests/golden/replay-v1/` are v1 and are normative — see the oracle rule in
-`CLAUDE.md`. The CPython MT19937 sampler state those fixtures carry is now
-ignored: it described a sampling stream that no longer exists.
+The current store accepts schema 4 (JSON chunks) and schema 5 (JSON or binary
+chunks). Schemas 1, 2, and 3 are rejected. The frozen files under
+`tests/golden/replay-v1/` remain a historical record and cannot be read by this
+store; they are the replay exception to the oracle rule in `CLAUDE.md`.
 
 ## Consequence for tests
 
-`replay_schema_test` used to pin the *order* in which the two fixture rows came
-back, which was a property of the retired MT19937 stream rather than of the
-stored contents. It now pins the set. The fixture bytes are untouched.
+Replay tests build schema-4/5 stores natively and check ingest idempotence,
+contents, deterministic sampling, schema rejection, and transaction failure
+recovery. They do not load or regenerate the retired replay-v1 corpus.

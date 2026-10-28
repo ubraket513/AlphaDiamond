@@ -3,7 +3,7 @@
 // Python authority: diamond.alphazero.mcts.puct.add_dirichlet_noise and
 // select_from_visits, which draw from `random.Random`.
 //
-// Section 9 of docs/native_selfplay_phase0.md settles what parity means here:
+// Section 9 of docs/native-selfplay/native_selfplay_phase0.md settles what parity means here:
 // cross-backend bit-exact RNG parity is **not** required.  CPython's
 // `gammavariate` uses a rejection algorithm whose draw count varies per sample,
 // so reproducing its stream would mean reimplementing that algorithm on

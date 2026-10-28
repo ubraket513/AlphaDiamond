@@ -60,7 +60,6 @@ target_compile_options(soo_search PRIVATE
 add_library(diamond_pipeline STATIC
     src/json.cpp
     src/policy_diagnostics.cpp
-    src/replay.cpp
     src/replay_segment.cpp
     src/replay_store.cpp
     src/training_sample.cpp

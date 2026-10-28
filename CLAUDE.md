@@ -4,8 +4,10 @@ A 3-player Diamond (Chinese-checkers-family) engine, a Qt console, and an
 AlphaZero training stack. The two-player configuration is called **Soo**; the
 three-player one is **Min**.
 
-**This is a C++ project.** There is no Python in it: no engine, no trainer, no
-bridge, no tests, no tooling. Rules, encoding, search, self-play, training,
+**This is a C++ project.** There is no Python engine, trainer, bridge, or test
+suite. Only the offline analysis summarizers allowlisted in
+`cmake/VerifyPythonZero.cmake` remain as research tooling. Rules, encoding,
+search, self-play, training,
 checkpointing, arena and release are all native. Anything you read elsewhere
 about a Python oracle, a `_diamond_native` pybind extension, `src/diamond/`, a
 `selfplay_backend` setting or a `make test-python` / `make test-parity` /

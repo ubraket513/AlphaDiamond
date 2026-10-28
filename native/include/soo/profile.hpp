@@ -1,7 +1,7 @@
 // Gate C.1: per-stage native cost for one search, no threads and no Python.
 //
 // Stages mirror the Python worker-side profile in
-// docs/native_selfplay_phase0.md section 0.1 so the two tables can be read
+// docs/native-selfplay/native_selfplay_phase0.md section 0.1 so the two tables can be read
 // side by side. Measured with a dummy evaluator, because the point is the cost
 // of the *lane* work, not of inference.
 #pragma once

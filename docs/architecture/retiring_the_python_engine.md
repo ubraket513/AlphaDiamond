@@ -1,5 +1,9 @@
 # Retiring the Python engine
 
+Historical record of the first engine retirement. The Python trainer, adapters,
+and bridge mentioned below were subsequently retired too; see
+[products.md](products.md) for the current native-only architecture.
+
 **Done, 2026-08-24.** `src/diamond/game`, `src/diamond/alphazero/mcts` and the
 Python board are deleted. The C++ core is the only implementation of Diamond's
 rules, encoding, search, self-play and geometry.

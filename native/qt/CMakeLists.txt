@@ -11,7 +11,7 @@ endif()
 if(DIAMOND_BUILD_QT_SOO)
     find_package(Torch REQUIRED)
     if(NOT TARGET alphadiamond::diamond_model)
-        message(FATAL_ERROR "DIAMOND_BUILD_QT_SOO requires DIAMOND_BUILD_LIBTORCH_PROBE=ON")
+        message(FATAL_ERROR "DIAMOND_BUILD_QT_SOO requires DIAMOND_BUILD_LIBTORCH=ON")
     endif()
 endif()
 

@@ -93,16 +93,33 @@ class JsonParser {
             if (static_cast<unsigned char>(character) < 0x20) error("control character in string");
             if (character != '\\') { result.push_back(character); continue; }
             if (position_ >= text_.size()) error("unterminated string escape");
-            switch (const char escaped = text_[position_++]) {
-                case '"': result.push_back('"'); break;
-                case '\\': result.push_back('\\'); break;
-                case '/': result.push_back('/'); break;
-                case 'b': result.push_back('\b'); break;
-                case 'f': result.push_back('\f'); break;
-                case 'n': result.push_back('\n'); break;
-                case 'r': result.push_back('\r'); break;
-                case 't': result.push_back('\t'); break;
-                default: error("unsupported string escape");
+            switch (text_[position_++]) {
+            case '"':
+                result.push_back('"');
+                break;
+            case '\\':
+                result.push_back('\\');
+                break;
+            case '/':
+                result.push_back('/');
+                break;
+            case 'b':
+                result.push_back('\b');
+                break;
+            case 'f':
+                result.push_back('\f');
+                break;
+            case 'n':
+                result.push_back('\n');
+                break;
+            case 'r':
+                result.push_back('\r');
+                break;
+            case 't':
+                result.push_back('\t');
+                break;
+            default:
+                error("unsupported string escape");
             }
         }
         error("unterminated string");

@@ -30,8 +30,14 @@
 #endif
 
 namespace {
-constexpr auto kRepository = "ubraket513/alphadiamond";
-constexpr auto kHuggingFaceDataset = "ubraket513/AlphaDiamond";
+#ifndef DIAMOND_MODEL_GITHUB_REPOSITORY
+#define DIAMOND_MODEL_GITHUB_REPOSITORY "ubraket513/alphadiamond"
+#endif
+#ifndef DIAMOND_MODEL_HUGGINGFACE_BUCKET
+#define DIAMOND_MODEL_HUGGINGFACE_BUCKET "ubraket513/AlphaDiamond"
+#endif
+constexpr auto kRepository = DIAMOND_MODEL_GITHUB_REPOSITORY;
+constexpr auto kHuggingFaceDataset = DIAMOND_MODEL_HUGGINGFACE_BUCKET;
 const QRegularExpression kSemVer(
     QStringLiteral("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|["
                    "0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-"

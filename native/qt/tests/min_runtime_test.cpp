@@ -35,6 +35,7 @@ int main(int argc, char** argv) {
     try {
         soo::ensure_topology_configured();
         const auto artifact = diamond_model::validate_deployment_artifact(argv[1], "min");
+        const auto encoding = soo::encoding_version_from_name(artifact.encoder_version);
         SooSearchRuntime runtime(QString::fromLocal8Bit(argv[1]));
         auto match = soo::standard_min_match();
         // Nonidentity seat order catches indexing utility by player ID instead of seat.
@@ -58,9 +59,9 @@ int main(int argc, char** argv) {
             require(result.telemetry.simulations == 4 && result.telemetry.evaluator_calls > 1 &&
                         result.telemetry.nodes_created > 1 && result.telemetry.neural_ms > 0,
                     "Min move must run neural tree search, not the first-legal fallback");
-            const auto encoded = soo::encode(state, match);
+            const auto encoded = soo::encode(state, match, encoding);
             auto features = torch::from_blob(const_cast<float*>(encoded.node_features.data()),
-                                             {1, 73, 6}, torch::kFloat32);
+                                             {1, 73, artifact.input_features}, torch::kFloat32);
             const auto [logits, values] = model->forward(features);
             require(std::abs(result.telemetry.root_network_value - values[0][0].item<float>()) < 1e-6,
                     "Min root value must belong to the canonical current player");
@@ -79,12 +80,12 @@ int main(int argc, char** argv) {
                     "Min Think Again must skip a rejected move");
             const auto one = runtime.search(state, match, {}, 1);
             const auto child = soo::apply_action(state, match, one.selected_action);
-            const auto child_encoded = soo::encode(child, match);
+            const auto child_encoded = soo::encode(child, match, encoding);
             const auto component = std::find(child_encoded.canonical_player_ids.begin(),
                 child_encoded.canonical_player_ids.end(), player) -
                 child_encoded.canonical_player_ids.begin();
             const auto child_features = torch::from_blob(
-                const_cast<float*>(child_encoded.node_features.data()), {1, 73, 6}, torch::kFloat32);
+                const_cast<float*>(child_encoded.node_features.data()), {1, 73, artifact.input_features}, torch::kFloat32);
             const auto [child_logits, child_values] = model->forward(child_features);
             const auto selected = action_telemetry_for(one.telemetry, one.selected_action);
             require(selected && std::abs(selected->q - child_values[0][component].item<float>()) < 1e-6,

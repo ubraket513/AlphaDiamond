@@ -9,10 +9,10 @@ if(DIAMOND_QML_PREVIEW AND Qt6_VERSION VERSION_LESS 6.12)
 endif()
 
 if(DIAMOND_BUILD_QT_SOO)
-    find_package(Torch REQUIRED)
     if(NOT TARGET alphadiamond::diamond_model)
-        message(FATAL_ERROR "DIAMOND_BUILD_QT_SOO requires DIAMOND_BUILD_LIBTORCH=ON")
+        message(FATAL_ERROR "DIAMOND_BUILD_QT_SOO requires DIAMOND_BUILD_MODEL=ON")
     endif()
+    find_package(Torch REQUIRED)
 endif()
 
 add_library(diamond_qt_backend STATIC
@@ -29,6 +29,20 @@ add_library(diamond_qt_backend STATIC
     native_move_player.cpp
     native_move_player.hpp
 )
+# The runtime needs normative topology even outside the source checkout.
+if(NOT AlphaDiamondEngine_TOPOLOGY_DIR)
+    set(AlphaDiamondEngine_TOPOLOGY_DIR "${PROJECT_SOURCE_DIR}/tests/golden/topology")
+endif()
+qt_add_resources(diamond_qt_backend topology_resources
+    PREFIX "/engine/topology"
+    BASE "${AlphaDiamondEngine_TOPOLOGY_DIR}"
+    FILES
+        "${AlphaDiamondEngine_TOPOLOGY_DIR}/topology_neighbour.i8"
+        "${AlphaDiamondEngine_TOPOLOGY_DIR}/topology_camp_positions.i32"
+        "${AlphaDiamondEngine_TOPOLOGY_DIR}/topology_pairwise_distance.i32"
+        "${AlphaDiamondEngine_TOPOLOGY_DIR}/topology_physical_to_canonical.i32"
+        "${AlphaDiamondEngine_TOPOLOGY_DIR}/topology_canonical_to_physical.i32"
+)
 target_link_libraries(diamond_qt_backend PUBLIC
     Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml Qt6::Quick Qt6::Multimedia
     alphadiamond::soo_core alphadiamond::soo_search
@@ -38,13 +52,13 @@ target_include_directories(diamond_qt_backend PUBLIC
 )
 target_compile_features(diamond_qt_backend PUBLIC cxx_std_20)
 set_target_properties(diamond_qt_backend PROPERTIES AUTOMOC ON)
-if(TARGET alphadiamond::diamond_orchestration)
+if(DIAMOND_DESKTOP_ENABLE_RATINGS)
     target_sources(diamond_qt_backend PRIVATE
         rating_bridge.cpp
         rating_bridge.hpp
     )
     target_link_libraries(diamond_qt_backend PUBLIC
-        alphadiamond::diamond_orchestration)
+        alphadiamond::diamond_rating)
     target_compile_definitions(diamond_qt_backend PRIVATE DIAMOND_QT_HAS_RATINGS)
 endif()
 if(DIAMOND_BUILD_QT_SOO)
@@ -200,7 +214,12 @@ if(BUILD_TESTING)
     if(MSVC)
         target_compile_options(diamond_qt_controller_contract PRIVATE /W4)
     endif()
-    add_test(NAME diamond_qt_controller_contract COMMAND diamond_qt_controller_contract)
+    set(DIAMOND_QT_MODEL_TEST_ARGUMENTS)
+    if(DIAMOND_DESKTOP_STANDALONE)
+        list(APPEND DIAMOND_QT_MODEL_TEST_ARGUMENTS "${AlphaDiamondEngine_DATA_DIR}/fixtures/soo")
+    endif()
+    add_test(NAME diamond_qt_controller_contract
+        COMMAND diamond_qt_controller_contract ${DIAMOND_QT_MODEL_TEST_ARGUMENTS})
     add_test(NAME diamond_qt_replay_smoke COMMAND diamond_qt --replay-smoke)
     add_test(NAME diamond_qt_analysis_smoke COMMAND diamond_qt --analysis-smoke)
 
@@ -211,9 +230,9 @@ if(BUILD_TESTING)
     if(MSVC)
         target_compile_options(diamond_qt_model_catalog_test PRIVATE /W4)
     endif()
-    add_test(NAME diamond_qt_model_catalog_test COMMAND diamond_qt_model_catalog_test)
+    add_test(NAME diamond_qt_model_catalog_test COMMAND diamond_qt_model_catalog_test ${DIAMOND_QT_MODEL_TEST_ARGUMENTS})
 
-    if(TARGET alphadiamond::diamond_orchestration)
+    if(DIAMOND_DESKTOP_ENABLE_RATINGS)
         add_executable(diamond_qt_rating_bridge_test tests/rating_bridge_test.cpp)
         target_link_libraries(diamond_qt_rating_bridge_test PRIVATE diamond_qt_backend)
         target_compile_features(diamond_qt_rating_bridge_test PRIVATE cxx_std_20)
@@ -223,6 +242,10 @@ if(BUILD_TESTING)
         endif()
         add_test(NAME diamond_qt_rating_bridge_test COMMAND diamond_qt_rating_bridge_test)
     endif()
+
+    add_executable(diamond_qt_topology_resource_test tests/topology_resource_test.cpp)
+    target_link_libraries(diamond_qt_topology_resource_test PRIVATE diamond_qt_backend)
+    add_test(NAME diamond_qt_topology_resource_test COMMAND diamond_qt_topology_resource_test)
 
     get_filename_component(DIAMOND_QT_ENV_PREFIX "${Qt6_DIR}/../../.." ABSOLUTE)
     if(EXISTS "${DIAMOND_QT_ENV_PREFIX}/plugins")
@@ -244,28 +267,41 @@ if(BUILD_TESTING)
         diamond_qt_controller_contract
         diamond_qt_analysis_smoke
         diamond_qt_replay_smoke
-        diamond_qt_model_catalog_test)
+        diamond_qt_model_catalog_test
+        diamond_qt_topology_resource_test)
     if(TARGET diamond_qt_rating_bridge_test)
         list(APPEND DIAMOND_QT_TESTS diamond_qt_rating_bridge_test)
     endif()
+    set(DIAMOND_QT_TEST_WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+    if(DIAMOND_DESKTOP_STANDALONE)
+        set(DIAMOND_QT_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/desktop-test-scratch")
+        file(MAKE_DIRECTORY "${DIAMOND_QT_TEST_WORKING_DIRECTORY}")
+    endif()
     set_tests_properties(${DIAMOND_QT_TESTS} PROPERTIES
-        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        WORKING_DIRECTORY "${DIAMOND_QT_TEST_WORKING_DIRECTORY}"
         ENVIRONMENT
             "QT_QPA_PLATFORM=offscreen;QT_PLUGIN_PATH=${DIAMOND_QT_PLUGIN_DIR};QML_IMPORT_PATH=${DIAMOND_QT_QML_DIR};QT_FORCE_STDERR_LOGGING=1"
         ENVIRONMENT_MODIFICATION "${DIAMOND_QT_RUNTIME_PATH_MODIFICATIONS}"
     )
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/topology-resource-scratch")
+    set_tests_properties(diamond_qt_topology_resource_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/topology-resource-scratch")
     if(WIN32)
         # Offscreen tests cannot exercise Windows caption messages.
         set_tests_properties(diamond_qt_native_chrome_test diamond_qt_window_smoke PROPERTIES
-            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+            WORKING_DIRECTORY "${DIAMOND_QT_TEST_WORKING_DIRECTORY}"
             ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_PLUGIN_PATH=${DIAMOND_QT_PLUGIN_DIR};QML_IMPORT_PATH=${DIAMOND_QT_QML_DIR};QT_FORCE_STDERR_LOGGING=1"
             ENVIRONMENT_MODIFICATION "${DIAMOND_QT_RUNTIME_PATH_MODIFICATIONS}"
             TIMEOUT 30)
     endif()
     if(DIAMOND_QML_PREVIEW)
+        set(DIAMOND_QT_PREVIEW_PLATFORM offscreen)
+        if(WIN32)
+            set(DIAMOND_QT_PREVIEW_PLATFORM windows)
+        endif()
         set_tests_properties(diamond_qt_preview_test PROPERTIES
-            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-            ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_PLUGIN_PATH=${DIAMOND_QT_PLUGIN_DIR};QML_IMPORT_PATH=${DIAMOND_QT_QML_DIR};QMLPREVIEW_HOTRELOAD=1;QT_FORCE_STDERR_LOGGING=1"
+            WORKING_DIRECTORY "${DIAMOND_QT_TEST_WORKING_DIRECTORY}"
+            ENVIRONMENT "QT_QPA_PLATFORM=${DIAMOND_QT_PREVIEW_PLATFORM};QT_PLUGIN_PATH=${DIAMOND_QT_PLUGIN_DIR};QML_IMPORT_PATH=${DIAMOND_QT_QML_DIR};QMLPREVIEW_HOTRELOAD=1;QT_FORCE_STDERR_LOGGING=1"
             ENVIRONMENT_MODIFICATION "${DIAMOND_QT_RUNTIME_PATH_MODIFICATIONS}"
             TIMEOUT 50)
     endif()

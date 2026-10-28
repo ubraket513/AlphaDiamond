@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "sdk_version": "0.1.0",
+      "source_commit": "adc20377a2708c5b80f0b19c521f45f7d2de7943",
+      "platform": "Linux",
+      "arch": "x86_64",
+      "compiler": "GNU",
+      "compiler_version": "15.2.0",
+      "configuration": "Release",
+      "torch_version": "2.7.1",
+      "torch_variant": "cpu",
+      "cxx_abi": "cxx11-1",
+      "archive_sha256": "5993e5dbe877e3ec4732db825ea930c653b7d4db9414024c3a0397f4b742dfbc",
+      "manifest_sha256": "608ae5967a615b3025d13af3a267aab52cd474f695d6d70692794c33713b6039",
+      "source_dirty": true
+    }
+  ]
+}

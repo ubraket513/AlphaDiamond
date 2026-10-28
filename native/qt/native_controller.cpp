@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QPointF>
 #include <QSet>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QUuid>
 
@@ -946,33 +947,27 @@ bool NativeController::loadGame(const QUrl& path) {
 }
 
 void NativeController::loadTopology() {
-    // The board tables are exported data, and three places legitimately have
-    // them: a packaged release ships them inside its default model, a
-    // development tree has an exported artifact, and a plain source checkout
-    // has the committed golden copy the native tests read. Without the last
-    // one the application cannot start from a fresh clone -- artifacts/ is not
-    // in the repository -- which is how this was found: the Qt tests aborted in
-    // CI with "native topology is not configured".
-    //
-    // They are the same tables by construction: tests/test_golden_is_current.py
-    // regenerates the golden copy from the Python board on every run, and the
-    // exporter writes the artifact from that same board.
-    const QStringList bases = {QCoreApplication::applicationDirPath(), QDir::currentPath()};
-    const QStringList relatives = {QStringLiteral("models/soo"),
-                                   QStringLiteral("artifacts/soo-spike"),
-                                   QStringLiteral("tests/golden/topology")};
-    for (const QString& base : bases) {
-        for (const QString& relative : relatives) {
-            const QString candidate = QDir(base).filePath(relative);
-            if (!QDir(candidate).exists()) continue;
-            if (soo::load_topology_from_dir(candidate.toStdString())) return;
-            // models/soo holds one directory per version; try those too.
-            const QDir versions(candidate);
-            for (const QString& version : versions.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-                if (soo::load_topology_from_dir(versions.filePath(version).toStdString())) return;
-            }
+    Q_INIT_RESOURCE(topology_resources);
+    QTemporaryDir topology_dir;
+    if (!topology_dir.isValid()) {
+        qWarning() << "Cannot create a temporary directory for embedded topology";
+        return;
+    }
+    const QStringList files = {
+        QStringLiteral("topology_neighbour.i8"),
+        QStringLiteral("topology_camp_positions.i32"),
+        QStringLiteral("topology_pairwise_distance.i32"),
+        QStringLiteral("topology_physical_to_canonical.i32"),
+        QStringLiteral("topology_canonical_to_physical.i32")};
+    for (const QString& file : files) {
+        if (!QFile::copy(QStringLiteral(":/engine/topology/") + file,
+                         topology_dir.filePath(file))) {
+            qWarning() << "Cannot extract embedded topology:" << file;
+            return;
         }
     }
+    if (!soo::load_topology_from_dir(topology_dir.path().toStdString()))
+        qWarning() << "Embedded topology is invalid";
 }
 
 void NativeController::rebuildPieceModel() {

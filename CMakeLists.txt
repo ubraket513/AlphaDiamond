@@ -8,6 +8,18 @@ option(DIAMOND_BUILD_LIBTORCH_PROBE "Deprecated alias for DIAMOND_BUILD_LIBTORCH
 if(DIAMOND_BUILD_LIBTORCH_PROBE)
     set(DIAMOND_BUILD_LIBTORCH ON CACHE BOOL "Build native LibTorch model and training support" FORCE)
 endif()
+# The legacy umbrella still enables both components. New presets select them
+# explicitly so inference never implicitly enables training.
+option(DIAMOND_BUILD_MODEL "Build native LibTorch inference models" OFF)
+option(DIAMOND_BUILD_TRAINING "Build native training, replay orchestration and release tools" OFF)
+if(DIAMOND_BUILD_LIBTORCH)
+    set(DIAMOND_BUILD_MODEL ON)
+    set(DIAMOND_BUILD_TRAINING ON)
+endif()
+if(DIAMOND_BUILD_TRAINING AND NOT DIAMOND_BUILD_MODEL)
+    message(FATAL_ERROR "DIAMOND_BUILD_TRAINING requires DIAMOND_BUILD_MODEL=ON")
+endif()
+option(DIAMOND_DESKTOP_ENABLE_RATINGS "Enable Desktop local ratings and optional sync" ON)
 option(DIAMOND_BUILD_QT "Build the native Qt/QML shell" OFF)
 option(DIAMOND_BUILD_QT_SOO "Build Qt shell with native LibTorch Soo and Min search" OFF)
 
@@ -52,6 +64,23 @@ endif()
 
 if(DIAMOND_BUILD_QT OR DIAMOND_BUILD_QT_SOO)
     add_subdirectory(native/qt)
+endif()
+
+if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS AND DIAMOND_BUILD_MODEL)
+        add_test(NAME runtime_boundary_test
+            COMMAND ${CMAKE_COMMAND}
+                -DSOURCE_DIR:PATH=${PROJECT_SOURCE_DIR}
+                -DBINARY_DIR:PATH=${CMAKE_BINARY_DIR}/native/runtime-boundary
+                -DCXX_COMPILER:FILEPATH=${CMAKE_CXX_COMPILER}
+                -DGENERATOR:STRING=${CMAKE_GENERATOR}
+                -DCXX_LAUNCHER:FILEPATH=${CMAKE_CXX_COMPILER_LAUNCHER}
+                -DEXE_LINKER_FLAGS:STRING=${CMAKE_EXE_LINKER_FLAGS}
+                -DTORCH_CUDA_ARCH_LIST:STRING=${TORCH_CUDA_ARCH_LIST}
+                -DTorch_DIR:PATH=${Torch_DIR}
+                -DQt6_DIR:PATH=${Qt6_DIR}
+                -DENABLE_QT:BOOL=${DIAMOND_BUILD_QT_SOO}
+                -P ${PROJECT_SOURCE_DIR}/native/tests/runtime_boundary_test.cmake)
+        set_tests_properties(runtime_boundary_test PROPERTIES LABELS "runtime;contract")
 endif()
 
 # Packaging. Models ship *beside* the executable rather than compiled into it,

@@ -11,7 +11,11 @@
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "BUILD_TESTING": "ON",
         "DIAMOND_BUILD_NATIVE_TESTS": "ON",
-        "DIAMOND_BUILD_QT": "OFF"
+        "DIAMOND_BUILD_QT": "OFF",
+        "DIAMOND_BUILD_LIBTORCH": "OFF",
+        "DIAMOND_BUILD_MODEL": "OFF",
+        "DIAMOND_BUILD_TRAINING": "OFF",
+        "DIAMOND_BUILD_QT_SOO": "OFF"
       }
     },
     {
@@ -22,12 +26,40 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
+      "name": "native-runtime",
+      "inherits": "native-ci",
+      "displayName": "Native LibTorch runtime without training",
+      "binaryDir": "${sourceDir}/build/native-runtime",
+      "cacheVariables": {
+        "DIAMOND_BUILD_LIBTORCH": "OFF",
+        "DIAMOND_BUILD_MODEL": "ON",
+        "DIAMOND_BUILD_TRAINING": "OFF"
+      }
+    },
+    {
+      "name": "native-gcc-mold",
+      "inherits": "native-runtime",
+      "displayName": "Native runtime with GCC, Ninja, sccache and mold",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/native-gcc-mold",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "/usr/bin/g++",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "$env{HOME}/.local/bin/sccache",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=mold",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=mold",
+        "CMAKE_MODULE_LINKER_FLAGS": "-fuse-ld=mold"
+      },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
       "name": "native-training",
       "inherits": "native-ci",
       "displayName": "Native LibTorch training",
       "binaryDir": "${sourceDir}/build/native-training",
       "cacheVariables": {
-        "DIAMOND_BUILD_LIBTORCH": "ON",
+        "DIAMOND_BUILD_LIBTORCH": "OFF",
+        "DIAMOND_BUILD_MODEL": "ON",
+        "DIAMOND_BUILD_TRAINING": "ON",
         "DIAMOND_BUILD_BENCHMARKS": "ON"
       }
     },
@@ -54,7 +86,10 @@
       "binaryDir": "${sourceDir}/build/native-qt",
       "cacheVariables": {
         "DIAMOND_BUILD_QT": "ON",
-        "DIAMOND_BUILD_LIBTORCH": "ON",
+        "DIAMOND_BUILD_LIBTORCH": "OFF",
+        "DIAMOND_BUILD_MODEL": "ON",
+        "DIAMOND_BUILD_TRAINING": "OFF",
+        "DIAMOND_DESKTOP_ENABLE_RATINGS": "ON",
         "DIAMOND_BUILD_QT_SOO": "ON"
       }
     },
@@ -78,6 +113,8 @@
     }
   ],
   "buildPresets": [
+    { "name": "native-runtime", "configurePreset": "native-runtime", "configuration": "RelWithDebInfo" },
+    { "name": "native-gcc-mold", "configurePreset": "native-gcc-mold", "configuration": "RelWithDebInfo" },
     { "name": "native-ci", "configurePreset": "native-ci", "configuration": "RelWithDebInfo" },
     { "name": "native-release", "configurePreset": "native-release", "configuration": "Release" },
     { "name": "native-training", "configurePreset": "native-training", "configuration": "RelWithDebInfo" },
@@ -87,6 +124,20 @@
     { "name": "native-package", "configurePreset": "native-package", "configuration": "Release" }
   ],
   "testPresets": [
+    {
+      "name": "native-runtime",
+      "configurePreset": "native-runtime",
+      "configuration": "RelWithDebInfo",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "native-gcc-mold",
+      "configurePreset": "native-gcc-mold",
+      "configuration": "RelWithDebInfo",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
     {
       "name": "native-qt-preview",
       "configurePreset": "native-qt-preview",

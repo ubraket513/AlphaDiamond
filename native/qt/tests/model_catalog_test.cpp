@@ -14,6 +14,7 @@
 
 #include <stdexcept>
 
+#include "sdk_fixture.hpp"
 #include "../model_catalog.hpp"
 
 struct ModelCatalogTestAccess {
@@ -176,6 +177,14 @@ void downloadResponse(bool compressed) {
 } // namespace
 
 int main(int argc, char** argv) {
+    QTemporaryDir sdk_fixture;
+    if (argc > 1 && QByteArray(argv[1]).startsWith("--") == false) {
+        if (!sdk_fixture.isValid() || !prepareSdkFixture(sdk_fixture.path(), QString::fromLocal8Bit(argv[1])) ||
+            !QDir::setCurrent(sdk_fixture.path())) {
+            qCritical("Cannot prepare SDK model fixture");
+            return 1;
+        }
+    }
     QCoreApplication application(argc, argv);
     QStandardPaths::setTestModeEnabled(true);
     QTemporaryDir settings;

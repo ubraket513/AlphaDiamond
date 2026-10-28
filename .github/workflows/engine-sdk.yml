@@ -1,0 +1,127 @@
+name: Engine Runtime SDK
+
+on:
+  pull_request:
+    paths: ['native/**', 'cmake/**', 'CMakeLists.txt', '.github/workflows/engine-sdk.yml']
+  push:
+    tags: ['engine-sdk/v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-sdk:
+    name: Runtime SDK (${{ matrix.os }}, ${{ matrix.config }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2022, config: Release }
+          - { os: windows-2022, config: Debug }
+          - { os: ubuntu-24.04, config: Release }
+    env:
+      LIBTORCH_VERSION: 2.7.1
+      OMP_NUM_THREADS: 2
+      MKL_NUM_THREADS: 2
+      SCCACHE_GHA_ENABLED: 'true'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: lukka/get-cmake@v4.2.3
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Install Linux GCC, mold and compiler cache
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes g++-14 mold sccache ninja-build
+          echo 'CXX=g++-14' >> "$GITHUB_ENV"
+      - name: Budget build workers by CPU and available memory
+        run: |
+          if test "$RUNNER_OS" = Windows; then
+            cpus=$(powershell.exe -NoProfile -Command '(Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors' | tr -d '\r')
+            memory_kb=$(powershell.exe -NoProfile -Command '(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory' | tr -d '\r')
+          else
+            cpus=$(getconf _NPROCESSORS_ONLN)
+            memory_kb=$(awk '/MemAvailable:/ { print $2 }' /proc/meminfo)
+          fi
+          # Torch-heavy translation units can use 2 GiB each. Tests use all
+          # CPUs; engine_sdk_install reserves its nested build's processors.
+          jobs=$((memory_kb / 2097152))
+          if test "$jobs" -lt 1; then jobs=1; fi
+          if test "$jobs" -gt "$cpus"; then jobs=$cpus; fi
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
+          echo "Using $jobs build workers and $cpus test workers"
+      - name: Fetch pinned official CPU LibTorch outside the checkout
+        run: |
+          if test "$RUNNER_OS" = Windows; then
+            flavor=libtorch-win-shared-with-deps
+            if test '${{ matrix.config }}' = Debug; then flavor="$flavor-debug"; fi
+          else
+            flavor=libtorch-cxx11-abi-shared-with-deps
+          fi
+          curl --fail --location --retry 3 \
+            "https://download.pytorch.org/libtorch/cpu/${flavor}-${LIBTORCH_VERSION}%2Bcpu.zip" \
+            --output "$RUNNER_TEMP/libtorch.zip"
+          (cd "$RUNNER_TEMP" && cmake -E tar xf libtorch.zip)
+          echo "$RUNNER_TEMP/libtorch/lib" >> "$GITHUB_PATH"
+      - name: Configure Runtime without training
+        run: |
+          extra=()
+          if test "$RUNNER_OS" = Linux; then
+            extra+=(-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold -DCMAKE_CXX_COMPILER_LAUNCHER=sccache)
+          fi
+          cmake -S . -B build/sdk -G Ninja \
+            -DCMAKE_BUILD_TYPE='${{ matrix.config }}' \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/libtorch" \
+            -DDIAMOND_BUILD_MODEL=ON -DDIAMOND_BUILD_TRAINING=OFF \
+            -DDIAMOND_BUILD_NATIVE_TESTS=ON -DBUILD_TESTING=ON \
+            -DDIAMOND_BUILD_QT=OFF "${extra[@]}"
+      - run: cmake --build build/sdk --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
+      - name: Test runtime and install
+        run: |
+          ctest --test-dir build/sdk --output-on-failure --parallel "$CTEST_PARALLEL_LEVEL"
+          cmake --install build/sdk --component Runtime \
+            --config '${{ matrix.config }}' --prefix "$RUNNER_TEMP/sdk-install"
+      - name: Copy consumer test before hiding producer checkout and build
+        run: |
+          cp -R native/tests/sdk_consumer "$RUNNER_TEMP/sdk-consumer"
+          cp native/tests/sdk_install_test.cmake "$RUNNER_TEMP/sdk_install_test.cmake"
+      - name: Build relocated consumer with producer paths inaccessible
+        working-directory: ${{ runner.temp }}
+        run: |
+          mv "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE.hidden"
+          test ! -e "$GITHUB_WORKSPACE"
+          flags=()
+          if test "$RUNNER_OS" = Linux; then
+            flags+=(-DCOMPILER=g++-14 -DEXE_LINKER_FLAGS=-fuse-ld=mold -DCOMPILER_LAUNCHER=sccache)
+          fi
+          cmake -DSDK_PREFIX="$RUNNER_TEMP/sdk-install" \
+            -DCONSUMER_SOURCE="$RUNNER_TEMP/sdk-consumer" \
+            -DSOURCE_DIR="$GITHUB_WORKSPACE" -DBUILD_DIR="$GITHUB_WORKSPACE/build/sdk" \
+            -DPRODUCER_TORCH_PREFIX="$RUNNER_TEMP/libtorch" \
+            -DTorch_DIR="$RUNNER_TEMP/libtorch/share/cmake/Torch" \
+            -DGENERATOR=Ninja -DCONFIG='${{ matrix.config }}' -DJOBS="$CMAKE_BUILD_PARALLEL_LEVEL" \
+            "${flags[@]}" -P "$RUNNER_TEMP/sdk_install_test.cmake"
+      - name: Restore checkout for artifact collection and action cleanup
+        if: always()
+        working-directory: ${{ runner.temp }}
+        run: |
+          if test -d "$GITHUB_WORKSPACE.hidden"; then mv "$GITHUB_WORKSPACE.hidden" "$GITHUB_WORKSPACE"; fi
+      - name: Archive validated Runtime SDK
+        working-directory: ${{ runner.temp }}/sdk-install
+        run: |
+          cmake -E tar cf "$RUNNER_TEMP/AlphaDiamondEngine-0.1.0-${RUNNER_OS}-${RUNNER_ARCH}-${{ matrix.config }}.zip" --format=zip .
+          cmake -E sha256sum "$RUNNER_TEMP/AlphaDiamondEngine-0.1.0-${RUNNER_OS}-${RUNNER_ARCH}-${{ matrix.config }}.zip" > "$RUNNER_TEMP/sdk-sha256.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-sdk-${{ runner.os }}-${{ runner.arch }}-${{ matrix.config }}
+          path: |
+            ${{ runner.temp }}/AlphaDiamondEngine-*.zip
+            ${{ runner.temp }}/sdk-sha256.txt
+          if-no-files-found: error

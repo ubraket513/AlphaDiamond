@@ -13,6 +13,7 @@
 #include <cmath>
 #include <functional>
 
+#include "sdk_fixture.hpp"
 #include "native_controller.hpp"
 #include "search_telemetry.hpp"
 #include "soo/rules.hpp"
@@ -67,6 +68,16 @@ int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_MEDIA_BACKEND"))
         qputenv("QT_MEDIA_BACKEND", QByteArrayLiteral("windows"));
 #endif
+    QTemporaryDir sdk_fixture;
+    if (argc > 1) {
+        if (!sdk_fixture.isValid() || !prepareSdkFixture(sdk_fixture.path(), QString::fromLocal8Bit(argv[1])) ||
+            !QDir::setCurrent(sdk_fixture.path())) {
+            qCritical("Cannot prepare SDK model fixture");
+            return 1;
+        }
+        qputenv("XDG_DATA_HOME", sdk_fixture.path().toUtf8());
+        qputenv("XDG_CONFIG_HOME", sdk_fixture.path().toUtf8());
+    }
     QGuiApplication app(argc, argv);
     qInfo("controller contract: startup");
 

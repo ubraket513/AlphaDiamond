@@ -57,15 +57,38 @@ target_compile_options(soo_search PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4>
 )
 
+# Shared runtime facilities keep their public headers and C++ namespaces.
+add_library(diamond_support STATIC src/json.cpp)
+add_library(alphadiamond::diamond_support ALIAS diamond_support)
+add_library(diamond_artifact STATIC src/deployment_artifact.cpp)
+add_library(alphadiamond::diamond_artifact ALIAS diamond_artifact)
+add_library(diamond_rating STATIC src/rating.cpp src/rating_store.cpp)
+add_library(alphadiamond::diamond_rating ALIAS diamond_rating)
+target_link_libraries(diamond_artifact PUBLIC alphadiamond::soo_core alphadiamond::diamond_support)
+target_link_libraries(diamond_rating PUBLIC alphadiamond::diamond_support)
+foreach(runtime_target diamond_support diamond_artifact diamond_rating)
+    target_include_directories(${runtime_target} PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+    target_compile_features(${runtime_target} PUBLIC cxx_std_20)
+    target_compile_options(${runtime_target} PRIVATE
+        $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic>
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>)
+endforeach()
+
+add_executable(alphadiamond-rating-sync src/rating_sync_main.cpp)
+target_link_libraries(alphadiamond-rating-sync PRIVATE alphadiamond::diamond_rating)
+target_compile_features(alphadiamond-rating-sync PRIVATE cxx_std_20)
+install(TARGETS alphadiamond-rating-sync RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
 add_library(diamond_pipeline STATIC
-    src/json.cpp
     src/policy_diagnostics.cpp
     src/replay_segment.cpp
     src/replay_store.cpp
     src/training_sample.cpp
 )
 add_library(alphadiamond::diamond_pipeline ALIAS diamond_pipeline)
-target_link_libraries(diamond_pipeline PUBLIC alphadiamond::soo_core)
+target_link_libraries(diamond_pipeline PUBLIC alphadiamond::soo_core alphadiamond::diamond_support)
 target_include_directories(diamond_pipeline PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
@@ -129,25 +152,82 @@ if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS)
     set_tests_properties(golden_manifest_test PROPERTIES LABELS contract)
 endif()
 
-if(DIAMOND_BUILD_LIBTORCH)
+if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS)
+    # Deployment artifacts are produced by the native release pipeline.
+    # The tests register only for the artifacts that are present, so a
+    # checkout without them configures cleanly instead of failing late.
+    set(DIAMOND_SOO_ARTIFACT "${PROJECT_SOURCE_DIR}/artifacts/soo-spike" CACHE PATH "Soo deployment artifact for native contract and parity tests")
+    set(DIAMOND_MIN_ARTIFACT "${PROJECT_SOURCE_DIR}/artifacts/min-spike" CACHE PATH "Min deployment artifact for native contract and parity tests")
+
+    add_executable(soo_artifact_contract tests/artifact_contract.cpp)
+    target_link_libraries(soo_artifact_contract PRIVATE alphadiamond::diamond_artifact)
+    target_compile_features(soo_artifact_contract PRIVATE cxx_std_20)
+
+    if(EXISTS "${DIAMOND_SOO_ARTIFACT}/metadata.json")
+        if(EXISTS "${DIAMOND_MIN_ARTIFACT}/metadata.json")
+            add_test(NAME soo_artifact_contract COMMAND soo_artifact_contract
+                "${DIAMOND_SOO_ARTIFACT}" "${DIAMOND_MIN_ARTIFACT}")
+        else()
+            add_test(NAME soo_artifact_contract COMMAND soo_artifact_contract "${DIAMOND_SOO_ARTIFACT}")
+        endif()
+    endif()
+    add_executable(rating_fixture_test tests/rating_fixture_test.cpp)
+    target_link_libraries(rating_fixture_test PRIVATE alphadiamond::diamond_rating)
+    target_include_directories(rating_fixture_test PRIVATE tests)
+    target_compile_features(rating_fixture_test PRIVATE cxx_std_20)
+    add_test(NAME rating_fixture_test COMMAND rating_fixture_test)
+    set_tests_properties(rating_fixture_test PROPERTIES LABELS "runtime;rating")
+
+    add_executable(rating_registry_test tests/rating_registry_test.cpp)
+    target_link_libraries(rating_registry_test PRIVATE alphadiamond::diamond_rating)
+    target_include_directories(rating_registry_test PRIVATE tests)
+    target_compile_features(rating_registry_test PRIVATE cxx_std_20)
+    add_test(NAME rating_registry_test COMMAND rating_registry_test)
+    set_tests_properties(rating_registry_test PROPERTIES LABELS "runtime;rating")
+
+    add_executable(rating_store_transaction_test tests/rating_store_transaction_test.cpp)
+    target_link_libraries(rating_store_transaction_test PRIVATE alphadiamond::diamond_rating)
+    target_include_directories(rating_store_transaction_test PRIVATE tests)
+    target_compile_features(rating_store_transaction_test PRIVATE cxx_std_20)
+    add_test(NAME rating_store_transaction_test COMMAND rating_store_transaction_test)
+    set_tests_properties(rating_store_transaction_test PROPERTIES LABELS "runtime;rating")
+
+    add_executable(rating_sync_test tests/rating_sync_test.cpp)
+    target_link_libraries(rating_sync_test PRIVATE alphadiamond::diamond_rating)
+    target_include_directories(rating_sync_test PRIVATE tests)
+    target_compile_features(rating_sync_test PRIVATE cxx_std_20)
+    add_dependencies(rating_sync_test alphadiamond-rating-sync)
+    add_test(NAME rating_sync_test
+             COMMAND rating_sync_test "$<TARGET_FILE:alphadiamond-rating-sync>")
+    set_tests_properties(rating_sync_test PROPERTIES LABELS "runtime;rating")
+
+    add_executable(model_index_test tests/model_index_test.cpp)
+    target_link_libraries(model_index_test PRIVATE alphadiamond::diamond_artifact)
+    target_include_directories(model_index_test PRIVATE tests)
+    target_compile_features(model_index_test PRIVATE cxx_std_20)
+    add_test(NAME model_index_test
+             COMMAND model_index_test "${CMAKE_CURRENT_BINARY_DIR}/model-index-scratch")
+
+endif()
+
+if(DIAMOND_BUILD_MODEL)
     find_package(Torch REQUIRED)
+    include(${PROJECT_SOURCE_DIR}/cmake/AlphaDiamondEngineTorch.cmake)
     separate_arguments(DIAMOND_TORCH_CXX_FLAGS NATIVE_COMMAND "${TORCH_CXX_FLAGS}")
     if(WIN32)
         set(DIAMOND_TEST_PATH "$<TARGET_FILE_DIR:torch>;$ENV{PATH}")
         string(REPLACE ";" "\\;" DIAMOND_TEST_PATH "${DIAMOND_TEST_PATH}")
     endif()
     add_library(diamond_model STATIC
-        src/deployment_artifact.cpp
-        src/json.cpp
         src/soo_model.cpp
         src/soo_evaluator.cpp
     )
     add_library(alphadiamond::diamond_model ALIAS diamond_model)
-    target_link_libraries(diamond_model PUBLIC alphadiamond::soo_core ${TORCH_LIBRARIES})
+    target_link_libraries(diamond_model PUBLIC alphadiamond::soo_core alphadiamond::diamond_artifact Torch::Torch)
     target_include_directories(diamond_model
         PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-            ${TORCH_INCLUDE_DIRS}
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     )
     target_compile_features(diamond_model PUBLIC cxx_std_20)
     target_compile_options(diamond_model PUBLIC ${DIAMOND_TORCH_CXX_FLAGS})
@@ -156,6 +236,60 @@ if(DIAMOND_BUILD_LIBTORCH)
         target_compile_options(diamond_model PRIVATE /bigobj)
     endif()
 
+    add_executable(soo_libtorch_probe src/soo_libtorch_probe.cpp)
+    target_link_libraries(soo_libtorch_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search ${TORCH_LIBRARIES})
+    target_compile_features(soo_libtorch_probe PRIVATE cxx_std_20)
+    target_include_directories(soo_libtorch_probe PRIVATE ${TORCH_INCLUDE_DIRS})
+    target_compile_definitions(soo_libtorch_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
+    if(MSVC)
+        target_compile_options(soo_libtorch_probe PRIVATE /bigobj)
+    endif()
+
+    add_executable(soo_evaluator_probe src/soo_evaluator_probe.cpp)
+    target_link_libraries(soo_evaluator_probe PRIVATE alphadiamond::diamond_model)
+    target_compile_features(soo_evaluator_probe PRIVATE cxx_std_20)
+    target_compile_definitions(soo_evaluator_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
+    if(MSVC)
+        target_compile_options(soo_evaluator_probe PRIVATE /bigobj)
+    endif()
+
+    add_executable(soo_mcts_probe src/soo_mcts_probe.cpp)
+    target_link_libraries(soo_mcts_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search)
+    target_compile_features(soo_mcts_probe PRIVATE cxx_std_20)
+    target_compile_definitions(soo_mcts_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
+    if(MSVC)
+        target_compile_options(soo_mcts_probe PRIVATE /bigobj)
+    endif()
+
+    if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS)
+        add_executable(model_parity_test tests/model_parity_test.cpp)
+        target_link_libraries(model_parity_test PRIVATE alphadiamond::diamond_model ${TORCH_LIBRARIES})
+        target_include_directories(model_parity_test PRIVATE ${TORCH_INCLUDE_DIRS} tests)
+        target_compile_features(model_parity_test PRIVATE cxx_std_20)
+        target_compile_definitions(model_parity_test PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
+        if(MSVC)
+            target_compile_options(model_parity_test PRIVATE /bigobj)
+        endif()
+
+        if(EXISTS "${DIAMOND_SOO_ARTIFACT}/metadata.json")
+            if(EXISTS "${DIAMOND_MIN_ARTIFACT}/metadata.json")
+                add_test(NAME model_parity_test
+                         COMMAND model_parity_test
+                                 soo "${DIAMOND_SOO_ARTIFACT}" min "${DIAMOND_MIN_ARTIFACT}")
+            else()
+                add_test(NAME model_parity_test
+                         COMMAND model_parity_test soo "${DIAMOND_SOO_ARTIFACT}")
+            endif()
+            if(WIN32)
+                set_tests_properties(model_parity_test PROPERTIES
+                    ENVIRONMENT "PATH=${DIAMOND_TEST_PATH}")
+            endif()
+        endif()
+
+    endif()
+endif()
+
+if(DIAMOND_BUILD_TRAINING)
     add_library(diamond_training STATIC
         src/checkpoint.cpp
         src/checkpoint_export.cpp
@@ -239,8 +373,6 @@ if(DIAMOND_BUILD_LIBTORCH)
         src/arena.cpp
         src/config.cpp
         src/coordinator.cpp
-        src/rating.cpp
-        src/rating_store.cpp
         src/report.cpp
         src/run_state.cpp
         src/schedule.cpp
@@ -248,7 +380,7 @@ if(DIAMOND_BUILD_LIBTORCH)
         src/training_wiring.cpp
     )
     add_library(alphadiamond::diamond_orchestration ALIAS diamond_orchestration)
-    target_link_libraries(diamond_orchestration PUBLIC alphadiamond::diamond_pipeline)
+    target_link_libraries(diamond_orchestration PUBLIC alphadiamond::diamond_pipeline alphadiamond::diamond_rating)
     target_include_directories(diamond_orchestration PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     )
@@ -358,33 +490,9 @@ if(DIAMOND_BUILD_LIBTORCH)
     install(TARGETS alphadiamond-train
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-    add_executable(alphadiamond-rating-sync src/rating_sync_main.cpp)
-    target_link_libraries(alphadiamond-rating-sync PRIVATE
-        alphadiamond::diamond_orchestration)
-    target_compile_features(alphadiamond-rating-sync PRIVATE cxx_std_20)
-    install(TARGETS alphadiamond-rating-sync
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-
     add_executable(alphadiamond-pipeline src/pipeline_main.cpp)
     target_link_libraries(alphadiamond-pipeline PRIVATE alphadiamond::diamond_native_pipeline)
     target_compile_features(alphadiamond-pipeline PRIVATE cxx_std_20)
-
-    add_executable(soo_libtorch_probe src/soo_libtorch_probe.cpp)
-    target_link_libraries(soo_libtorch_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search ${TORCH_LIBRARIES})
-    target_compile_features(soo_libtorch_probe PRIVATE cxx_std_20)
-    target_include_directories(soo_libtorch_probe PRIVATE ${TORCH_INCLUDE_DIRS})
-    target_compile_definitions(soo_libtorch_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
-    if(MSVC)
-        target_compile_options(soo_libtorch_probe PRIVATE /bigobj)
-    endif()
-
-    add_executable(soo_evaluator_probe src/soo_evaluator_probe.cpp)
-    target_link_libraries(soo_evaluator_probe PRIVATE alphadiamond::diamond_model)
-    target_compile_features(soo_evaluator_probe PRIVATE cxx_std_20)
-    target_compile_definitions(soo_evaluator_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
-    if(MSVC)
-        target_compile_options(soo_evaluator_probe PRIVATE /bigobj)
-    endif()
 
     # Which prior carries Min out of a cold start: Soo's policy through a 3P
     # adapter, the vacancy heuristic, or nothing.  Self-play only -- it never
@@ -401,32 +509,7 @@ if(DIAMOND_BUILD_LIBTORCH)
         target_compile_options(alphadiamond-min-probe PRIVATE /bigobj)
     endif()
 
-    add_executable(soo_mcts_probe src/soo_mcts_probe.cpp)
-    target_link_libraries(soo_mcts_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search)
-    target_compile_features(soo_mcts_probe PRIVATE cxx_std_20)
-    target_compile_definitions(soo_mcts_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
-    if(MSVC)
-        target_compile_options(soo_mcts_probe PRIVATE /bigobj)
-    endif()
-
     if(BUILD_TESTING)
-        # Deployment artifacts are produced by the native release pipeline.
-        # The tests register only for the artifacts that are present, so a
-        # checkout without them configures cleanly instead of failing late.
-        set(DIAMOND_SOO_ARTIFACT "${PROJECT_SOURCE_DIR}/artifacts/soo-spike")
-        set(DIAMOND_MIN_ARTIFACT "${PROJECT_SOURCE_DIR}/artifacts/min-spike")
-
-        add_executable(soo_artifact_contract tests/artifact_contract.cpp)
-        target_link_libraries(soo_artifact_contract PRIVATE alphadiamond::diamond_model)
-        target_compile_features(soo_artifact_contract PRIVATE cxx_std_20)
-
-        add_executable(model_index_test tests/model_index_test.cpp)
-        target_link_libraries(model_index_test PRIVATE alphadiamond::diamond_model)
-        target_include_directories(model_index_test PRIVATE tests)
-        target_compile_features(model_index_test PRIVATE cxx_std_20)
-        add_test(NAME model_index_test
-                 COMMAND model_index_test "${CMAKE_CURRENT_BINARY_DIR}/model-index-scratch")
-
         add_executable(promotion_test tests/promotion_test.cpp)
         target_link_libraries(promotion_test PRIVATE alphadiamond::diamond_release)
         target_compile_features(promotion_test PRIVATE cxx_std_20)
@@ -445,41 +528,14 @@ if(DIAMOND_BUILD_LIBTORCH)
             target_compile_options(final_pipeline_smoke_test PRIVATE /bigobj)
         endif()
 
-        add_executable(model_parity_test tests/model_parity_test.cpp)
-        target_link_libraries(model_parity_test PRIVATE alphadiamond::diamond_model ${TORCH_LIBRARIES})
-        target_include_directories(model_parity_test PRIVATE ${TORCH_INCLUDE_DIRS} tests)
-        target_compile_features(model_parity_test PRIVATE cxx_std_20)
-        target_compile_definitions(model_parity_test PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
-        if(MSVC)
-            target_compile_options(model_parity_test PRIVATE /bigobj)
-        endif()
-
-        if(EXISTS "${DIAMOND_SOO_ARTIFACT}/metadata.json")
-            if(EXISTS "${DIAMOND_MIN_ARTIFACT}/metadata.json")
-                add_test(NAME soo_artifact_contract
-                         COMMAND soo_artifact_contract
-                                 "${DIAMOND_SOO_ARTIFACT}" "${DIAMOND_MIN_ARTIFACT}")
-                add_test(NAME model_parity_test
-                         COMMAND model_parity_test
-                                 soo "${DIAMOND_SOO_ARTIFACT}" min "${DIAMOND_MIN_ARTIFACT}")
+        if(EXISTS "${DIAMOND_SOO_ARTIFACT}/metadata.json" AND EXISTS "${DIAMOND_MIN_ARTIFACT}/metadata.json")
                 add_test(NAME final_pipeline_smoke_test
                          COMMAND final_pipeline_smoke_test
                                  "${CMAKE_CURRENT_BINARY_DIR}/final-pipeline-smoke-scratch"
                                  "${DIAMOND_SOO_ARTIFACT}" "${DIAMOND_MIN_ARTIFACT}")
                 set_tests_properties(final_pipeline_smoke_test PROPERTIES LABELS pipeline)
-            else()
-                add_test(NAME soo_artifact_contract
-                         COMMAND soo_artifact_contract "${DIAMOND_SOO_ARTIFACT}")
-                add_test(NAME model_parity_test
-                         COMMAND model_parity_test soo "${DIAMOND_SOO_ARTIFACT}")
-            endif()
             if(WIN32)
-                set_tests_properties(model_parity_test PROPERTIES
-                    ENVIRONMENT "PATH=${DIAMOND_TEST_PATH}")
-                if(TEST final_pipeline_smoke_test)
-                    set_tests_properties(final_pipeline_smoke_test PROPERTIES
-                        ENVIRONMENT "PATH=${DIAMOND_TEST_PATH}")
-                endif()
+                set_tests_properties(final_pipeline_smoke_test PROPERTIES ENVIRONMENT "PATH=${DIAMOND_TEST_PATH}")
             endif()
         endif()
 
@@ -627,36 +683,6 @@ if(DIAMOND_BUILD_LIBTORCH)
         add_test(NAME arena_schedule_test COMMAND arena_schedule_test)
         set_tests_properties(arena_schedule_test PROPERTIES LABELS orchestration)
 
-        add_executable(rating_fixture_test tests/rating_fixture_test.cpp)
-        target_link_libraries(rating_fixture_test PRIVATE alphadiamond::diamond_orchestration)
-        target_include_directories(rating_fixture_test PRIVATE tests)
-        target_compile_features(rating_fixture_test PRIVATE cxx_std_20)
-        add_test(NAME rating_fixture_test COMMAND rating_fixture_test)
-        set_tests_properties(rating_fixture_test PROPERTIES LABELS orchestration)
-
-        add_executable(rating_registry_test tests/rating_registry_test.cpp)
-        target_link_libraries(rating_registry_test PRIVATE alphadiamond::diamond_orchestration)
-        target_include_directories(rating_registry_test PRIVATE tests)
-        target_compile_features(rating_registry_test PRIVATE cxx_std_20)
-        add_test(NAME rating_registry_test COMMAND rating_registry_test)
-        set_tests_properties(rating_registry_test PROPERTIES LABELS orchestration)
-
-        add_executable(rating_store_transaction_test tests/rating_store_transaction_test.cpp)
-        target_link_libraries(rating_store_transaction_test PRIVATE alphadiamond::diamond_orchestration)
-        target_include_directories(rating_store_transaction_test PRIVATE tests)
-        target_compile_features(rating_store_transaction_test PRIVATE cxx_std_20)
-        add_test(NAME rating_store_transaction_test COMMAND rating_store_transaction_test)
-        set_tests_properties(rating_store_transaction_test PROPERTIES LABELS orchestration)
-
-        add_executable(rating_sync_test tests/rating_sync_test.cpp)
-        target_link_libraries(rating_sync_test PRIVATE alphadiamond::diamond_orchestration)
-        target_include_directories(rating_sync_test PRIVATE tests)
-        target_compile_features(rating_sync_test PRIVATE cxx_std_20)
-        add_dependencies(rating_sync_test alphadiamond-rating-sync)
-        add_test(NAME rating_sync_test
-                 COMMAND rating_sync_test "$<TARGET_FILE:alphadiamond-rating-sync>")
-        set_tests_properties(rating_sync_test PROPERTIES LABELS orchestration)
-
         add_executable(cli_contract_test tests/cli_contract_test.cpp)
         target_link_libraries(cli_contract_test PRIVATE
             alphadiamond::diamond_orchestration alphadiamond::diamond_training)
@@ -746,17 +772,4 @@ if(DIAMOND_BUILD_LIBTORCH)
     endif()
 endif()
 
-install(TARGETS soo_core soo_search
-    EXPORT alphadiamondTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
-
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
-install(EXPORT alphadiamondTargets
-    FILE alphadiamondTargets.cmake
-    NAMESPACE alphadiamond::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/alphadiamond
-)
+include(${PROJECT_SOURCE_DIR}/cmake/InstallEngineSdk.cmake)

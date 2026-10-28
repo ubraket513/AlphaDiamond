@@ -61,5 +61,13 @@ int main(int argc, char** argv) {
                      bridge.syncState().contains(QStringLiteral("queued"), Qt::CaseInsensitive),
                  "missing sync launcher did not leave durable retry state"))
         return 1;
+    qunsetenv("DIAMOND_RATING_SYNC_DISABLED");
+    qputenv("DIAMOND_RATING_SYNC_BINARY",
+            temporary.filePath(QStringLiteral("missing-rating-sync")).toUtf8());
+    bridge.syncPending();
+    if (!require(!bridge.syncRunning() && bridge.pendingEventCount() == 1 &&
+                     bridge.syncState().contains(QStringLiteral("launcher"), Qt::CaseInsensitive),
+                 "missing sync binary did not preserve the pending event"))
+        return 1;
     return 0;
 }

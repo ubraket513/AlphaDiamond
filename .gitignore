@@ -8,6 +8,7 @@ build/
 /build-*/
 /out/
 dist/
+/.deps/
 
 # Native self-play extension: built in place, never committed.
 *.so

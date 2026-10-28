@@ -15,11 +15,9 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "BUILD_TESTING": "ON",
         "DIAMOND_BUILD_NATIVE_TESTS": "ON",
-        "DIAMOND_BUILD_QT": "OFF",
         "DIAMOND_BUILD_LIBTORCH": "OFF",
         "DIAMOND_BUILD_MODEL": "OFF",
         "DIAMOND_BUILD_TRAINING": "OFF",
-        "DIAMOND_BUILD_QT_SOO": "OFF",
         "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "OFF",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
@@ -92,54 +90,10 @@
       }
     },
     {
-      "name": "native-qt",
-      "inherits": "native-ci",
-      "displayName": "Native Qt + LibTorch application",
-      "binaryDir": "${sourceDir}/build/native-qt",
-      "cacheVariables": {
-        "DIAMOND_BUILD_QT": "ON",
-        "DIAMOND_BUILD_LIBTORCH": "OFF",
-        "DIAMOND_BUILD_MODEL": "ON",
-        "DIAMOND_BUILD_TRAINING": "OFF",
-        "DIAMOND_DESKTOP_ENABLE_RATINGS": "ON",
-        "DIAMOND_BUILD_QT_SOO": "ON"
-      }
-    },
-    {
-      "name": "native-qt-preview",
-      "inherits": "native-qt",
-      "displayName": "Qt 6.12 development with QML hot reload",
-      "binaryDir": "${sourceDir}/build/native-qt-preview",
-      "cacheVariables": {
-        "DIAMOND_QML_PREVIEW": "ON",
-        "Qt6_DIR": "$env{DIAMOND_QT_ROOT}/lib/cmake/Qt6",
-        "CMAKE_PREFIX_PATH": "$env{DIAMOND_QT_ROOT};$env{CONDA_PREFIX}/Library"
-      }
-    },
-    {
-      "name": "native-package",
-      "inherits": "native-qt",
-      "displayName": "Native Windows package",
-      "binaryDir": "${sourceDir}/build/native-package",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "DIAMOND_QML_PREVIEW": "OFF"
-      }
-    },
-    {
       "name": "native-training-release",
       "inherits": "native-training",
       "displayName": "Optimized final native training",
       "binaryDir": "${sourceDir}/build/native-training-release",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
-      "name": "native-qt-release",
-      "inherits": "native-qt",
-      "displayName": "Optimized native application",
-      "binaryDir": "${sourceDir}/build/native-qt-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
@@ -216,32 +170,8 @@
       "jobs": 8
     },
     {
-      "name": "native-qt",
-      "configurePreset": "native-qt",
-      "configuration": "Debug",
-      "jobs": 8
-    },
-    {
-      "name": "native-qt-preview",
-      "configurePreset": "native-qt-preview",
-      "configuration": "Debug",
-      "jobs": 8
-    },
-    {
-      "name": "native-package",
-      "configurePreset": "native-package",
-      "configuration": "Release",
-      "jobs": 8
-    },
-    {
       "name": "native-training-release",
       "configurePreset": "native-training-release",
-      "configuration": "Release",
-      "jobs": 8
-    },
-    {
-      "name": "native-qt-release",
-      "configurePreset": "native-qt-release",
       "configuration": "Release",
       "jobs": 8
     },
@@ -274,18 +204,6 @@
     {
       "name": "native-gcc-mold",
       "configurePreset": "native-gcc-mold",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
-      "name": "native-qt-preview",
-      "configurePreset": "native-qt-preview",
       "configuration": "Debug",
       "output": {
         "outputOnFailure": true
@@ -344,44 +262,8 @@
       }
     },
     {
-      "name": "native-qt",
-      "configurePreset": "native-qt",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
-      "name": "native-package",
-      "configurePreset": "native-package",
-      "configuration": "Release",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
       "name": "native-training-release",
       "configurePreset": "native-training-release",
-      "configuration": "Release",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
-      "name": "native-qt-release",
-      "configurePreset": "native-qt-release",
       "configuration": "Release",
       "output": {
         "outputOnFailure": true

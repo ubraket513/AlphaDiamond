@@ -15,3 +15,16 @@ if(result EQUAL 0)
 elseif(NOT result EQUAL 1)
     message(FATAL_ERROR "git grep failed: ${error}")
 endif()
+
+# Engine owns runtime/training only; Desktop has an independent source tree.
+foreach(path native/qt desktop tools/build_native_qt.sh tools/deploy_native_qt.sh
+        tools/preview_native_qt.sh tools/run_native_qt.sh tools/desktop_toolchain.sh
+        .github/workflows/desktop.yml)
+    if(EXISTS "${SOURCE_DIR}/${path}")
+        message(FATAL_ERROR "Desktop-only path remains in Engine: ${path}")
+    endif()
+endforeach()
+file(READ "${SOURCE_DIR}/CMakePresets.json" presets)
+if(presets MATCHES "DIAMOND_BUILD_QT|native-qt|native-package")
+    message(FATAL_ERROR "Desktop-only preset remains in Engine")
+endif()

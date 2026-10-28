@@ -21,9 +21,6 @@ endif()
 if(DIAMOND_BUILD_TRAINING AND NOT DIAMOND_BUILD_MODEL)
     message(FATAL_ERROR "DIAMOND_BUILD_TRAINING requires DIAMOND_BUILD_MODEL=ON")
 endif()
-option(DIAMOND_DESKTOP_ENABLE_RATINGS "Enable Desktop local ratings and optional sync" ON)
-option(DIAMOND_BUILD_QT "Build the native Qt/QML shell" OFF)
-option(DIAMOND_BUILD_QT_SOO "Build Qt shell with native LibTorch Soo and Min search" OFF)
 
 # CMake cannot yet model CXX26 for the installed MSVC toolset.  Keep its
 # known-feature baseline at C++23, then require each compiler's next-standard
@@ -77,10 +74,6 @@ if(BUILD_TESTING)
         PROPERTIES LABELS policy)
 endif()
 
-if(DIAMOND_BUILD_QT OR DIAMOND_BUILD_QT_SOO)
-    add_subdirectory(native/qt)
-endif()
-
 if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS AND DIAMOND_BUILD_MODEL)
         add_test(NAME runtime_boundary_test
             COMMAND ${CMAKE_COMMAND}
@@ -92,8 +85,6 @@ if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS AND DIAMOND_BUILD_MODEL)
                 -DEXE_LINKER_FLAGS:STRING=${CMAKE_EXE_LINKER_FLAGS}
                 -DTORCH_CUDA_ARCH_LIST:STRING=${TORCH_CUDA_ARCH_LIST}
                 -DTorch_DIR:PATH=${Torch_DIR}
-                -DQt6_DIR:PATH=${Qt6_DIR}
-                -DENABLE_QT:BOOL=${DIAMOND_BUILD_QT_SOO}
                 -P ${PROJECT_SOURCE_DIR}/native/tests/runtime_boundary_test.cmake)
         set_tests_properties(runtime_boundary_test PROPERTIES LABELS "runtime;contract")
 endif()
@@ -115,7 +106,7 @@ install(FILES "${CMAKE_SOURCE_DIR}/README.md" DESTINATION .)
 
 set(CPACK_PACKAGE_NAME "AlphaDiamond")
 set(CPACK_PACKAGE_VENDOR "alphadiamond")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Diamond engine, Qt console and AlphaZero stack")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Diamond engine, Runtime SDK and native training")
 set(CPACK_PACKAGE_VERSION "0.1.0")
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_PACKAGE_CHECKSUM SHA256)

@@ -123,28 +123,12 @@ case "$(uname -s)" in
             append_runtime_dir "$explicit_torch_runtime"
         fi
 
-        # A separately installed Qt kit must precede conda's Qt DLLs.
-        qt_kit_root=${DIAMOND_QT_ROOT:-}
-        case "$qt_kit_root" in
-            [A-Za-z]:\\*|[A-Za-z]:/*) qt_kit_root=$(cygpath -u "$qt_kit_root") ;;
-        esac
-        if [ -n "$qt_kit_root" ]; then
-            [ -d "$qt_kit_root/bin" ] || {
-                echo "DIAMOND_QT_ROOT is not a Qt kit: $qt_kit_root" >&2
-                exit 1
-            }
-            append_runtime_dir "$qt_kit_root/bin"
-            export QT_PLUGIN_PATH=$(cygpath -m "$qt_kit_root/plugins")
-            export QML_IMPORT_PATH=$(cygpath -m "$qt_kit_root/qml")
-        fi
-
         if [ -n "$environment_root" ]; then
             for runtime_dir in \
                 "$environment_root/Library/bin" \
                 "$environment_root/Scripts" \
                 "$environment_root" \
-                "$environment_root/Lib/site-packages/torch/lib" \
-                "$environment_root/Library/lib/qt6/bin"
+                "$environment_root/Lib/site-packages/torch/lib"
             do
                 append_runtime_dir "$runtime_dir"
             done

@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-# Exercise complete generated target graphs, including Qt when enabled by the
-# parent build. Selecting only diamond_qt could hide an accidental training edge.
+# Exercise the complete Engine runtime graph to detect accidental training edges.
 foreach(required SOURCE_DIR BINARY_DIR CXX_COMPILER)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "runtime boundary test requires ${required}")
@@ -22,7 +21,7 @@ endif()
 if(TORCH_CUDA_ARCH_LIST)
     list(APPEND configure_args "-DTORCH_CUDA_ARCH_LIST:STRING=${TORCH_CUDA_ARCH_LIST}")
 endif()
-foreach(package Torch Qt6)
+foreach(package Torch)
     if(DEFINED ${package}_DIR AND NOT "${${package}_DIR}" STREQUAL "")
         list(APPEND configure_args "-D${package}_DIR:PATH=${${package}_DIR}")
     endif()
@@ -56,7 +55,7 @@ function(configure_case name expect_success)
     foreach(index RANGE ${last})
         string(JSON target_name GET "${codemodel}" configurations 0 targets ${index} name)
         list(APPEND names "${target_name}")
-        if(name STREQUAL "runtime" AND target_name MATCHES "^(diamond_qt|diamond_qt_backend|diamond_model|diamond_artifact|diamond_rating|alphadiamond-rating-sync)$")
+        if(name STREQUAL "runtime" AND target_name MATCHES "^(diamond_model|diamond_artifact|diamond_rating|alphadiamond-rating-sync)$")
             string(JSON json_file GET "${codemodel}" configurations 0 targets ${index} jsonFile)
             file(READ "${case_dir}/.cmake/api/v1/reply/${json_file}" target_json)
             if(target_json MATCHES "diamond_(pipeline|native_pipeline|training|orchestration|release)::")
@@ -71,13 +70,6 @@ function(configure_case name expect_success)
                 message(FATAL_ERROR "Runtime configuration is missing ${target}")
             endif()
         endforeach()
-        if(ENABLE_QT)
-            foreach(target diamond_qt diamond_qt_backend diamond_qt_rating_bridge_test)
-                if(NOT target IN_LIST names)
-                    message(FATAL_ERROR "Runtime Qt configuration is missing ${target}")
-                endif()
-            endforeach()
-        endif()
         foreach(target diamond_training diamond_native_pipeline diamond_orchestration diamond_release
                 alphadiamond-train alphadiamond-checkpoint alphadiamond-release alphadiamond-pipeline
                 alphadiamond-min-probe training_step_benchmark checkpoint_benchmark replay_benchmark)
@@ -95,10 +87,8 @@ function(configure_case name expect_success)
 endfunction()
 
 configure_case(runtime TRUE -DDIAMOND_BUILD_LIBTORCH=OFF -DDIAMOND_BUILD_MODEL=ON
-    -DDIAMOND_BUILD_TRAINING=OFF -DDIAMOND_BUILD_BENCHMARKS=ON
-    -DDIAMOND_BUILD_QT=${ENABLE_QT} -DDIAMOND_BUILD_QT_SOO=${ENABLE_QT}
-    -DDIAMOND_DESKTOP_ENABLE_RATINGS=ON)
+    -DDIAMOND_BUILD_TRAINING=OFF -DDIAMOND_BUILD_BENCHMARKS=ON)
 configure_case(invalid FALSE -DDIAMOND_BUILD_LIBTORCH=OFF -DDIAMOND_BUILD_MODEL=OFF
-    -DDIAMOND_BUILD_TRAINING=ON -DDIAMOND_BUILD_QT=OFF -DDIAMOND_BUILD_QT_SOO=OFF)
+    -DDIAMOND_BUILD_TRAINING=ON)
 configure_case(legacy TRUE -DDIAMOND_BUILD_LIBTORCH=ON -DDIAMOND_BUILD_MODEL=OFF
-    -DDIAMOND_BUILD_TRAINING=OFF -DDIAMOND_BUILD_QT=OFF -DDIAMOND_BUILD_QT_SOO=OFF)
+    -DDIAMOND_BUILD_TRAINING=OFF)

@@ -68,7 +68,7 @@ jobs:
             -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/libtorch" \
             -DDIAMOND_BUILD_MODEL=ON -DDIAMOND_BUILD_TRAINING=OFF \
             -DDIAMOND_BUILD_NATIVE_TESTS=ON -DBUILD_TESTING=ON \
-            -DDIAMOND_BUILD_QT=OFF "${extra[@]}"
+            "${extra[@]}"
       - run: cmake --build build/sdk --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
       - name: Test runtime and install
         run: |

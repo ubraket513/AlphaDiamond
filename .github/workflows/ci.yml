@@ -1,4 +1,4 @@
-name: CI
+name: Engine CI
 
 on:
   push:
@@ -26,14 +26,38 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v5
+      - uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: '4.2.3'
+          ninjaVersion: '1.13.2'
+      - name: Size build and test workers
+        run: |
+          cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")
+          jobs=$cpus
+          if test -r /proc/meminfo; then
+            memory_jobs=$(awk '/MemAvailable:/ {print int(($2/1024-1024)/2048)}' /proc/meminfo)
+            test "$memory_jobs" -gt 0 || memory_jobs=1
+            test "$jobs" -le "$memory_jobs" || jobs=$memory_jobs
+          fi
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
+          echo 'OMP_NUM_THREADS=1' >> "$GITHUB_ENV"
+          echo 'MKL_NUM_THREADS=1' >> "$GITHUB_ENV"
+      - name: Install Ninja, mold and sccache
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ninja-build mold sccache
+          echo 'CMAKE_GENERATOR=Ninja' >> "$GITHUB_ENV"
+          echo 'CMAKE_CXX_COMPILER_LAUNCHER=sccache' >> "$GITHUB_ENV"
       - name: Select GCC 14 for C++26
         if: runner.os == 'Linux'
         run: |
           echo "CC=gcc-14" >> "$GITHUB_ENV"
           echo "CXX=g++-14" >> "$GITHUB_ENV"
-      - run: tools/native_training.sh cmake --preset native-ci
-      - run: tools/native_training.sh cmake --build --preset native-ci --parallel "$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
-      - run: tools/native_training.sh ctest --preset native-ci --output-on-failure
+      - run: tools/native_training.sh cmake --preset native-ci -G Ninja
+      - run: tools/native_training.sh cmake --build --preset native-ci --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
+      - run: tools/native_training.sh ctest --preset native-ci --output-on-failure --parallel "$CTEST_PARALLEL_LEVEL" --no-tests=error
 
   native-sanitizers:
     name: native-sanitizers
@@ -46,9 +70,33 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v5
-      - run: tools/native_training.sh cmake --preset native-asan
-      - run: tools/native_training.sh cmake --build --preset native-asan --parallel "$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
-      - run: tools/native_training.sh ctest --preset native-asan --output-on-failure
+      - uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: '4.2.3'
+          ninjaVersion: '1.13.2'
+      - name: Size build and test workers
+        run: |
+          cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")
+          jobs=$cpus
+          if test -r /proc/meminfo; then
+            memory_jobs=$(awk '/MemAvailable:/ {print int(($2/1024-1024)/2048)}' /proc/meminfo)
+            test "$memory_jobs" -gt 0 || memory_jobs=1
+            test "$jobs" -le "$memory_jobs" || jobs=$memory_jobs
+          fi
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
+          echo 'OMP_NUM_THREADS=1' >> "$GITHUB_ENV"
+          echo 'MKL_NUM_THREADS=1' >> "$GITHUB_ENV"
+      - name: Install Ninja, mold and sccache
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ninja-build mold sccache
+          echo 'CMAKE_GENERATOR=Ninja' >> "$GITHUB_ENV"
+          echo 'CMAKE_CXX_COMPILER_LAUNCHER=sccache' >> "$GITHUB_ENV"
+      - run: tools/native_training.sh cmake --preset native-asan -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined -fuse-ld=mold"
+      - run: tools/native_training.sh cmake --build --preset native-asan --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
+      - run: tools/native_training.sh ctest --preset native-asan --output-on-failure --parallel "$CTEST_PARALLEL_LEVEL" --no-tests=error
         env:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
 
@@ -64,6 +112,30 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v5
+      - uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: '4.2.3'
+          ninjaVersion: '1.13.2'
+      - name: Size build and test workers
+        run: |
+          cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")
+          jobs=$cpus
+          if test -r /proc/meminfo; then
+            memory_jobs=$(awk '/MemAvailable:/ {print int(($2/1024-1024)/2048)}' /proc/meminfo)
+            test "$memory_jobs" -gt 0 || memory_jobs=1
+            test "$jobs" -le "$memory_jobs" || jobs=$memory_jobs
+          fi
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
+          echo 'OMP_NUM_THREADS=1' >> "$GITHUB_ENV"
+          echo 'MKL_NUM_THREADS=1' >> "$GITHUB_ENV"
+      - name: Install Ninja, mold and sccache
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ninja-build mold sccache
+          echo 'CMAKE_GENERATOR=Ninja' >> "$GITHUB_ENV"
+          echo 'CMAKE_CXX_COMPILER_LAUNCHER=sccache' >> "$GITHUB_ENV"
       - name: Install pinned official LibTorch CPU archive
         run: |
           mkdir -p .deps
@@ -73,46 +145,14 @@ jobs:
           unzip -q .deps/libtorch.zip -d .deps
       - name: Configure LibTorch training
         run: >-
-          tools/native_training.sh cmake --preset native-training
+          tools/native_training.sh cmake --preset native-training -G Ninja
+          -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold
           -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/.deps/libtorch"
       # Explicit job count everywhere: bare --parallel hands make a "-j" with no
       # limit, which forks every LibTorch translation unit at once and gets the
       # runner OOM-killed ("received a shutdown signal").
-      - run: tools/native_training.sh cmake --build --preset native-training --parallel "$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
-      - run: tools/native_training.sh ctest --preset native-training --output-on-failure --no-tests=error
-
-  native-qt:
-    name: native-qt
-    runs-on: ubuntu-latest
-    env:
-      CC: gcc-14
-      CXX: g++-14
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v5
-      - uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.8.1'
-          modules: 'qtmultimedia'
-          cache: true
-      - name: Provide an audio output for Qt sound-effect tests
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes pulseaudio
-          pulseaudio --start --exit-idle-time=-1
-          pactl load-module module-null-sink sink_name=qt_ci
-          pactl set-default-sink qt_ci
-      - run: >-
-          cmake -S . -B build/native-qt-ci
-          -DCMAKE_BUILD_TYPE=RelWithDebInfo
-          -DBUILD_TESTING=ON
-          -DDIAMOND_BUILD_QT=ON
-      - run: cmake --build build/native-qt-ci --parallel "$(nproc)"
-      - run: ctest --test-dir build/native-qt-ci --output-on-failure
-        env:
-          QT_QPA_PLATFORM: offscreen
+      - run: tools/native_training.sh cmake --build --preset native-training --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
+      - run: tools/native_training.sh ctest --preset native-training --output-on-failure --no-tests=error --parallel "$CTEST_PARALLEL_LEVEL"
 
   native-format:
     name: native-format

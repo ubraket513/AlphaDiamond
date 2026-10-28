@@ -1,0 +1,276 @@
+name: Standalone Desktop
+
+on:
+  pull_request:
+    paths: ['desktop/**', 'native/qt/**', 'tools/*native_qt.sh', 'tools/desktop_toolchain.sh', 'tools/sync_ratings.sh', '.github/workflows/desktop.yml']
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Until a matching published binary exists, explicitly build the SDK from the
+# committed lock's source revision. The consumer job receives only an archive,
+# its measured lock, and exact CPU LibTorch; it cannot compile Engine sources.
+jobs:
+  source-sdk:
+    name: Source SDK fallback (${{ matrix.os }}, ${{ matrix.config }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, config: Debug }
+          - { os: windows-2022, config: Debug }
+          - { os: windows-2022, config: Release }
+    defaults:
+      run:
+        shell: bash
+    env:
+      OMP_NUM_THREADS: 1
+      MKL_NUM_THREADS: 1
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: consumer
+          sparse-checkout: |
+            desktop/engine-sdk.lock.json
+          sparse-checkout-cone-mode: false
+      - name: Read pinned Engine revision
+        id: pin
+        run: |
+          commit=$(node -p "require('./consumer/desktop/engine-sdk.lock.json').entries[0].source_commit")
+          test "${#commit}" = 40
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.pin.outputs.commit }}
+          path: engine
+      - uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: '4.2.3'
+          ninjaVersion: '1.13.2'
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Install GCC, mold and sccache
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes g++-14 mold sccache
+          echo CXX=g++-14 >> "$GITHUB_ENV"
+      - name: Size workers and fetch exact CPU LibTorch
+        run: |
+          tool=engine/tools/desktop_toolchain.sh
+          # This source revision may predate the Desktop launcher.
+          cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")
+          jobs=$cpus
+          if test -r /proc/meminfo; then
+            memory_jobs=$(awk '/MemAvailable:/ {print int(($2/1024-1024)/2048)}' /proc/meminfo)
+            test "$memory_jobs" -gt 0 || memory_jobs=1
+            test "$jobs" -le "$memory_jobs" || jobs=$memory_jobs
+          fi
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
+          flavor=libtorch-cxx11-abi-shared-with-deps
+          if test "$RUNNER_OS" = Windows; then
+            flavor=libtorch-win-shared-with-deps
+            if test '${{ matrix.config }}' = Debug; then flavor="$flavor-debug"; fi
+          fi
+          curl --fail --location --retry 3 "https://download.pytorch.org/libtorch/cpu/${flavor}-2.7.1%2Bcpu.zip" -o "$RUNNER_TEMP/libtorch.zip"
+          (cd "$RUNNER_TEMP" && cmake -E tar xf libtorch.zip)
+          echo "$RUNNER_TEMP/libtorch/lib" >> "$GITHUB_PATH"
+      - name: Build Runtime with no Qt or training
+        run: |
+          flags=()
+          if test "$RUNNER_OS" = Linux; then
+            flags+=(-DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold '-DCMAKE_CXX_FLAGS_DEBUG=-O0 -g1 -pipe -fno-lto')
+          fi
+          cmake -S engine -B "$RUNNER_TEMP/sdk-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE='${{ matrix.config }}' -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/libtorch" \
+            -DDIAMOND_BUILD_MODEL=ON -DDIAMOND_BUILD_TRAINING=OFF \
+            -DDIAMOND_BUILD_QT=OFF -DBUILD_TESTING=ON -DDIAMOND_BUILD_NATIVE_TESTS=ON "${flags[@]}"
+          cmake --build "$RUNNER_TEMP/sdk-build" --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
+          ctest --test-dir "$RUNNER_TEMP/sdk-build" --parallel "$CTEST_PARALLEL_LEVEL" --output-on-failure --no-tests=error
+          cmake --install "$RUNNER_TEMP/sdk-build" --component Runtime --prefix "$RUNNER_TEMP/sdk"
+      - name: Archive SDK and record actual platform hashes
+        run: |
+          (cd "$RUNNER_TEMP/sdk" && cmake -E tar cf "$RUNNER_TEMP/engine-sdk.zip" --format=zip .)
+          node <<'JS'
+          const fs = require('fs'), crypto = require('crypto'), path = require('path');
+          const temp = process.env.RUNNER_TEMP;
+          const manifestPath = path.join(temp, 'sdk/share/AlphaDiamondEngine/manifest.json');
+          const m = JSON.parse(fs.readFileSync(manifestPath));
+          const digest = p => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+          const lock = {schema: 1, entries: [{sdk_version: m.sdk_version, source_commit: m.source_sha,
+            platform: m.platform, arch: m.architecture, compiler: m.compiler, compiler_version: m.compiler_version,
+            configuration: m.configuration, torch_version: m.torch_version, torch_variant: m.torch_variant,
+            cxx_abi: m.torch_abi, archive_sha256: digest(path.join(temp, 'engine-sdk.zip')),
+            manifest_sha256: digest(manifestPath)}]};
+          fs.writeFileSync(path.join(temp, 'source-sdk.lock.json'), JSON.stringify(lock, null, 2));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-input-${{ runner.os }}-${{ matrix.config }}
+          path: |
+            ${{ runner.temp }}/engine-sdk.zip
+            ${{ runner.temp }}/source-sdk.lock.json
+            ${{ runner.temp }}/libtorch.zip
+          if-no-files-found: error
+
+  desktop:
+    name: Desktop only (${{ matrix.os }}, ${{ matrix.config }})
+    needs: source-sdk
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, config: Debug }
+          - { os: windows-2022, config: Debug }
+          - { os: windows-2022, config: Release }
+    defaults:
+      run:
+        shell: bash
+    env:
+      QT_QPA_PLATFORM: offscreen
+      OMP_NUM_THREADS: 1
+      MKL_NUM_THREADS: 1
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            desktop
+            native/qt
+            tools/build_native_qt.sh
+            tools/deploy_native_qt.sh
+            tools/desktop_toolchain.sh
+            tools/sync_ratings.sh
+          sparse-checkout-cone-mode: false
+      - uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: '4.2.3'
+          ninjaVersion: '1.13.2'
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.1'
+          modules: 'qtmultimedia'
+          cache: true
+      - name: Install Linux tools and audio output
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes g++-14 mold sccache pulseaudio
+          echo CXX=g++-14 >> "$GITHUB_ENV"
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=qt_ci
+          pactl set-default-sink qt_ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-input-${{ runner.os }}-${{ matrix.config }}
+          path: ${{ runner.temp }}/inputs
+      - name: Unpack only declared SDK inputs
+        run: |
+          mkdir -p "$RUNNER_TEMP/sdk"
+          (cd "$RUNNER_TEMP/sdk" && cmake -E tar xf "$RUNNER_TEMP/inputs/engine-sdk.zip")
+          (cd "$RUNNER_TEMP" && cmake -E tar xf inputs/libtorch.zip)
+          echo "$RUNNER_TEMP/libtorch/lib" >> "$GITHUB_PATH"
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$(tools/desktop_toolchain.sh --jobs build)" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$(tools/desktop_toolchain.sh --jobs test)" >> "$GITHUB_ENV"
+          test ! -e native/src
+          test ! -e native/include
+      - name: Configure standalone Desktop
+        run: |
+          flags=()
+          if test "$RUNNER_OS" = Linux; then
+            flags+=(-DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold '-DCMAKE_CXX_FLAGS_DEBUG=-O0 -g1 -pipe -fno-lto')
+          fi
+          cmake -S desktop -B build/desktop-ci -G Ninja \
+            -DCMAKE_BUILD_TYPE='${{ matrix.config }}' -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/libtorch;$QT_ROOT_DIR" \
+            -DDIAMOND_ENGINE_SDK_PREFIX="$RUNNER_TEMP/sdk" \
+            -DDIAMOND_ENGINE_SDK_LOCK="$RUNNER_TEMP/inputs/source-sdk.lock.json" \
+            -DDIAMOND_ENGINE_SDK_ARCHIVE="$RUNNER_TEMP/inputs/engine-sdk.zip" "${flags[@]}"
+          cmake --build build/desktop-ci --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
+      - name: Require neural and rating tests before running
+        run: |
+          ctest --test-dir build/desktop-ci --show-only=json-v1 > "$RUNNER_TEMP/tests.json"
+          node <<'JS'
+          const tests = JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP + '/tests.json')).tests;
+          const names = new Set(tests.map(t => t.name));
+          for (const name of ['diamond_qt_min_runtime_test', 'diamond_qt_controller_contract',
+              'diamond_qt_model_catalog_test', 'diamond_qt_rating_bridge_test', 'diamond_qt_topology_resource_test']) {
+            if (!names.has(name)) throw new Error('Required Desktop test missing: ' + name);
+          }
+          if (tests.length < 7) throw new Error('Unexpectedly small Desktop test inventory');
+          JS
+      - name: Test shell UI separately
+        run: ctest --test-dir build/desktop-ci --parallel "$CTEST_PARALLEL_LEVEL" --output-on-failure --no-tests=error -R 'topology_resource|replay_smoke|analysis_smoke'
+      - name: Test real CPU inference, rating and model rejection
+        run: ctest --test-dir build/desktop-ci --parallel "$CTEST_PARALLEL_LEVEL" --output-on-failure --no-tests=error -R 'min_runtime|controller_contract|model_catalog|rating_bridge'
+      - name: Test full Desktop inventory with resource locks
+        run: ctest --test-dir build/desktop-ci --parallel "$CTEST_PARALLEL_LEVEL" --output-on-failure --no-tests=error
+      - name: Package Windows no-model runtime and validate clean PATH
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        env:
+          DIAMOND_QT_ROOT: ${{ env.QT_ROOT_DIR }}
+        run: |
+          tools/deploy_native_qt.sh --sdk-prefix "$RUNNER_TEMP/sdk" --qt-root "$QT_ROOT_DIR" \
+            --build-dir build/desktop-ci --output-dir dist/diamond-qt
+      - name: Build explicit model bundle from SDK validation fixtures
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        run: |
+          node <<'JS'
+          const fs = require('fs'), path = require('path');
+          const base = path.join(process.env.RUNNER_TEMP, 'package-models');
+          const index = {index_version: 1, defaults: {}, models: []};
+          fs.mkdirSync(base, {recursive: true});
+          for (const family of ['soo', 'min']) {
+            const fixture = path.join(process.env.RUNNER_TEMP, 'sdk/share/AlphaDiamondEngine/fixtures', family);
+            const m = JSON.parse(fs.readFileSync(path.join(fixture, 'metadata.json')));
+            const relative = family + '/' + m.model_version;
+            fs.cpSync(fixture, path.join(base, relative), {recursive: true});
+            index.defaults[family] = relative;
+            index.models.push({family, version: m.model_version, path: relative, architecture: m.architecture,
+              model_sha256: m.model_sha256, runtime_sha256: m.runtime_sha256, source: m.source});
+          }
+          fs.writeFileSync(path.join(base, 'index.json'), JSON.stringify(index));
+          JS
+          tools/deploy_native_qt.sh --sdk-prefix "$RUNNER_TEMP/sdk" --qt-root "$QT_ROOT_DIR" \
+            --build-dir build/desktop-ci --output-dir dist/diamond-qt-models --models-dir "$RUNNER_TEMP/package-models"
+      - name: Recheck packages with source and build paths inaccessible
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        run: |
+          # Window/audio smokes deliberately run sequentially against shared OS resources.
+          mv native "$RUNNER_TEMP/desktop-native.hidden"
+          mv desktop "$RUNNER_TEMP/desktop-entry.hidden"
+          mv build "$RUNNER_TEMP/desktop-build.hidden"
+          trap 'mv "$RUNNER_TEMP/desktop-native.hidden" native; mv "$RUNNER_TEMP/desktop-entry.hidden" desktop; mv "$RUNNER_TEMP/desktop-build.hidden" build' EXIT
+          windows_root=${SystemRoot:-C:\\Windows}
+          for package in diamond-qt diamond-qt-models; do
+            destination="$GITHUB_WORKSPACE/dist/$package"
+            windows_destination=$(cygpath -w "$destination")
+            for argument in --smoke --game-smoke --worker-smoke --rotation-smoke --analysis-smoke --replay-smoke --failure-smoke --sound-smoke --window-smoke; do
+              platform=offscreen
+              if test "$argument" = --window-smoke; then platform=windows; fi
+              (cd "$destination" && env -i MSYS2_ARG_CONV_EXCL='*' SystemRoot="$windows_root" WINDIR="$windows_root" \
+                PATH="$windows_destination;$windows_root\\System32;$windows_root" QT_QPA_PLATFORM="$platform" \
+                ./diamond_qt.exe "$argument")
+            done
+          done
+          destination="$GITHUB_WORKSPACE/dist/diamond-qt-models"
+          windows_destination=$(cygpath -w "$destination")
+          for argument in --soo-smoke --models-smoke; do
+            (cd "$destination" && env -i MSYS2_ARG_CONV_EXCL='*' SystemRoot="$windows_root" WINDIR="$windows_root" \
+              PATH="$windows_destination;$windows_root\\System32;$windows_root" QT_QPA_PLATFORM=offscreen \
+              ./diamond_qt.exe "$argument")
+          done
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows' && matrix.config == 'Release'
+        with:
+          name: desktop-windows-cpu
+          path: dist/diamond-qt*
+          if-no-files-found: error

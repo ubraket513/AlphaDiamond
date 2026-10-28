@@ -1,14 +1,15 @@
 #!/usr/bin/env sh
 set -eu
 
-build_dir='build/native-package'
+build_dir='build/desktop-release'
 output_dir='dist/diamond-qt'
-with_soo=0
+models_dir=''
 runtime_smoke=1
-environment_root=${CONDA_PREFIX:-}
+sdk_prefix=${DIAMOND_ENGINE_SDK_PREFIX:-}
+qt_root=${DIAMOND_QT_ROOT:-}
 
 usage() {
-    echo "usage: tools/deploy_native_qt.sh [--build-dir DIR] [--output-dir DIR] [--with-soo] [--environment-root DIR] [--skip-runtime-smoke]" >&2
+    echo "usage: tools/deploy_native_qt.sh [--build-dir DIR] [--output-dir DIR] --sdk-prefix DIR [--models-dir DIR] [--qt-root DIR] [--skip-runtime-smoke]" >&2
     exit 2
 }
 
@@ -16,8 +17,9 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --build-dir) [ "$#" -ge 2 ] || usage; build_dir=$2; shift 2 ;;
         --output-dir) [ "$#" -ge 2 ] || usage; output_dir=$2; shift 2 ;;
-        --environment-root) [ "$#" -ge 2 ] || usage; environment_root=$2; shift 2 ;;
-        --with-soo) with_soo=1; shift ;;
+        --sdk-prefix) [ "$#" -ge 2 ] || usage; sdk_prefix=$2; shift 2 ;;
+        --models-dir) [ "$#" -ge 2 ] || usage; models_dir=$2; shift 2 ;;
+        --qt-root) [ "$#" -ge 2 ] || usage; qt_root=$2; shift 2 ;;
         --skip-runtime-smoke) runtime_smoke=0; shift ;;
         -h|--help) usage ;;
         *) echo "unknown argument: $1" >&2; usage ;;
@@ -30,37 +32,51 @@ case "$(uname -s)" in
 esac
 
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-case "$build_dir" in /*) ;; *) build_dir=$repo/$build_dir ;; esac
+case "$build_dir" in
+    [A-Za-z]:\\*|[A-Za-z]:/*) build_dir=$(cygpath -u "$build_dir") ;;
+    /*) ;;
+    *) build_dir=$repo/$build_dir ;;
+esac
+sdk_prefix=$(cygpath -u "$sdk_prefix")
+qt_root=$(cygpath -u "$qt_root")
+if [ -n "$models_dir" ]; then
+    models_dir=$(cygpath -u "$models_dir")
+    [ -d "$models_dir" ] || { echo "models directory missing: $models_dir" >&2; exit 1; }
+    models_dir=$(CDPATH= cd -- "$models_dir" && pwd -P)
+fi
 case "$output_dir" in
     [A-Za-z]:\\*|[A-Za-z]:/*) output_dir=$(cygpath -u "$output_dir") ;;
 esac
-case "$environment_root" in
-    [A-Za-z]:\\*|[A-Za-z]:/*) environment_root=$(cygpath -u "$environment_root") ;;
-esac
-
-[ -n "$environment_root" ] && [ -d "$environment_root" ] || {
-    echo "activate alphadiamond or pass --environment-root" >&2
-    exit 1
+for required in "$sdk_prefix" "$qt_root"; do
+    [ -n "$required" ] && [ -d "$required" ] || {
+        echo 'provide --sdk-prefix and --qt-root (or DIAMOND_QT_ROOT)' >&2; exit 1;
+    }
+done
+sdk_prefix=$(CDPATH= cd -- "$sdk_prefix" && pwd -P)
+qt_root=$(CDPATH= cd -- "$qt_root" && pwd -P)
+configured_sdk=$(sed -n 's/^DIAMOND_ENGINE_SDK_PREFIX:PATH=//p' "$build_dir/CMakeCache.txt" | tr -d '\r')
+configured_sdk=$(cygpath -u "$configured_sdk")
+configured_sdk=$(CDPATH= cd -- "$configured_sdk" && pwd -P)
+[ "$configured_sdk" = "$sdk_prefix" ] || { echo '--sdk-prefix differs from configured SDK' >&2; exit 1; }
+[ -f "$sdk_prefix/share/AlphaDiamondEngine/manifest.json" ] || { echo 'SDK manifest missing' >&2; exit 1; }
+grep -q '^CMAKE_BUILD_TYPE:STRING=Release' "$build_dir/CMakeCache.txt" || {
+    echo 'packaging requires an explicit Release Desktop build and matching Release SDK' >&2; exit 1;
 }
-
 exe=''
 for candidate in \
-    "$build_dir/native/qt/diamond_qt.exe" \
-    "$build_dir/native/qt/Release/diamond_qt.exe"
+    "$build_dir/app/diamond_qt.exe" \
+    "$build_dir/app/Release/diamond_qt.exe"
 do
     if [ -f "$candidate" ]; then exe=$candidate; break; fi
 done
 [ -n "$exe" ] || { echo "Qt executable not found under $build_dir" >&2; exit 1; }
 if grep -q '^DIAMOND_QML_PREVIEW:BOOL=ON' "$build_dir/CMakeCache.txt"; then
-    echo "refusing to package a QML debugging build; use the native-package preset" >&2
+    echo "refusing to package a QML debugging build; use the desktop-release preset" >&2
     exit 1
 fi
 
-qt_bin=$environment_root/Library/lib/qt6/bin
-qt_root=$environment_root/Library/lib/qt6
-env_bin=$environment_root/Library/bin
-[ -d "$qt_bin" ] || { echo "Qt runtime directory not found: $qt_bin" >&2; exit 1; }
-
+qt_bin=$qt_root/bin
+[ -x "$qt_bin/windeployqt.exe" ] || { echo "Qt deployment tool missing: $qt_bin/windeployqt.exe" >&2; exit 1; }
 case "$output_dir" in
     "$repo"/dist/*) destination_name=${output_dir#"$repo"/dist/} ;;
     dist/*) destination_name=${output_dir#dist/} ;;
@@ -98,129 +114,40 @@ mkdir -p -- "$destination/assets/sounds"
 cp -f -- "$exe" "$destination/diamond_qt.exe"
 cp -f -- "$repo/native/qt/assets/sounds/move.wav" "$destination/assets/sounds/move.wav"
 
-copy_glob() {
-    target=$1
-    shift
-    for pattern in "$@"; do
-        for file in $pattern; do
-            [ -f "$file" ] || continue
-            cp -f -- "$file" "$target/"
-        done
-    done
+# Qt owns its dependency closure, including the MSVC redistributable.
+"$qt_bin/windeployqt.exe" --release --qmldir "$repo/native/qt/qml" "$destination/diamond_qt.exe"
+printf '%s\n' '[Paths]' 'Plugins = .' 'Qml2Imports = qml' >"$destination/qt.conf"
+
+# Only the exact LibTorch selected by the standalone configure may supply DLLs.
+# An unrelated activated training/CUDA environment is never searched.
+torch_cmake_dir=$(sed -n 's/^Torch_DIR:PATH=//p' "$build_dir/CMakeCache.txt" | tr -d '\r' | tail -n 1)
+[ -n "$torch_cmake_dir" ] || { echo 'configured Torch_DIR missing' >&2; exit 1; }
+torch_cmake_dir=$(cygpath -u "$torch_cmake_dir")
+torch_prefix=$(CDPATH= cd -- "$torch_cmake_dir/../../.." && pwd -P)
+torch_lib=$torch_prefix/lib
+[ -f "$torch_lib/c10.dll" ] && [ -f "$torch_lib/torch_cpu.dll" ] || {
+    echo 'CMake-selected LibTorch CPU DLLs missing' >&2; exit 1;
 }
-
-copy_glob "$destination" "$qt_bin"/Qt6*.dll
-mkdir -p -- "$destination/plugins"
-for plugin_type in generic iconengines imageformats multimedia networkinformation platforms styles tls; do
-    if [ -d "$qt_root/plugins/$plugin_type" ]; then
-        cp -R -- "$qt_root/plugins/$plugin_type" "$destination/plugins/"
-    fi
-done
-cp -R -- "$qt_root/qml" "$destination/qml"
-
-copy_glob "$destination" \
-    "$env_bin"/msvcp140*.dll "$env_bin"/vcruntime140*.dll "$env_bin"/concrt140*.dll \
-    "$env_bin"/icu*.dll "$env_bin"/pcre2*.dll "$env_bin"/zlib*.dll \
-    "$env_bin"/zstd*.dll "$env_bin"/double-conversion*.dll "$env_bin"/freetype*.dll \
-    "$env_bin"/harfbuzz*.dll "$env_bin"/libpng*.dll "$env_bin"/brotli*.dll \
-    "$env_bin"/md4c*.dll "$env_bin"/libcrypto*.dll "$env_bin"/libssl*.dll
-
-printf '%s\n' '[Paths]' 'Plugins = plugins' 'Qml2Imports = qml' >"$destination/qt.conf"
-
-if [ "$with_soo" -eq 1 ]; then
-    model_source=$repo/models
-    [ -f "$model_source/index.json" ] || {
-        echo "release model index not found: $model_source/index.json" >&2
-        exit 1
-    }
-    cp -R -- "$model_source" "$destination/"
-else
-    topology_source=$repo/tests/golden/topology
-    shell_artifact=$destination/artifacts/soo-spike
-    mkdir -p -- "$shell_artifact"
-    for topology_file in \
-        topology_neighbour.i8 topology_camp_positions.i32 topology_pairwise_distance.i32 \
-        topology_physical_to_canonical.i32 topology_canonical_to_physical.i32
-    do
-        cp -f -- "$topology_source/$topology_file" "$shell_artifact/$topology_file"
-    done
+if [ -f "$torch_lib/torch_cuda.dll" ] || [ -f "$torch_lib/c10_cuda.dll" ]; then
+    echo 'Desktop packages require the pinned CPU LibTorch distribution' >&2; exit 1
 fi
+for file in "$torch_lib"/*.dll; do
+    [ -f "$file" ] || continue
+    case "$(basename -- "$file")" in python*.dll|torch_python*.dll) continue ;; esac
+    cp -f -- "$file" "$destination/"
+done
+for name in c10.dll torch_cpu.dll; do
+    cmp -s -- "$torch_lib/$name" "$destination/$name" || { echo "bundled $name differs from configured LibTorch" >&2; exit 1; }
+done
 
-if [ "$with_soo" -eq 1 ]; then
-    torch_lib=''
-    torch_cmake_dir=$(
-        sed -n 's/^Torch_DIR:PATH=//p' "$build_dir/CMakeCache.txt" | tr -d '\r' | tail -n 1
-    )
-    case "$torch_cmake_dir" in
-        [A-Za-z]:\\*|[A-Za-z]:/*) torch_cmake_dir=$(cygpath -u "$torch_cmake_dir") ;;
-    esac
-    if [ -n "$torch_cmake_dir" ] && [ -d "$torch_cmake_dir" ]; then
-        torch_prefix=$(CDPATH= cd -- "$torch_cmake_dir/../../.." && pwd -P)
-        for candidate in "$torch_prefix/bin" "$torch_prefix/lib"; do
-            if [ -f "$candidate/c10.dll" ] && [ -f "$candidate/torch_cpu.dll" ]; then
-                torch_lib=$candidate
-                break
-            fi
-        done
-    fi
-    for candidate in \
-        "$environment_root/Library/bin" \
-        "$environment_root/Lib/site-packages/torch/lib" \
-        "$environment_root/lib/site-packages/torch/lib"
-    do
-        if [ -z "$torch_lib" ] && [ -f "$candidate/c10.dll" ] && [ -f "$candidate/torch_cpu.dll" ]; then
-            torch_lib=$candidate
-            break
-        fi
-    done
-    if [ -z "$torch_lib" ]; then
-        for candidate in "$environment_root"/lib/python*/site-packages/torch/lib; do
-            if [ -d "$candidate" ]; then torch_lib=$candidate; break; fi
-        done
-    fi
-    [ -n "$torch_lib" ] || { echo "LibTorch runtime directory not found under $environment_root" >&2; exit 1; }
-    copy_glob "$destination" \
-        "$env_bin"/fbgemm*.dll "$env_bin"/asmjit*.dll "$env_bin"/mkl*.dll \
-        "$env_bin"/vcomp*.dll "$env_bin"/tbb*.dll \
-        "$env_bin"/sleef*.dll "$env_bin"/uv*.dll "$env_bin"/libomp*.dll \
-        "$env_bin"/libprotobuf*.dll "$env_bin"/utf8_validity*.dll "$env_bin"/abseil_dll*.dll
-    for pattern in \
-        "$torch_lib"/c10*.dll "$torch_lib"/torch*.dll "$torch_lib"/libiomp*.dll "$torch_lib"/shm.dll \
-        "$torch_lib"/caffe2_nvrtc.dll "$torch_lib"/cudart64*.dll \
-        "$torch_lib"/cublas64*.dll "$torch_lib"/cublasLt64*.dll \
-        "$torch_lib"/cudnn*.dll "$torch_lib"/nvrtc64*.dll \
-        "$torch_lib"/nvrtc-builtins*.dll "$torch_lib"/nvJitLink*.dll \
-        "$torch_lib"/cusparse*.dll "$torch_lib"/curand*.dll \
-        "$torch_lib"/cufft*.dll "$torch_lib"/cusolver*.dll \
-        "$torch_lib"/nvToolsExt*.dll
-    do
-        for file in $pattern; do
-            [ -f "$file" ] || continue
-            case "$(basename -- "$file")" in
-                python*.dll|torch_python*.dll) continue ;;
-            esac
-            cp -f -- "$file" "$destination/"
-        done
-    done
-    [ -f "$destination/c10.dll" ] || { echo "c10.dll was not bundled" >&2; exit 1; }
-    [ -f "$destination/torch_cpu.dll" ] || { echo "torch_cpu.dll was not bundled" >&2; exit 1; }
-    [ -f "$torch_lib/libiomp5md.dll" ] || {
-        echo "CMake-selected LibTorch runtime does not contain libiomp5md.dll" >&2
-        exit 1
-    }
-    [ -f "$destination/libiomp5md.dll" ] || { echo "libiomp5md.dll was not bundled" >&2; exit 1; }
-    cmp -s -- "$torch_lib/c10.dll" "$destination/c10.dll" || {
-        echo "bundled c10.dll does not match the CMake-selected LibTorch runtime" >&2
-        exit 1
-    }
-    cmp -s -- "$torch_lib/torch_cpu.dll" "$destination/torch_cpu.dll" || {
-        echo "bundled torch_cpu.dll does not match the CMake-selected LibTorch runtime" >&2
-        exit 1
-    }
-    cmp -s -- "$torch_lib/libiomp5md.dll" "$destination/libiomp5md.dll" || {
-        echo "bundled libiomp5md.dll does not match the CMake-selected LibTorch runtime" >&2
-        exit 1
-    }
+sync_binary=$sdk_prefix/bin/alphadiamond-rating-sync.exe
+[ -f "$sync_binary" ] || { echo "SDK rating tool missing: $sync_binary" >&2; exit 1; }
+cp -f -- "$sync_binary" "$destination/"
+mkdir -p -- "$destination/tools"
+cp -f -- "$repo/tools/sync_ratings.sh" "$destination/tools/"
+if [ -n "$models_dir" ]; then
+    [ -f "$models_dir/index.json" ] || { echo "model bundle index missing: $models_dir/index.json" >&2; exit 1; }
+    cp -R -- "$models_dir" "$destination/models"
 fi
 
 forbidden=$(find "$destination" -type f \( \
@@ -234,13 +161,13 @@ run_smoke() {
     if [ "$argument" = '--window-smoke' ]; then platform=windows; fi
     windows_destination=$(cygpath -w "$PWD/$destination")
     windows_root=${SystemRoot:-C:\\Windows}
-    env -i \
+    (cd -- "$destination" && env -i \
         MSYS2_ARG_CONV_EXCL='*' \
         SystemRoot="$windows_root" \
         WINDIR="$windows_root" \
         PATH="$windows_destination;$windows_root\\System32;$windows_root" \
         QT_QPA_PLATFORM="$platform" \
-        "$destination/diamond_qt.exe" "$argument"
+        ./diamond_qt.exe "$argument")
 }
 
 if [ "$runtime_smoke" -eq 1 ]; then
@@ -249,7 +176,10 @@ if [ "$runtime_smoke" -eq 1 ]; then
     do
         run_smoke "$argument"
     done
-    if [ "$with_soo" -eq 1 ]; then run_smoke --soo-smoke; fi
+    if [ -n "$models_dir" ]; then
+        run_smoke --soo-smoke
+        run_smoke --models-smoke
+    fi
 fi
 
 echo "Native Qt deployment created at: $repo/$destination"

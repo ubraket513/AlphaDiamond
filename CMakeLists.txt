@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.21)
 
 project(alphadiamond LANGUAGES CXX)
 
+include(cmake/DevelopmentToolchain.cmake)
+
 option(DIAMOND_BUILD_NATIVE_TESTS "Build portable native smoke tests" ON)
 option(DIAMOND_BUILD_LIBTORCH "Build native LibTorch model and training support" OFF)
 option(DIAMOND_BUILD_LIBTORCH_PROBE "Deprecated alias for DIAMOND_BUILD_LIBTORCH" OFF)
@@ -45,6 +47,19 @@ find_package(Threads REQUIRED)
 add_subdirectory(native)
 
 if(BUILD_TESTING)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        find_program(DIAMOND_NINJA_EXECUTABLE ninja)
+        if(DIAMOND_NINJA_EXECUTABLE)
+            add_test(NAME development_toolchain COMMAND ${CMAKE_COMMAND}
+                -DSOURCE_DIR:PATH=${PROJECT_SOURCE_DIR}
+                -DBINARY_DIR:PATH=${CMAKE_BINARY_DIR}/development-toolchain-test
+                -DCXX_COMPILER:FILEPATH=${CMAKE_CXX_COMPILER}
+                -DCXX_LAUNCHER:FILEPATH=${CMAKE_CXX_COMPILER_LAUNCHER}
+                -DEXE_LINKER_FLAGS:STRING=${CMAKE_EXE_LINKER_FLAGS}
+                -P ${PROJECT_SOURCE_DIR}/native/tests/development_toolchain_test.cmake)
+            set_tests_properties(development_toolchain PROPERTIES LABELS "policy;toolchain" PROCESSORS 2)
+        endif()
+    endif()
     add_test(NAME python_zero_policy
         COMMAND ${CMAKE_COMMAND}
             -DSOURCE_DIR:PATH=${PROJECT_SOURCE_DIR}

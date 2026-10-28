@@ -36,14 +36,17 @@ case "$deploy_dir" in /*) directory=$deploy_dir ;; *) directory=$repo/$deploy_di
 [ -d "$directory" ] || { echo "deployment directory not found: $directory" >&2; exit 1; }
 directory=$(CDPATH= cd -- "$directory" && pwd -P)
 exe=$directory/diamond_qt.exe
-[ -f "$exe" ] || { echo "executable not found: $exe" >&2; exit 1; }
 
-export QT_QPA_PLATFORM=windows
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) export QT_QPA_PLATFORM=windows ;;
+    *) exe=$directory/diamond_qt ;;
+esac
 export DIAMOND_MCTS_SIMULATIONS=$simulations
 unset QT_DEBUG_PLUGINS || true
+[ -f "$exe" ] || { echo "executable not found: $exe" >&2; exit 1; }
 
 CDPATH= cd -- "$directory"
-./diamond_qt.exe >/dev/null 2>&1 &
+"$exe" >/dev/null 2>&1 &
 pid=$!
 sleep 1
 if ! kill -0 "$pid" 2>/dev/null; then

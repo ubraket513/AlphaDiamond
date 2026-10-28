@@ -67,6 +67,13 @@ identities and download URLs. Desktop's Git remote never determines model URLs.
 Training checkpoints and the full frozen training corpus remain in Engine;
 SDKs carry only canonical topology and minimal runtime fixtures with provenance.
 
+The lightweight [training panel](training-panel/README.md) shows active CLI and
+Agent training jobs, native settings, console output, loss and performance charts.
+It can edit settings, launch training and stop a selected process immediately.
+Run `npm ci && npm run build && npm start` inside `training-panel`, then open
+<http://127.0.0.1:5178>. Development uses Svelte/Vite; the local bridge uses Node's
+built-in APIs and reads native run files directly.
+
 - [Product ownership](docs/architecture/products.md)
 - [Format-v3 model contract](docs/architecture/model_artifact_v3.md)
 - [Rules and frozen golden corpus](docs/architecture/decisions.md)

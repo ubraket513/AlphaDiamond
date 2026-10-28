@@ -65,3 +65,13 @@
 - [x] Obtain independent spec/code review of the whole panel; fix concrete findings and reverify affected checks.
 - [ ] Refresh Graphify and record commits, local run URL, active training and deadline/heartbeat state.
 - [ ] At deadline, retain evidence, stop session-owned remaining compute, report actual results and pause heartbeat.
+
+### Task 5: Show the native expert-arena phase
+
+**Files:** Modify `training-panel/server.mjs`, `server.test.mjs`, `src/App.svelte`, narrowly scoped CSS and README.
+**Interfaces:** Extend the existing status/Stop contract with the evaluation job shape in the spec; preserve training behavior.
+
+- [x] Add failing disposable-process tests for external arena discovery, native summary refresh/metadata, regular stdout log capture and immediate selected Stop without touching a shared supervisor.
+- [x] Implement the minimal evaluation branch and UI progress display, reusing process discovery, native file reading, tabs and Stop.
+- [x] Run the complete panel tests/build and inspect the actual active arena in a browser; obtain scoped independent review.
+- [x] Refresh supported code and semantic graph relationships; record commits/evidence in the ledger.

@@ -32,15 +32,9 @@ jobs:
           ninjaVersion: '1.13.2'
       - name: Size build and test workers
         run: |
-          cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")
-          jobs=$cpus
-          if test -r /proc/meminfo; then
-            memory_jobs=$(awk '/MemAvailable:/ {print int(($2/1024-1024)/2048)}' /proc/meminfo)
-            test "$memory_jobs" -gt 0 || memory_jobs=1
-            test "$jobs" -le "$memory_jobs" || jobs=$memory_jobs
-          fi
-          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
-          echo "CTEST_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
+          tools/tests/build_resources_test.sh
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$(tools/build_resources.sh build)" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$(tools/build_resources.sh test)" >> "$GITHUB_ENV"
           echo 'OMP_NUM_THREADS=1' >> "$GITHUB_ENV"
           echo 'MKL_NUM_THREADS=1' >> "$GITHUB_ENV"
       - name: Install Ninja, mold and sccache
@@ -55,7 +49,13 @@ jobs:
         run: |
           echo "CC=gcc-14" >> "$GITHUB_ENV"
           echo "CXX=g++-14" >> "$GITHUB_ENV"
-      - run: tools/native_training.sh cmake --preset native-ci -G Ninja
+      - name: Configure native core with platform toolchain
+        run: |
+          flags=()
+          if test "$RUNNER_OS" = Linux; then
+            flags+=(-DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold)
+          fi
+          tools/native_training.sh cmake --preset native-ci -G Ninja "${flags[@]}"
       - run: tools/native_training.sh cmake --build --preset native-ci --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
       - run: tools/native_training.sh ctest --preset native-ci --output-on-failure --parallel "$CTEST_PARALLEL_LEVEL" --no-tests=error
 
@@ -76,15 +76,9 @@ jobs:
           ninjaVersion: '1.13.2'
       - name: Size build and test workers
         run: |
-          cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")
-          jobs=$cpus
-          if test -r /proc/meminfo; then
-            memory_jobs=$(awk '/MemAvailable:/ {print int(($2/1024-1024)/2048)}' /proc/meminfo)
-            test "$memory_jobs" -gt 0 || memory_jobs=1
-            test "$jobs" -le "$memory_jobs" || jobs=$memory_jobs
-          fi
-          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
-          echo "CTEST_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
+          tools/tests/build_resources_test.sh
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$(tools/build_resources.sh build)" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$(tools/build_resources.sh test)" >> "$GITHUB_ENV"
           echo 'OMP_NUM_THREADS=1' >> "$GITHUB_ENV"
           echo 'MKL_NUM_THREADS=1' >> "$GITHUB_ENV"
       - name: Install Ninja, mold and sccache
@@ -118,15 +112,9 @@ jobs:
           ninjaVersion: '1.13.2'
       - name: Size build and test workers
         run: |
-          cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")
-          jobs=$cpus
-          if test -r /proc/meminfo; then
-            memory_jobs=$(awk '/MemAvailable:/ {print int(($2/1024-1024)/2048)}' /proc/meminfo)
-            test "$memory_jobs" -gt 0 || memory_jobs=1
-            test "$jobs" -le "$memory_jobs" || jobs=$memory_jobs
-          fi
-          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
-          echo "CTEST_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
+          tools/tests/build_resources_test.sh
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$(tools/build_resources.sh build)" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$(tools/build_resources.sh test)" >> "$GITHUB_ENV"
           echo 'OMP_NUM_THREADS=1' >> "$GITHUB_ENV"
           echo 'MKL_NUM_THREADS=1' >> "$GITHUB_ENV"
       - name: Install Ninja, mold and sccache

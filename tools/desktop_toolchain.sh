@@ -7,39 +7,8 @@ usage() {
     exit 2
 }
 
-worker_count() {
-    kind=$1
-    cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || printf '%s' "${NUMBER_OF_PROCESSORS:-1}")
-    if command -v nproc >/dev/null 2>&1; then cpus=$(unset OMP_NUM_THREADS OMP_THREAD_LIMIT; nproc); fi
-    jobs=$cpus
-    # Reserve one GiB for OS/linking; each LibTorch compilation may use two GiB.
-    if [ "$kind" = build ]; then
-        memory_mb=''
-        if [ -r /proc/meminfo ]; then memory_mb=$(awk '/MemAvailable:/ {print int($2/1024)}' /proc/meminfo); fi
-        if [ -r /sys/fs/cgroup/memory.max ]; then
-            limit=$(cat /sys/fs/cgroup/memory.max)
-            used=$(cat /sys/fs/cgroup/memory.current)
-            case "$limit" in ''|*[!0-9]*) ;; *)
-                remaining=$(((limit-used)/1024/1024))
-                if [ -z "$memory_mb" ] || [ "$remaining" -lt "$memory_mb" ]; then memory_mb=$remaining; fi ;;
-            esac
-        fi
-        if [ -z "$memory_mb" ] && command -v powershell.exe >/dev/null 2>&1; then
-            memory_mb=$(powershell.exe -NoProfile -Command '[int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)' | tr -d '\r')
-        fi
-        if [ -z "$memory_mb" ] && command -v sysctl >/dev/null 2>&1; then
-            bytes=$(sysctl -n hw.memsize 2>/dev/null || printf 0)
-            memory_mb=$((bytes/1024/1024))
-        fi
-        if [ -n "$memory_mb" ]; then
-            memory_jobs=$(((memory_mb-1024)/2048))
-            [ "$memory_jobs" -gt 0 ] || memory_jobs=1
-            [ "$jobs" -le "$memory_jobs" ] || jobs=$memory_jobs
-        fi
-    fi
-    [ "$jobs" -gt 0 ] || jobs=1
-    printf '%s\n' "$jobs"
-}
+resource_tool=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)/build_resources.sh
+worker_count() { "$resource_tool" "$1"; }
 
 [ "$#" -gt 0 ] || usage
 if [ "$1" = --jobs ]; then
@@ -61,6 +30,9 @@ case "$tool" in cmake|ctest) ;; *) usage ;; esac
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1} MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
 export CMAKE_BUILD_PARALLEL_LEVEL=${CMAKE_BUILD_PARALLEL_LEVEL:-$(worker_count build)}
 export CTEST_PARALLEL_LEVEL=${CTEST_PARALLEL_LEVEL:-$(worker_count test)}
+for workers in "$CMAKE_BUILD_PARALLEL_LEVEL" "$CTEST_PARALLEL_LEVEL"; do
+    case "$workers" in ''|*[!0-9]*|0) echo 'worker counts must be positive bounded integers' >&2; exit 2 ;; esac
+done
 
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)

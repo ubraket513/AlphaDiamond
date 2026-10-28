@@ -50,6 +50,13 @@
       "cacheVariables": {
         "DIAMOND_QML_PREVIEW": "ON"
       }
+    },
+    {
+      "name": "desktop-preview-linux",
+      "inherits": [
+        "desktop-linux",
+        "desktop-preview"
+      ]
     }
   ],
   "buildPresets": [
@@ -68,6 +75,10 @@
     {
       "name": "desktop-preview",
       "configurePreset": "desktop-preview"
+    },
+    {
+      "name": "desktop-preview-linux",
+      "configurePreset": "desktop-preview-linux"
     }
   ],
   "testPresets": [
@@ -119,6 +130,21 @@
     {
       "name": "desktop-preview",
       "configurePreset": "desktop-preview",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      },
+      "environment": {
+        "QT_QPA_PLATFORM": "offscreen",
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1"
+      }
+    },
+    {
+      "name": "desktop-preview-linux",
+      "configurePreset": "desktop-preview-linux",
       "output": {
         "outputOnFailure": true
       },

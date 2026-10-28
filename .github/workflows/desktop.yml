@@ -36,6 +36,8 @@ jobs:
           path: consumer
           sparse-checkout: |
             desktop/engine-sdk.lock.json
+            tools/build_resources.sh
+            tools/tests/build_resources_test.sh
           sparse-checkout-cone-mode: false
       - name: Read pinned Engine revision
         id: pin
@@ -45,6 +47,7 @@ jobs:
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         with:
+          repository: ubraket513/AlphaDiamond
           ref: ${{ steps.pin.outputs.commit }}
           path: engine
       - uses: lukka/get-cmake@latest
@@ -61,17 +64,9 @@ jobs:
           echo CXX=g++-14 >> "$GITHUB_ENV"
       - name: Size workers and fetch exact CPU LibTorch
         run: |
-          tool=engine/tools/desktop_toolchain.sh
-          # This source revision may predate the Desktop launcher.
-          cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")
-          jobs=$cpus
-          if test -r /proc/meminfo; then
-            memory_jobs=$(awk '/MemAvailable:/ {print int(($2/1024-1024)/2048)}' /proc/meminfo)
-            test "$memory_jobs" -gt 0 || memory_jobs=1
-            test "$jobs" -le "$memory_jobs" || jobs=$memory_jobs
-          fi
-          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
-          echo "CTEST_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
+          consumer/tools/tests/build_resources_test.sh
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$(consumer/tools/build_resources.sh build)" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$(consumer/tools/build_resources.sh test)" >> "$GITHUB_ENV"
           flavor=libtorch-cxx11-abi-shared-with-deps
           if test "$RUNNER_OS" = Windows; then
             flavor=libtorch-win-shared-with-deps
@@ -146,6 +141,8 @@ jobs:
             tools/build_native_qt.sh
             tools/deploy_native_qt.sh
             tools/desktop_toolchain.sh
+            tools/build_resources.sh
+            tools/tests/build_resources_test.sh
             tools/sync_ratings.sh
           sparse-checkout-cone-mode: false
       - uses: lukka/get-cmake@latest
@@ -178,6 +175,7 @@ jobs:
           (cd "$RUNNER_TEMP/sdk" && cmake -E tar xf "$RUNNER_TEMP/inputs/engine-sdk.zip")
           (cd "$RUNNER_TEMP" && cmake -E tar xf inputs/libtorch.zip)
           echo "$RUNNER_TEMP/libtorch/lib" >> "$GITHUB_PATH"
+          tools/tests/build_resources_test.sh
           echo "CMAKE_BUILD_PARALLEL_LEVEL=$(tools/desktop_toolchain.sh --jobs build)" >> "$GITHUB_ENV"
           echo "CTEST_PARALLEL_LEVEL=$(tools/desktop_toolchain.sh --jobs test)" >> "$GITHUB_ENV"
           test ! -e native/src

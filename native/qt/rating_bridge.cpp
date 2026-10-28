@@ -60,9 +60,11 @@ QString sync_script() {
     const QString configured = qEnvironmentVariable("DIAMOND_RATING_SYNC_SCRIPT");
     if (!configured.isEmpty())
         return configured;
+    const QDir application{QCoreApplication::applicationDirPath()};
     const QStringList candidates = {
-        QDir::current().filePath(QStringLiteral("tools/sync_ratings.sh")),
-        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("sync_ratings.sh"))};
+        application.filePath(QStringLiteral("tools/sync_ratings.sh")),
+        application.filePath(QStringLiteral("sync_ratings.sh")),
+        QDir::current().filePath(QStringLiteral("tools/sync_ratings.sh"))};
     for (const QString& candidate : candidates)
         if (QFileInfo{candidate}.isFile())
             return candidate;

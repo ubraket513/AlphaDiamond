@@ -42,6 +42,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Size host build and CPU test workers
+        run: |
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$(tools/build_resources.sh build)" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$(tools/build_resources.sh test)" >> "$GITHUB_ENV"
+
       - name: Prepare LibTorch DLL search path and validate inputs
         run: |
           set -euo pipefail
@@ -144,7 +149,7 @@ jobs:
 
       - name: Build CUDA acceptance targets
         run: >-
-          tools/native_training.sh cmake --build --preset native-training --parallel
+          tools/native_training.sh cmake --build --preset native-training --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"
           --target device_test inference_coordinator_test training_step_parity_test
           checkpoint_v2_roundtrip_test checkpoint_v2_reject_test
           checkpoint_v2_transaction_test alphadiamond-checkpoint alphadiamond-train
@@ -202,6 +207,7 @@ jobs:
           grep -qi 'c10.dll' acceptance/train-dependents.txt
           grep -qi 'torch_cpu.dll' acceptance/train-dependents.txt
 
+      # These four tests share one GPU and must run serially.
       - name: Require and run exactly four CUDA tests
         run: |
           set -euo pipefail
@@ -218,7 +224,7 @@ jobs:
           diff -u acceptance/tests-expected.txt acceptance/tests-actual.txt
           test "$(wc -l < acceptance/tests-actual.txt)" -eq 4
           tools/native_training.sh ctest --preset native-training \
-            --output-on-failure --no-tests=error -L '^cuda$' \
+            --output-on-failure --no-tests=error --parallel 1 -L '^cuda$' \
             -R '^(checkpoint_v2_roundtrip_test_cuda|device_test_cuda|inference_coordinator_test_cuda|training_step_parity_test_cuda)$' \
             --output-junit acceptance/cuda-ctest.xml \
             2>&1 | tee acceptance/cuda-tests.txt
@@ -228,7 +234,7 @@ jobs:
           set -euo pipefail
           tools/native_training.sh ctest --preset native-training \
             -R '^(device_test|inference_coordinator_test|training_step_parity_test|checkpoint_v2_roundtrip_test|checkpoint_v2_reject_test|checkpoint_v2_transaction_test)$' \
-            --output-on-failure --no-tests=error \
+            --output-on-failure --no-tests=error --parallel "$CTEST_PARALLEL_LEVEL" \
             --output-junit acceptance/cpu-regression-ctest.xml \
             2>&1 | tee acceptance/cpu-regressions.txt
 

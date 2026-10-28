@@ -42,21 +42,8 @@ jobs:
           echo 'CXX=g++-14' >> "$GITHUB_ENV"
       - name: Budget build workers by CPU and available memory
         run: |
-          if test "$RUNNER_OS" = Windows; then
-            cpus=$(powershell.exe -NoProfile -Command '(Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors' | tr -d '\r')
-            memory_kb=$(powershell.exe -NoProfile -Command '(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory' | tr -d '\r')
-          else
-            cpus=$(getconf _NPROCESSORS_ONLN)
-            memory_kb=$(awk '/MemAvailable:/ { print $2 }' /proc/meminfo)
-          fi
-          # Torch-heavy translation units can use 2 GiB each. Tests use all
-          # CPUs; engine_sdk_install reserves its nested build's processors.
-          jobs=$((memory_kb / 2097152))
-          if test "$jobs" -lt 1; then jobs=1; fi
-          if test "$jobs" -gt "$cpus"; then jobs=$cpus; fi
-          echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
-          echo "CTEST_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
-          echo "Using $jobs build workers and $cpus test workers"
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$(tools/build_resources.sh build)" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$(tools/build_resources.sh test)" >> "$GITHUB_ENV"
       - name: Fetch pinned official CPU LibTorch outside the checkout
         run: |
           if test "$RUNNER_OS" = Windows; then

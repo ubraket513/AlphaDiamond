@@ -6,9 +6,10 @@ retains the compiler's optimized defaults. Link-time optimization defaults to
 off in every configuration. No optimization flags are added to dependencies.
 
 The native presets provide a safe fallback of eight build jobs and twelve
-CTest workers. `make` and the Desktop shell helpers detect available CPUs and
-memory to select worker counts, reserving memory for the OS and linker. They
-also constrain nested OpenMP/MKL work. Override `make` with `BUILD_JOBS=N`
+CTest workers. `tools/build_resources.sh` is shared by Engine/
+Desktop Make and CI routes. It detects CPU affinity, cgroup CPU quotas, host/
+cgroup memory headroom (including ancestor limits), and reserves memory for the
+OS and linker. Make and Desktop launchers also constrain nested OpenMP/MKL work. Override `make` with `BUILD_JOBS=N`
 and `TEST_JOBS=N`, or a direct invocation with
 `cmake --build --preset … --parallel N` and `ctest --preset … --parallel N`.
 The Desktop shell helpers honor `CMAKE_BUILD_PARALLEL_LEVEL` and
@@ -17,12 +18,20 @@ The Desktop shell helpers honor `CMAKE_BUILD_PARALLEL_LEVEL` and
 ## Native engine and inference
 
 ```sh
+make build
+make test-native
+make test-training
+
+# Direct preset invocations always supply the detected counts explicitly.
+BUILD_JOBS=$(tools/build_resources.sh build)
+TEST_JOBS=$(tools/build_resources.sh test)
 cmake --preset native-gcc-mold
-make build PRESET=native-gcc-mold
-make test-native PRESET=native-gcc-mold
+cmake --build --preset native-gcc-mold --parallel "$BUILD_JOBS"
+ctest --preset native-gcc-mold --parallel "$TEST_JOBS"
 ```
 
-This Linux preset selects `/usr/bin/g++-15`, `$HOME/.local/bin/sccache`, Ninja
+On Linux, default Make core/training routes select `native-ci-linux` and
+`native-training-linux`. The explicit `native-gcc-mold` runtime preset selects `/usr/bin/g++-15`, `$HOME/.local/bin/sccache`, Ninja
 and `-fuse-ld=mold`. Install these tools before configuring; mold must be on
 the compiler's executable search path. `native-ci`, `native-runtime`,
 `native-training`, `native-qt` and `native-qt-preview` also default to Debug
@@ -40,10 +49,10 @@ when those tools are configured, then executes both binaries.
 ```sh
 tools/build_native_qt.sh --sdk-prefix /path/to/debug-sdk --no-deploy
 make test-qt SDK_PREFIX=/path/to/debug-sdk
-tools/run_native_qt.sh --sdk-prefix /path/to/debug-sdk
+tools/preview_native_qt.sh --sdk-prefix /path/to/debug-sdk --torch-prefix /path/to/cpu-libtorch --qt-root /path/to/qt-6.12
 ```
 
-Desktop consumes the installed engine SDK selected by `desktop/sdk.lock`.
+Desktop consumes the installed engine SDK selected by `desktop/engine-sdk.lock.json`.
 Its Debug consumer must use a Debug SDK. A Release SDK and Debug consumer are
 incompatible even on Linux: choose the matching artifact and lock before
 changing configuration. The desktop helpers configure only the Desktop
@@ -58,13 +67,15 @@ can use the preview helper without compiling the native engine.
 Select optimization explicitly for an application build or final training:
 
 ```sh
+BUILD_JOBS=$(tools/build_resources.sh build)
+TEST_JOBS=$(tools/build_resources.sh test)
 cmake --preset native-qt-release
-cmake --build --preset native-qt-release
-ctest --preset native-qt-release
+cmake --build --preset native-qt-release --parallel "$BUILD_JOBS"
+ctest --preset native-qt-release --parallel "$TEST_JOBS"
 
 cmake --preset native-training-release
-cmake --build --preset native-training-release
-ctest --preset native-training-release
+cmake --build --preset native-training-release --parallel "$BUILD_JOBS"
+ctest --preset native-training-release --parallel "$TEST_JOBS"
 ```
 
 The existing `native-release` and Windows `native-package` presets also retain

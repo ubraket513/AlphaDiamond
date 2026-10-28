@@ -9,6 +9,10 @@ if(TARGET diamond_model)
     list(APPEND _ad_sdk_targets diamond_model)
     set(ALPHADIAMOND_ENGINE_HAS_MODEL ON)
 endif()
+if(ALPHADIAMOND_ENGINE_HAS_MODEL AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    include("${CMAKE_CURRENT_LIST_DIR}/AlphaDiamondEngineAbi.cmake")
+    alphadiamond_engine_apply_abi(TARGETS ${_ad_sdk_targets})
+endif()
 foreach(_target IN LISTS _ad_sdk_targets)
     if(MSVC)
         include(CheckCXXCompilerFlag)
@@ -29,6 +33,26 @@ endforeach()
 
 set(_ad_package_dir "${CMAKE_INSTALL_LIBDIR}/cmake/AlphaDiamondEngine")
 set(_ad_data_dir "${CMAKE_INSTALL_DATADIR}/AlphaDiamondEngine")
+include("${CMAKE_CURRENT_LIST_DIR}/AlphaDiamondEngineBuildProvenance.cmake")
+file(GLOB_RECURSE _ad_provenance_inputs CONFIGURE_DEPENDS
+    "${PROJECT_SOURCE_DIR}/native/include/*.hpp"
+    "${PROJECT_SOURCE_DIR}/native/include/*.h"
+    "${PROJECT_SOURCE_DIR}/native/src/*.hpp" "${PROJECT_SOURCE_DIR}/native/src/*.h"
+    "${PROJECT_SOURCE_DIR}/cmake/*.cmake" "${PROJECT_SOURCE_DIR}/cmake/*.cmake.in"
+    "${PROJECT_SOURCE_DIR}/tests/golden/topology/*")
+list(APPEND _ad_provenance_inputs "${PROJECT_SOURCE_DIR}/CMakeLists.txt"
+    "${PROJECT_SOURCE_DIR}/native/CMakeLists.txt")
+set(_ad_provenance_targets ${_ad_sdk_targets})
+set(_ad_provenance_data)
+if(TARGET alphadiamond-rating-sync)
+    list(APPEND _ad_provenance_targets alphadiamond-rating-sync)
+endif()
+if(ALPHADIAMOND_ENGINE_HAS_MODEL)
+    list(APPEND _ad_provenance_inputs "${PROJECT_SOURCE_DIR}/native/tests/sdk_consumer/generate_fixtures.cpp")
+    set(_ad_provenance_data "${PROJECT_BINARY_DIR}/sdk-fixtures")
+endif()
+alphadiamond_engine_track_provenance(TARGETS ${_ad_provenance_targets}
+    INPUTS ${_ad_provenance_inputs} DATA_DIRS ${_ad_provenance_data})
 install(TARGETS ${_ad_sdk_targets} EXPORT AlphaDiamondEngineTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT Runtime
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT Runtime
@@ -78,21 +102,10 @@ if(ALPHADIAMOND_ENGINE_HAS_MODEL)
         COMMAND alphadiamond-sdk-fixtures "${PROJECT_SOURCE_DIR}/tests/golden/topology" "${_ad_fixtures}"
         DEPENDS alphadiamond-sdk-fixtures VERBATIM)
     add_custom_target(engine_sdk_data ALL DEPENDS "${_ad_fixtures}/PROVENANCE.txt")
+    add_dependencies(engine_sdk_provenance engine_sdk_data)
     install(DIRECTORY "${_ad_fixtures}/" DESTINATION "${_ad_data_dir}/fixtures" COMPONENT Runtime)
 endif()
 
-execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    OUTPUT_VARIABLE ALPHADIAMOND_ENGINE_SOURCE_SHA OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE _ad_git_status)
-if(NOT _ad_git_status EQUAL 0)
-    message(FATAL_ERROR "SDK provenance requires a Git source SHA")
-endif()
-execute_process(COMMAND git status --porcelain --untracked-files=normal
-    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" OUTPUT_VARIABLE _ad_dirty)
-set(ALPHADIAMOND_ENGINE_SOURCE_DIRTY false)
-if(_ad_dirty)
-    set(ALPHADIAMOND_ENGINE_SOURCE_DIRTY true)
-endif()
 set(ALPHADIAMOND_ENGINE_CRT "${CMAKE_MSVC_RUNTIME_LIBRARY}")
 if(MSVC AND NOT ALPHADIAMOND_ENGINE_CRT)
     set(ALPHADIAMOND_ENGINE_CRT "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
@@ -104,6 +117,14 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/AlphaDiamondEngineManifest.cmake.in"
 install(SCRIPT "${PROJECT_BINARY_DIR}/AlphaDiamondEngineManifest.cmake" COMPONENT Runtime)
 
 if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS AND ALPHADIAMOND_ENGINE_HAS_MODEL)
+    foreach(_regression abi provenance)
+        add_test(NAME engine_sdk_${_regression} COMMAND "${CMAKE_COMMAND}"
+            "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}" "-DTEST_ROOT=${PROJECT_BINARY_DIR}/sdk-regression"
+            "-DCOMPILER=${CMAKE_CXX_COMPILER}" "-DCOMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}"
+            -P "${PROJECT_SOURCE_DIR}/native/tests/sdk_${_regression}_test.cmake")
+        set_tests_properties(engine_sdk_${_regression} PROPERTIES LABELS "sdk;integration"
+            PROCESSORS 8 TIMEOUT 120)
+    endforeach()
     add_test(NAME engine_sdk_install COMMAND "${CMAKE_COMMAND}"
         "-DBUILD_DIR=${PROJECT_BINARY_DIR}" "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}"
         "-DCONFIG=$<CONFIG>" "-DCOMPILER=${CMAKE_CXX_COMPILER}"

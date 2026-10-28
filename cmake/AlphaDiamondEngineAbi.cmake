@@ -1,0 +1,16 @@
+include_guard(GLOBAL)
+function(alphadiamond_engine_apply_abi)
+    cmake_parse_arguments(ABI "" "" "TARGETS" ${ARGN})
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        return()
+    endif()
+    if(NOT AlphaDiamondEngine_TORCH_ABI MATCHES "^cxx11-([01])$")
+        message(FATAL_ERROR "Unknown Linux Torch C++ ABI: ${AlphaDiamondEngine_TORCH_ABI}")
+    endif()
+    set(_abi "${CMAKE_MATCH_1}")
+    foreach(_target IN LISTS ABI_TARGETS)
+        # ABI-sensitive STL types cross every public SDK library boundary.
+        # This requirement has no Torch include/link dependency of its own.
+        target_compile_definitions(${_target} PUBLIC "_GLIBCXX_USE_CXX11_ABI=${_abi}")
+    endforeach()
+endfunction()

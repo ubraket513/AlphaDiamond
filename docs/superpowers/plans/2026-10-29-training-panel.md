@@ -55,7 +55,7 @@
 - [x] Build optimized CUDA training binaries with the required toolchain and resource budget.
 - [x] Freeze exact old specialist pair and shipped migrated baseline identities. Launch new specialist continuations into dedicated runs, with no automatic continuation after user Stop.
 - [x] Estimate throughput and reserve time for fixed before/after paired arenas and independent held-out evaluation if justified.
-- [ ] Validate durable checkpoints; report actual training budgets and arena results/uncertainty without claiming strength from loss.
+- [x] Validate durable checkpoints; report actual training budgets and arena results/uncertainty without claiming strength from loss.
 
 ### Task 4: Integration and review
 
@@ -63,8 +63,8 @@
 
 - [x] Run backend tests, frontend build, browser contract checks and local migration verification.
 - [x] Obtain independent spec/code review of the whole panel; fix concrete findings and reverify affected checks.
-- [ ] Refresh Graphify and record commits, local run URL, active training and deadline/heartbeat state.
-- [ ] At deadline, retain evidence, stop session-owned remaining compute, report actual results and pause heartbeat.
+- [x] Refresh Graphify and record commits, local run URL, active training and deadline/heartbeat state.
+- [x] On confirmed objective completion or at the deadline, retain evidence, stop session-owned remaining compute if any, report actual results and pause heartbeat.
 
 ### Task 5: Show the native expert-arena phase
 
@@ -75,3 +75,5 @@
 - [x] Implement the minimal evaluation branch and UI progress display, reusing process discovery, native file reading, tabs and Stop.
 - [x] Run the complete panel tests/build and inspect the actual active arena in a browser; obtain scoped independent review.
 - [x] Refresh supported code and semantic graph relationships; record commits/evidence in the ledger.
+
+Final validation: the preselected final12-iteration pair passed the predeclared fresh864-game absolute-strength gate against the exact shipped migrated reference (861 completed,3 aborted,0 pending). This establishes absolute strength on that protocol; the paired screen does not establish positive gain from this continuation. Checkpoints and candidate-only exports remain in the experiment directory, shipped models remain unchanged, and the local panel stays available. Detailed hashes, intervals, independent reviews and heartbeat closure are recorded in the execution ledger.

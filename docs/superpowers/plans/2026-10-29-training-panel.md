@@ -33,35 +33,35 @@
 **Files:** Create `training-panel/server.mjs`, `training-panel/server.test.mjs`.
 **Interfaces:** Implement the exact HTTP contract in the spec. The root agent owns package/Vite/frontend files. Training agent owns experiment files; coordinate log and metric shapes without modifying native source.
 
-- [ ] Read relevant CLI/source relationships using Graphify and Serena; inspect references before shared-interface changes.
-- [ ] Write failing focused Node tests for independently launched process discovery, stage metrics, CLI launch arguments/output and immediate stop.
-- [ ] Implement the minimal bridge with built-in Node APIs and static serving of `dist/`.
-- [ ] Run Node tests with independent tests parallelized; report evidence and commit only owned files.
+- [x] Read relevant CLI/source relationships using Graphify and Serena; inspect references before shared-interface changes.
+- [x] Write failing focused Node tests for independently launched process discovery, stage metrics, CLI launch arguments/output and immediate stop.
+- [x] Implement the minimal bridge with built-in Node APIs and static serving of `dist/`.
+- [x] Run Node tests with independent tests parallelized; report evidence and commit only owned files.
 
 ### Task 2: Svelte panel
 
 **Files:** Create `training-panel/package.json`, lockfile, `vite.config.js`, `index.html`, `src/main.js`, `src/App.svelte`, `src/app.css`, focused chart helper/test if necessary, and README.
 **Interfaces:** Consume Task 1 API without changing its contract. Use existing configuration JSON and actual native metrics.
 
-- [ ] Query current Svelte/Vite APIs with Context7; apply the agreed minimal layout and settings/log/chart requirements.
-- [ ] Implement active-run selection, settings/start form, loss/throughput charts, logs and native metadata inspection.
-- [ ] Build, run focused data transformation tests where meaningful, and verify actual UI in a browser using a separate fixture process.
-- [ ] Document one-command use and Agent CLI integration; commit owned files.
+- [x] Query current Svelte/Vite APIs with Context7; apply the agreed minimal layout and settings/log/chart requirements.
+- [x] Implement active-run selection, settings/start form, loss/throughput charts, logs and native metadata inspection.
+- [x] Build, run focused data transformation tests where meaningful, and verify actual UI in a browser using a separate fixture process.
+- [x] Document one-command use and Agent CLI integration; commit owned files.
 
 ### Task 3: Min training and strength evaluation
 
 **Files:** Dedicated ignored `artifacts/min-strength-20261029/` configs, logs, checkpoints and evaluation output; report in the plan ledger.
 
-- [ ] Build optimized CUDA training binaries with the required toolchain and resource budget.
-- [ ] Freeze exact old specialist pair and shipped migrated baseline identities. Launch new specialist continuations into dedicated runs, with no automatic continuation after user Stop.
-- [ ] Estimate throughput and reserve time for fixed before/after paired arenas and independent held-out evaluation if justified.
+- [x] Build optimized CUDA training binaries with the required toolchain and resource budget.
+- [x] Freeze exact old specialist pair and shipped migrated baseline identities. Launch new specialist continuations into dedicated runs, with no automatic continuation after user Stop.
+- [x] Estimate throughput and reserve time for fixed before/after paired arenas and independent held-out evaluation if justified.
 - [ ] Validate durable checkpoints; report actual training budgets and arena results/uncertainty without claiming strength from loss.
 
 ### Task 4: Integration and review
 
 **Files:** Update root README and Graphify output; reports in `.superpowers/sdd/2026-10-29-training-panel/`.
 
-- [ ] Run backend tests, frontend build, browser contract checks and local migration verification.
-- [ ] Obtain independent spec/code review of the whole panel; fix concrete findings and reverify affected checks.
+- [x] Run backend tests, frontend build, browser contract checks and local migration verification.
+- [x] Obtain independent spec/code review of the whole panel; fix concrete findings and reverify affected checks.
 - [ ] Refresh Graphify and record commits, local run URL, active training and deadline/heartbeat state.
 - [ ] At deadline, retain evidence, stop session-owned remaining compute, report actual results and pause heartbeat.

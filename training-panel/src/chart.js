@@ -1,9 +1,15 @@
 export function chartData(metrics, keys) {
   if (!metrics.length) return null;
-  const steps = metrics.map((m) => m.training_step);
-  const values = metrics.flatMap((m) => keys.map((key) => m[key]));
-  const x = [Math.min(...steps), Math.max(...steps)];
-  const y = [Math.min(...values), Math.max(...values)];
+  const x = [Infinity, -Infinity];
+  const y = [Infinity, -Infinity];
+  for (const metric of metrics) {
+    x[0] = Math.min(x[0], metric.training_step);
+    x[1] = Math.max(x[1], metric.training_step);
+    for (const key of keys) {
+      y[0] = Math.min(y[0], metric[key]);
+      y[1] = Math.max(y[1], metric[key]);
+    }
+  }
   const lines = keys.map((key) => ({
     key,
     points: metrics.map((m) => {

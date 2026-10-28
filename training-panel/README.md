@@ -37,6 +37,8 @@ The browser and server can be closed without stopping a job. State, settings,
 iteration metadata and loss samples come directly from native files. They update
 at stage boundaries; console output appears as the CLI writes it. The panel polls
 every 1.5 seconds. Completed or stopped processes leave the active list.
+Settings and configuration copying use `active-config.json` after an accepted
+resume transition; runs without a transition use their initial `resolved-config.json`.
 
 **Stop immediately sends SIGKILL** to the selected training process, or its
 process group when it leads that group. The in-flight stage stops immediately;

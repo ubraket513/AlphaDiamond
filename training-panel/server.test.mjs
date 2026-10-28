@@ -63,7 +63,7 @@ describe('native CLI bridge', { concurrency: true }, () => {
 test('discovers an independently launched resume and preserves ordered native metadata', async t => {
   const { root, binary, runDir, request, children } = await fixture(t);
   await writeFile(join(runDir, 'state.json'), JSON.stringify({ stage: 'SELF_PLAY', iteration: 11 }));
-  await writeFile(join(runDir, 'resolved-config.json'), JSON.stringify({ run_seed: 7, custom: { setting: 42 } }));
+  await writeFile(join(runDir, 'resolved-config.json'), JSON.stringify({ run_seed: 7, custom: { setting: 42 }, training: { learning_rate: 0.01 } }));
   await writeFile(join(runDir, 'console.log'), 'durable console\n');
   for (const iteration of [10, 2, 11]) await mkdir(join(runDir, `iterations/${iteration}`), { recursive: true });
   await writeFile(join(runDir, 'iterations/10/train.json'), JSON.stringify({ training_metrics: [{ training_step: 12, total_loss: 0.5, samples_per_second: 99, optimizer_seconds: 0.2 }] }));
@@ -88,6 +88,10 @@ test('discovers an independently launched resume and preserves ordered native me
   assert.equal(job.log, 'durable console\n');
   assert.ok(job.command.includes('resume'));
   assert.ok(Math.abs(Date.parse(job.startedAt) - Date.now()) < 10000);
+  assert.equal(job.config.training.learning_rate, 0.01);
+  await writeFile(join(runDir, 'active-config.json'), JSON.stringify({ run_seed: 7, training: { learning_rate: 0.0002 } }));
+  const resumed = (await request('/api/status')).data.jobs.find(job => job.pid === child.pid);
+  assert.equal(resumed.config.training.learning_rate, 0.0002, 'a resumed run must expose its accepted active config');
 });
 
 test('launches detached native scratch/warm-start commands with persisted config and output', async t => {

@@ -18,7 +18,10 @@
         {#each [0, 25, 50, 75, 100] as y}<line x1="0" y1={y} x2="100" y2={y} class="grid-line" />{/each}
         {#each data.lines as line, index}
           <polyline points={line.points} fill="none" stroke={colors[index]} stroke-width="1.7" vector-effect="non-scaling-stroke" />
-          {#if metrics.length === 1}<circle cx="50" cy="50" r="1" fill={colors[index]} />{/if}
+          {#if metrics.length === 1}
+            {@const [cx, cy] = line.points.split(',')}
+            <circle {cx} {cy} r="1" fill={colors[index]} />
+          {/if}
         {/each}
       </svg>
       <div class="x-axis"><span>{data.x[0]}</span><span>training step</span><span>{data.x[1]}</span></div>

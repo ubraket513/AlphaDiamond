@@ -61,7 +61,8 @@ async function discover(binary) {
 async function nativeJob({ pgid, startTicks, ...job }) {
   const [state, config, log, numbers] = await Promise.all([
     optionalFile(join(job.runDir, 'state.json'), true),
-    optionalFile(join(job.runDir, 'resolved-config.json'), true),
+    optionalFile(join(job.runDir, 'active-config.json'), true)
+      .then(config => config ?? optionalFile(join(job.runDir, 'resolved-config.json'), true)),
     optionalFile(join(job.runDir, 'console.log')),
     optionalDirectory(join(job.runDir, 'iterations')),
   ]);

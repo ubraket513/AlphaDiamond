@@ -3,18 +3,18 @@
   "entries": [
     {
       "sdk_version": "0.1.0",
-      "source_commit": "adc20377a2708c5b80f0b19c521f45f7d2de7943",
+      "source_commit": "cb0bd472363fd81db130ac2a003c324d65bf1921",
+      "source_dirty": true,
       "platform": "Linux",
       "arch": "x86_64",
       "compiler": "GNU",
       "compiler_version": "15.2.0",
-      "configuration": "Release",
+      "configuration": "Debug",
       "torch_version": "2.7.1",
       "torch_variant": "cpu",
       "cxx_abi": "cxx11-1",
-      "archive_sha256": "5993e5dbe877e3ec4732db825ea930c653b7d4db9414024c3a0397f4b742dfbc",
-      "manifest_sha256": "608ae5967a615b3025d13af3a267aab52cd474f695d6d70692794c33713b6039",
-      "source_dirty": true
+      "archive_sha256": "0a2c6b54886bc104194c2649d4c1063f4c98f0e2220588ed6fc80f63dcf96d0c",
+      "manifest_sha256": "d7661b0b05cfb8bca33f69c824b8f2debc85ac1bc60fc0578901ab5bdbf174e6"
     }
   ]
 }

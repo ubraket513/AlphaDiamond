@@ -680,10 +680,10 @@
     "semantic_hash": "243b874ecbaf4bffbadc1859060d5fce"
   },
   "native/benchmarks/min_expert_arena.cpp": {
-    "mtime": 1791907455.6299276,
-    "seen": 1793216304.969013,
-    "ast_hash": "e8f80dba88077f6901c3981602e599d3",
-    "semantic_hash": "e8f80dba88077f6901c3981602e599d3"
+    "mtime": 1793234699.3951156,
+    "seen": 1793234889.6970255,
+    "ast_hash": "c29c7cd3f3111c63a16f180dfda21313",
+    "semantic_hash": ""
   },
   "native/benchmarks/min_learning_diagnostic.cpp": {
     "mtime": 1791903357.1478581,
@@ -1478,16 +1478,16 @@
     "semantic_hash": "69fac253ae08ef264dc150007b79f241"
   },
   "native/tests/min_expert_arena_cli_test.cpp": {
-    "mtime": 1791907455.636645,
-    "seen": 1793216304.9690878,
-    "ast_hash": "7219adc3312a208fc2cc86da2c54916f",
-    "semantic_hash": "7219adc3312a208fc2cc86da2c54916f"
+    "mtime": 1793234833.6005673,
+    "seen": 1793234889.6971257,
+    "ast_hash": "cd879b55f5b603bd27b46007f71945d9",
+    "semantic_hash": ""
   },
   "native/tests/min_experts_test.cpp": {
-    "mtime": 1791906441.6029158,
-    "seen": 1793216304.9690883,
-    "ast_hash": "589409e5462869f05f727f969cf6ffd5",
-    "semantic_hash": "589409e5462869f05f727f969cf6ffd5"
+    "mtime": 1793234878.954133,
+    "seen": 1793234889.6971264,
+    "ast_hash": "44fe2ee136e2182c76695b992a886be7",
+    "semantic_hash": ""
   },
   "native/tests/min_learning_diagnostic_test.cpp": {
     "mtime": 1791891776.1810393,
@@ -2070,9 +2070,9 @@
     "semantic_hash": ""
   },
   "docs/model-training/min_turn_order_experts.md": {
-    "mtime": 1791913232.1716728,
-    "seen": 1793216304.9691472,
-    "ast_hash": "45abd47b2425733bbd5ffeef22b930e8",
+    "mtime": 1793234780.8206031,
+    "seen": 1793234889.697195,
+    "ast_hash": "aa7a2ea24c4cb5d917e3c0afee9db66f",
     "semantic_hash": ""
   },
   "docs/model-training/rating_sync.md": {
@@ -2515,9 +2515,9 @@
   },
   "docs/superpowers/plans/2026-10-29-training-panel.md": {
     "mtime": 1793226713.8106213,
-    "seen": 1793226767.5723426,
-    "ast_hash": "",
-    "semantic_hash": "afdd55e5a3a0549d81f1cd414824d250"
+    "seen": 1793234889.6972172,
+    "ast_hash": "afdd55e5a3a0549d81f1cd414824d250",
+    "semantic_hash": ""
   },
   "docs/superpowers/specs/2026-10-29-training-panel.md": {
     "mtime": 1793223623.0972433,
@@ -2548,6 +2548,12 @@
     "seen": 1793226758.5834565,
     "ast_hash": "ec128923a2f3eb6c20c78a966105e30f",
     "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-10-29-min-comparative-improvement.md": {
+    "mtime": 1793234476.1230366,
+    "seen": 1793235205.3477185,
+    "ast_hash": "",
+    "semantic_hash": "927cf3fcbc6acd219b08d3ae72cd0128"
   },
   "training-panel/package-lock.json": {
     "mtime": 1793215961.110656,

@@ -70,7 +70,12 @@ validated native deployment export; they are not exact-resume checkpoints.
 Release tooling consumes a native checkpoint root or deployment artifact and
 verifies its recorded SHA-256 identities before changing release state.
 
-Manifest fields: see [manifests/checkpoint.schema.json](manifests/checkpoint.schema.json).
+The current native generation manifest is read and validated by
+[`native/src/checkpoint.cpp`](../native/src/checkpoint.cpp); use
+`alphadiamond-checkpoint validate <checkpoint-root>` to check it.
+[`manifests/checkpoint.schema.json`](manifests/checkpoint.schema.json) describes
+the historical Python `.pt` sidecar only. It is archival documentation, not the
+schema or validator for a native checkpoint-v3 generation.
 
 ## Promotion
 

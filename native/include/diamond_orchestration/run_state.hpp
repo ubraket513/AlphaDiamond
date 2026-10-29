@@ -31,6 +31,8 @@ std::string_view stage_name(RunStage stage);
 // COMPLETE throw RunStateError.
 RunStage next_stage(RunStage stage);
 
+// Validated snapshot of the persisted cursor and run identity. Progress moves
+// through RunStateStore so completion markers and durable state stay together.
 class RunState final {
   public:
     static RunState initialize(std::string run_id,
@@ -48,7 +50,6 @@ class RunState final {
     RunStage stage() const noexcept { return stage_; }
     uint64_t generation() const noexcept { return generation_; }
     uint64_t derive_seed(const diamond_support::JsonValue::Array& identities) const;
-    RunState with_progress(diamond_support::JsonValue::Object changes) const;
 
   private:
     explicit RunState(diamond_support::JsonValue::Object payload);

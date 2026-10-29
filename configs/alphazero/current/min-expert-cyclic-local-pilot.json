@@ -15,7 +15,6 @@
     "dirichlet_alpha": 0.3,
     "dirichlet_epsilon": 0.25,
     "repeat_window": 0,
-    "seed": 7,
     "simulations": 512,
     "simulations_late": 0
   },
@@ -60,7 +59,6 @@
     "bootstrap_prior_weight": 0.0,
     "max_game_seconds": null,
     "max_moves": 500,
-    "seed": 7,
     "temperature": 1.0,
     "temperature_moves": 20,
     "turn_order_group": "cyclic"

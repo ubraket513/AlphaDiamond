@@ -2,7 +2,6 @@
 
 #include <chrono>
 #include <cstddef>
-#include <filesystem>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -29,6 +28,7 @@ class IncompatibleCheckpointError final : public PipelineError { public: using P
 // Owns detached actor snapshots for one evaluator thread. The caller serializes
 // install/activate/evaluate and stats access; this class starts no worker threads.
 // Batch items borrow lane storage only for the duration of evaluate().
+// Callers load checkpoints before installing a snapshot for evaluation.
 class ModelPool final : public soo::BatchEvaluator {
   public:
     struct EvaluationStats final {
@@ -58,38 +58,20 @@ class ModelPool final : public soo::BatchEvaluator {
     // Copies source storage; key hashes the FP32 snapshot before inference casts.
     // A new key at capacity fails rather than silently evicting another actor.
     ModelKey install(const Compatibility& compatibility, const diamond_model::DiamondModel& source);
-    // Reads native checkpoint weights into staging, then installs a detached
-    // actor. No optimizer state is restored and no checkpoint file is written.
-    ModelKey install_checkpoint(const Compatibility& compatibility,
-                                const std::filesystem::path& checkpoint_root,
-                                diamond_model::DiamondModel staging);
     void activate(const ModelKey& key);
     const ModelKey& active_key() const;
-    // Borrowed observation; callers must preserve the actor's immutable role and
-    // must not race installation/replacement through LibTorch holder aliases.
-    const diamond_model::DiamondModel& active_model() const;
-    std::size_t resident_count() const;
     void require_compatible(const Compatibility& expected) const;
     // Checks only at this call boundary; does not interrupt an in-flight forward.
     void require_ready(std::stop_token stop, std::chrono::steady_clock::time_point deadline) const;
     // Validates/stages the entire result before replacing caller-owned outcomes.
     void evaluate(std::vector<soo::BatchItem>& batch) override;
     // Successful nonempty batches since reset: counts/times and batch rows sum;
-    // max_legal_actions retains the maximum. Reset leaves last-batch stats alone.
+    // max_legal_actions retains the maximum. Empty or rejected batches add none.
     EvaluationStats accumulated_evaluation_stats() const noexcept {
         return accumulated_evaluation_stats_;
     }
-    std::size_t evaluated_batches() const noexcept {
-        return evaluated_batches_;
-    }
     void reset_evaluation_stats() noexcept {
         accumulated_evaluation_stats_ = EvaluationStats{};
-        evaluated_batches_ = 0;
-    }
-
-    // Empty evaluate() clears this; rejected input leaves prior stats unchanged.
-    EvaluationStats last_evaluation_stats() const noexcept {
-        return last_evaluation_stats_;
     }
 
   private:
@@ -103,9 +85,7 @@ class ModelPool final : public soo::BatchEvaluator {
     InferencePrecision precision_;
     std::map<ModelKey, ResidentModel> models_;
     std::optional<ModelKey> active_;
-    EvaluationStats last_evaluation_stats_;
     EvaluationStats accumulated_evaluation_stats_;
-    std::size_t evaluated_batches_ = 0;
 
     // Reallocated only when shape/dtype requires it; pinned for CUDA transfers.
     // One evaluator thread owns these buffers. The blocking result copy completes

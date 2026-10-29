@@ -153,3 +153,30 @@ Ruling: train_main의 추가 물리적 파일 분할은 이번 기능 정리 범
 - Release CLI help/report 정상, primary iteration11/1536-step 기존 checkpoint validate 정상, shipped Min 2.0.1 validate 정상. 학습·평가·벤치마크·회귀 테스트를 실행하지 않았다. 새 self-play actor 경로와 optimizer exact-restore의 실제 실행 확인은 하지 않았으며 빌드·독립 소스 검토 범위다.
 - Graphify 갱신: 기존 semantic 130개 유지, 옮긴 진단 파일로 문서 관계 2개 재연결, dangling 관계 없음. 운영 문서 의미 기록 갱신.
 - 근거 로그: `artifacts/pipeline-cleanup-20261029/residual-verification/`. 기존 모델·실험 산출물·Desktop 저장소는 변경하지 않았고 자동 메시지는 재생성하지 않았다.
+
+## YACHT 재대조: 미사용 API와 설정 의미 정리 (완료)
+
+사용자가 잔여 미사용 코드 제거, 추가 스캔, 친절한 주석을 승인했다. 기존 C++ CLI의 직접 호출 구조를 유지한다. 새 Lua/Python launcher, 계층, 테스트, CI를 추가하지 않는다. 학습/평가/벤치마크 실행과 자동 예약은 중지 상태를 유지한다.
+
+- [x] 호출자 없는 옛 arena 구현, rating 실패 주입 훅, ModelPool/Coordinator/RunState 편의 API 제거. 실제 I/O 오류 처리와 Runtime SDK 소비자는 보존.
+- [x] seed 설정이 production과 benchmark에서 어디에 쓰이는지 명확히 하고 무효 설정의 노출을 정리. 과거 resolved config의 직렬화/해시/재현성과 run_seed 파생 규칙 유지.
+- [x] native·도구·패널의 추가 미사용 코드/의존성을 검색해 확인된 내부 잔재만 정리. 공개 SDK와 호환 reader를 호출자 수만으로 삭제하지 않음.
+- [x] 변경 파일의 역할·데이터 흐름·소유권·부작용·호환성에 설명 주석 추가; 단순 문장 반복 주석은 피함.
+- [x] 독립 소스 검토, GCC/mold/sccache/Ninja 병렬 빌드, 직접 CLI/패널 읽기 확인, Graphify 갱신.
+
+YACHT 비교 기준은 단일 책임 함수의 직접 연결, 명확한 명령/설정 계약, 실제 호출되는 모듈만 유지하는 것이다. 단순히 파일 수나 언어를 따라하지 않는다. 확인된 추가 후보와 처리 결과는 아래에 기록한다.
+
+### 재대조 결과와 확인 범위
+
+- 호출자 없는 `arena.cpp/arena.hpp`와 빌드 항목 삭제. 현재 production 평가와 `min_expert_arena`는 기존 경로를 유지한다.
+- Rating 저장소의 테스트 전용 실패 주입 enum/콜백/setter/주입 2곳 삭제. 실제 파일 생성·flush·rename·충돌 검증은 유지한다. SDK 공개 헤더에서 테스트 API가 제거되며 Engine/Desktop 제품 호출자는 없었다. 설치된 SDK와 Desktop lock은 변경하지 않았다.
+- `ModelPool`의 `install_checkpoint`, `resident_count`, `active_model`, `last_evaluation_stats`, `evaluated_batches`와 전용 상태/갱신 코드 제거. 벤치마크가 쓰는 누적 통계/reset은 유지. `Trainer::candidate_snapshot`와 사용되지 않는 candidate tensor role, `Coordinator::resume`, `RunState::with_progress` 제거. 실제 CLI resume/가중치 로드/actor·learner 분리는 유지한다.
+- 새로운 현재 프리셋 6개에서 `mcts.seed`/`self_play.seed`만 제거. native 파서는 이를 선택적 legacy metadata로 읽고 과거 값과 존재 여부를 직렬화/동등성에 보존한다. 기존 checkpoint identity 및 run_seed 파생 규칙은 바꾸지 않는다. 옛 설정에서 legacy 필드를 지워서 resume하지 말고 저장된 config를 사용한다.
+- standalone selfplay benchmark의 config base seed는 run_seed로 통일, 명시적 `--seed` 우선. 과거 서로 다른 self_play.seed로 benchmark를 돌렸다면 그 값을 `--seed`로 지정해야 한다. 기록된 실험 설정 11개와 산출물은 보존했다.
+- 스크립트의 자체 테스트 진입점 2개와 build_resources의 test 모드/가짜 proc·cgroup 경로를 제거. 실제 연구 명령, 호스트 자원 제한, 플랫폼 지원은 유지한다. rating-sync의 중복 install을 SDK Runtime 규칙 하나로 정리했다.
+- 현재 문서에서 opt-in benchmark 빌드, rating dry-run의 실제 네트워크/로컬 쓰기 동작, 역사적 Python checkpoint schema와 native-v3 계약의 차이를 명확히 했다. 과거 fixture manifest는 결과의 경로/해시 증거여서 보존한다.
+- YACHT의 직접 명령 분기 구조를 참고했지만 새 launcher/언어/의존성은 추가하지 않았다. 패널 npm 의존성 3개는 실제 사용하는 것으로 확인했다. 호환 reader와 외부 소비자가 가능한 Runtime SDK API는 검색상 호출자가 적다는 이유로 삭제하지 않았다.
+
+확인: GCC15/mold/sccache/Ninja 개발 -j8 21.23초, Release -j8 18.09초, Runtime -j4 0.14초 (캐시/증분 빌드). Native/도구/문서 독립 소스 검토 통과. CLI help/report, primary iteration11 checkpoint validate, shipped Min2.0.1 artifact validate 정상. Panel HTTP200/jobs=[]/현재 프리셋6개 확인. Shell/Node/Python 문법 확인. 새 회귀 테스트/CI나 학습·평가·benchmark workload는 실행하지 않았다. 설정의 과거 값/존재 보존은 코드 검토 범위이며 실제 resume를 실행하지 않았다.
+
+Graphify: 4,015 nodes/8,180 edges, 기존 semantic 130개 보존, dangling 없음. 삭제한 옛 arena 파일로 향하던 역사 문서 관계 2개는 파일 삭제에 따라 제거했다. 현재 문서의 의미 기록을 함께 갱신한다. 검증 로그는 `artifacts/pipeline-cleanup-20261029/dead-code-verification/`에 보존한다.

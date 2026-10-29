@@ -265,15 +265,6 @@ uint64_t RunState::derive_seed(const Array& identities) const {
     return std::stoull(digest.substr(0, 16), nullptr, 16) & ((uint64_t{1} << 63) - 1);
 }
 
-RunState RunState::with_progress(Object changes) const {
-    auto payload = payload_;
-    for (auto& [field, value] : changes) {
-        if (!kProgressFields.contains(field)) throw RunStateError("unsupported run progress field");
-        payload[field] = std::move(value);
-    }
-    return RunState(std::move(payload));
-}
-
 std::filesystem::path RunStateStore::state_path(const std::string& model_name, const std::string& run_id) const {
     if (!safe_id(run_id) || (model_name != "Soo" && model_name != "Min"))
         throw RunStateError("invalid run state identity");

@@ -26,7 +26,6 @@
 
 #include "diamond_model/deployment_artifact.hpp"
 #include "diamond_model/soo_model.hpp"
-#include "diamond_orchestration/arena.hpp"
 #include "diamond_orchestration/coordinator.hpp"
 #include "diamond_orchestration/rating_store.hpp"
 #include "diamond_orchestration/report.hpp"

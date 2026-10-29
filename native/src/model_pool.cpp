@@ -9,8 +9,6 @@
 #include <limits>
 #include <utility>
 
-#include "diamond_training/checkpoint.hpp"
-
 // Actor residency and batched inference, driven synchronously by one evaluator
 // thread. Models/staging belong to the pool; BatchItem payloads/outcomes belong
 // to lanes and remain borrowed until evaluate() returns.
@@ -45,19 +43,6 @@ ModelKey ModelPool::install(const Compatibility& compatibility,
     return key;
 }
 
-ModelKey ModelPool::install_checkpoint(const Compatibility& compatibility,
-                                       const std::filesystem::path& checkpoint_root,
-                                       diamond_model::DiamondModel staging) {
-    if (!staging)
-        throw std::invalid_argument("model pool requires a checkpoint staging model");
-    try {
-        (void)diamond_training::load_checkpoint_v2_weights(checkpoint_root, staging, device_);
-    } catch (const diamond_training::CheckpointError& error) {
-        throw IncompatibleCheckpointError(error.what());
-    }
-    return install(compatibility, staging);
-}
-
 void ModelPool::activate(const ModelKey& key) {
     if (!models_.contains(key)) throw PipelineError("requested model key is not resident");
     active_ = key;
@@ -67,12 +52,6 @@ const ModelKey& ModelPool::active_key() const {
     if (!active_) throw PipelineError("no active model key");
     return *active_;
 }
-
-const diamond_model::DiamondModel& ModelPool::active_model() const {
-    return models_.at(active_key()).actor;
-}
-
-std::size_t ModelPool::resident_count() const { return models_.size(); }
 
 void ModelPool::require_compatible(const Compatibility& expected) const {
     expected.validate();
@@ -90,10 +69,8 @@ void ModelPool::require_ready(std::stop_token stop,
 }
 
 void ModelPool::evaluate(std::vector<soo::BatchItem>& batch) {
-    if (batch.empty()) {
-        last_evaluation_stats_ = {};
+    if (batch.empty())
         return;
-    }
 
     constexpr int64_t kBoardNodes = 73;
     constexpr int64_t kActionSpace = kBoardNodes * kBoardNodes;
@@ -374,7 +351,6 @@ void ModelPool::evaluate(std::vector<soo::BatchItem>& batch) {
         stats.policy_postprocess_seconds = host_seconds(post_host_start, post_host_end);
         stats.d2h_seconds = host_seconds(d2h_host_start, d2h_host_end);
     }
-    last_evaluation_stats_ = stats;
     auto& total = accumulated_evaluation_stats_;
     total.forward_calls += stats.forward_calls;
     total.h2d_transfers += stats.h2d_transfers;
@@ -387,7 +363,6 @@ void ModelPool::evaluate(std::vector<soo::BatchItem>& batch) {
     total.policy_postprocess_seconds += stats.policy_postprocess_seconds;
     total.d2h_seconds += stats.d2h_seconds;
     total.scatter_seconds += stats.scatter_seconds;
-    ++evaluated_batches_;
 }
 
 }  // namespace diamond_pipeline

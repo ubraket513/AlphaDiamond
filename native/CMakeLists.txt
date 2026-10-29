@@ -85,7 +85,7 @@ endforeach()
 add_executable(alphadiamond-rating-sync src/rating_sync_main.cpp)
 target_link_libraries(alphadiamond-rating-sync PRIVATE alphadiamond::diamond_rating)
 target_compile_features(alphadiamond-rating-sync PRIVATE cxx_std_20)
-install(TARGETS alphadiamond-rating-sync RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+# Runtime SDK installation below owns this executable's single install rule.
 
 if(DIAMOND_BUILD_MODEL)
     find_package(Torch REQUIRED)
@@ -225,7 +225,6 @@ if(DIAMOND_BUILD_TRAINING)
     endif()
 
     add_library(diamond_orchestration STATIC
-        src/arena.cpp
         src/config.cpp
         src/coordinator.cpp
         src/report.cpp

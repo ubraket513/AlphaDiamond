@@ -139,6 +139,8 @@ void flush_directory(const std::filesystem::path& path) {
     (void)path;
 #endif
 }
+// Flush the replacement before publishing its name; readers see a complete
+// registry or receipt even if the process stops during the write.
 void atomic_write(const std::filesystem::path& path, const std::string& contents) {
     static std::atomic_uint64_t sequence{0};
     std::filesystem::create_directories(path.parent_path());
@@ -181,11 +183,6 @@ void atomic_write(const std::filesystem::path& path, const std::string& contents
     }
     flush_directory(path.parent_path());
 #endif
-}
-std::function<void(RatingStoreFailpoint)> failpoint;
-void trigger(RatingStoreFailpoint point) {
-    if (failpoint)
-        failpoint(point);
 }
 std::string event_file_name(const std::string& event_id) {
     constexpr std::string_view prefix = "sha256:";
@@ -334,10 +331,6 @@ RatingRegistry load_rating_registry(const std::filesystem::path& path) {
     return registry;
 }
 
-void set_rating_store_failpoint_for_testing(std::function<void(RatingStoreFailpoint)> value) {
-    failpoint = std::move(value);
-}
-
 RatingEventOutbox::RatingEventOutbox(std::filesystem::path root) : root_(std::move(root)) {
     if (root_.empty())
         throw RatingError("rating outbox root must be non-empty");
@@ -355,7 +348,8 @@ bool publish_event(const std::filesystem::path& root, const Json& payload) {
             return false;
         throw RatingError("rating event ID conflicts with different immutable bytes");
     }
-    trigger(RatingStoreFailpoint::before_event_commit);
+    // Exclusive creation arbitrates concurrent publishers. Matching bytes mean
+    // the event was already delivered to this local outbox and can be reused.
     try {
         write_new_file(path, bytes);
         flush_directory(path.parent_path());
@@ -378,7 +372,6 @@ bool RatingEventOutbox::publish(const MinRatingEvent& event) {
 }
 
 void RatingEventOutbox::write_receipt(const std::string& event_id, Json receipt) {
-    trigger(RatingStoreFailpoint::before_receipt_commit);
     atomic_write(root_ / "receipts" / event_file_name(event_id),
                  diamond_support::canonical_json(std::move(receipt)));
 }

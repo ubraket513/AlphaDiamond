@@ -174,29 +174,8 @@ def render_scale(name: str, rows: dict[str, dict]) -> list[str]:
 
 
 def main() -> int:
-    if sys.argv[1:] == ["--self-test"]:
-        fixture = {
-            "domain": {
-                "attempted_episodes": 32,
-                "completed_episodes": 0,
-                "repetition": {"repeat_within_8_fraction_mean": 0, "cycling_games": 0},
-            }
-        }
-        assert smoke_qualifiers({"a0-128": fixture, "a0-256": fixture}) == ["a0-128", "a0-256"]
-        adaptive_fixture = {
-            "domain": {
-                "attempted_episodes": 32,
-                "completed_episodes": 0,
-                "moves_p90": 800,
-                "samples_per_hour": 0,
-                "boosted_fraction": 0,
-                "repetition": {"repeat_within_8_fraction_mean": 0, "cycling_games": 0},
-            }
-        }
-        assert not adaptive_search_wins(
-            {"a0-256": adaptive_fixture, "a0-adaptive-256": adaptive_fixture}
-        )
-        return 0
+    # Read recorded sweep JSON only; summarize its fixed comparisons without
+    # launching training or changing checkpoints. The output is a research note.
     if len(sys.argv) != 3:
         raise SystemExit("usage: summarize_min_serial_search.py INPUT_DIR OUTPUT_MD")
     source, destination = Path(sys.argv[1]), Path(sys.argv[2])

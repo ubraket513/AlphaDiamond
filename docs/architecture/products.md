@@ -26,7 +26,7 @@ CMake owns targets and flags. Make is a resource-aware command facade.
 | Command | Product | Additional dependency |
 |---|---|---|
 | `make build` | Native core/search | Native toolchain |
-| `make build PRESET=native-training-linux` | Training and benchmark executables on Linux | LibTorch |
+| `make build PRESET=native-training-linux` | Training/checkpoint/release executables on Linux | LibTorch |
 | `make build PRESET=native-asan` | Core compilation with ASan/UBSan | Sanitizer toolchain |
 
 Regression suites and existing GitHub CI workflows have been removed at the
@@ -34,6 +34,10 @@ user's request. Future tests and CI are a separate design task. Validate changes
 with actual product builds and direct CLI checks; do not describe compilation
 alone as runtime sanitizer coverage. No Qt kit is needed for Engine.
 See [README](../../README.md) and [build cycle](../development/build-cycle.md).
+
+Benchmarks and probes are separate opt-in executables. Configure with
+`-DDIAMOND_BUILD_BENCHMARKS=ON` only when those tools are needed; ordinary
+training and Runtime SDK builds omit them.
 
 ## Runtime data and historical evidence
 

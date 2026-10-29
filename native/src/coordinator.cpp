@@ -83,6 +83,8 @@ RunState Coordinator::run(const RunState& state) {
         const auto durable = store_.load_operation_result(current, id);
         StageOutcome outcome;
         if (durable) {
+            // Reuse completed work after interruption; the saved cursor may
+            // still point here when result commit preceded the state update.
             outcome = decode_outcome(*durable);
             store_.commit_operation_result(current, id, *durable);
         } else {
@@ -110,10 +112,6 @@ RunState Coordinator::run_bounded(const RunState& state, std::optional<uint64_t>
         current = run(store_.start_next_iteration(current));
     }
     return current;
-}
-
-RunState Coordinator::resume(const std::string& model_name, const std::string& run_id) {
-    return run(store_.load(model_name, run_id));
 }
 
 std::string Coordinator::operation_id(const RunState& state, const Json& stage_payload) {

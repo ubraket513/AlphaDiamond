@@ -390,7 +390,6 @@ diamond_model::DiamondModel snapshot_model(const diamond_model::DiamondModel& so
     bool trainable = false;
     switch (role) {
     case ModelRole::actor:
-    case ModelRole::candidate:
         break;
     case ModelRole::learner:
         trainable = true;
@@ -494,10 +493,6 @@ Trainer::Trainer(diamond_model::DiamondModel model, Compatibility compatibility,
       optimizer_(model_->parameters(), adamw_options(config)) {
     validate_resolved_device(device_);
     require_model_device(model_, device_.torch_device);
-}
-
-diamond_model::DiamondModel Trainer::candidate_snapshot() const {
-    return snapshot_model(model_, compatibility_, device_.torch_device, ModelRole::candidate);
 }
 
 void Trainer::record_external_optimizer_step() {

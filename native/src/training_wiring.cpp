@@ -95,7 +95,7 @@ validate_training_config_transition(const ProductionConfig& from, const Producti
     note(from.arena.enabled != to.arena.enabled, "arena.enabled");
 
     // Project only explicitly mutable fields back to their previous values.
-    // Legacy queue/timeout fields deliberately remain in this comparison: an
+    // Legacy queue/timeout/seed fields remain in this comparison: an
     // inactive setting is still checkpoint metadata, and changing its value or
     // absent/present state is not a throughput transition. Loading the same
     // stored settings continues to preserve old nondefault values unchanged.

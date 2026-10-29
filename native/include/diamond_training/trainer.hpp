@@ -48,12 +48,12 @@ struct TrainingMetrics {
 enum class ModelRole {
     actor,
     learner,
-    candidate,
 };
 
 // Rebuilds a model from source architecture and copies every named parameter
 // and buffer to target. The result owns distinct storage and has the requested
-// role applied: learner is trainable, actor/candidate are eval with frozen parameters.
+// role applied: learner is trainable; actor is eval with frozen parameters.
+// Candidate is a checkpoint/promotion state, not a different tensor role.
 diamond_model::DiamondModel snapshot_model(const diamond_model::DiamondModel& source,
                                            const Compatibility& compatibility, torch::Device target,
                                            ModelRole role);
@@ -110,8 +110,6 @@ class Trainer {
     const diamond_model::DiamondModel& learner() const {
         return model_;
     }
-    // Independent eval storage with frozen parameters; isolated from later updates.
-    diamond_model::DiamondModel candidate_snapshot() const;
     torch::optim::AdamW& optimizer() {
         return optimizer_;
     }

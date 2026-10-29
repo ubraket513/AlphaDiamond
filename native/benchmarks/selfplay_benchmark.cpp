@@ -558,7 +558,10 @@ int main(int argc, char** argv) {
             if (!options.explicit_options.contains("--games"))
                 options.games = wiring.games_per_iteration;
             if (!options.explicit_options.contains("--seed"))
-                options.seed = config.self_play.seed;
+                // Use the production root seed, not the obsolete self_play.seed
+                // metadata. --seed remains an explicit standalone experiment
+                // override; benchmark job IDs differ from a durable train run.
+                options.seed = config.run_seed;
             if (!options.max_game_seconds)
                 options.max_game_seconds = config.self_play.max_game_seconds;
             options.balance_turn_orders = config.self_play.balance_turn_orders;

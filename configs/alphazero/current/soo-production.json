@@ -16,16 +16,14 @@
     "repeat_window": 0,
     "c_puct": 1.5,
     "dirichlet_alpha": 0.3,
-    "dirichlet_epsilon": 0.25,
-    "seed": 7
+    "dirichlet_epsilon": 0.25
   },
   "self_play": {
     "max_moves": 500,
     "max_game_seconds": null,
     "temperature": 1.0,
     "temperature_moves": 20,
-    "bootstrap_prior": "none",
-    "seed": 7
+    "bootstrap_prior": "none"
   },
   "workers": {
     "logical_lanes": 512,

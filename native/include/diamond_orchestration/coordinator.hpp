@@ -37,6 +37,7 @@ class Coordinator final {
                 StageCallback execute_stage);
 
     // Advance every unfinished stage in an authoritative state snapshot.
+    // Resume callers load that snapshot through RunStateStore before calling.
     RunState run(const RunState& state);
 
     // Complete the current iteration, then start fresh iterations until the
@@ -44,10 +45,6 @@ class Coordinator final {
     // is required. A returned state is always at a durable stage boundary.
     RunState run_bounded(const RunState& state, std::optional<uint64_t> max_iterations,
                          std::optional<std::chrono::steady_clock::time_point> deadline);
-
-    // Load an interrupted run and advance only the stage at its saved cursor
-    // and later stages.
-    RunState resume(const std::string& model_name, const std::string& run_id);
 
     // Returns the durable operation identity for state.stage().
     static std::string operation_id(const RunState& state,

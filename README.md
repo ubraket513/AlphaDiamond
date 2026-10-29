@@ -69,8 +69,20 @@ resume. `alphadiamond-checkpoint` validates and exports checkpoints;
 Current training presets live in `configs/alphazero/current/`: three Min expert
 local pilots and Soo bootstrap, production and six-hour configurations.
 `configs/alphazero/experiments/` preserves earlier Min presets and the expert
-arena configuration for explicit CLI use. Configuration contents are unchanged;
-dated reports retain their original paths and recorded hashes.
+arena configuration for explicit CLI use. Historical experiments and dated
+reports retain their settings, original paths and recorded hashes.
+
+For production self-play, set `run_seed`: each game derives its RNG seed from
+the run, iteration and job identifiers. New presets omit the ineffective
+`mcts.seed` and `self_play.seed` fields. Old resolved configs still preserve
+these keys as immutable checkpoint metadata; resume from the run's saved config
+rather than substituting a new preset. Replay sampling and optimizer randomness
+retain their separate `replay.seed` and `training.seed` controls.
+The standalone `selfplay_benchmark --config` also takes its base seed from
+`run_seed`; `--seed` explicitly overrides it. To reproduce an older benchmark
+whose `self_play.seed` differed from `run_seed`, pass that old value as `--seed`.
+Benchmark job identities differ from production, so equal base seeds alone do
+not promise identical games.
 
 Model publishing remains here. `models/index.json`, GitHub
 `ubraket513/alphadiamond`, and Hugging Face `ubraket513/AlphaDiamond` retain their

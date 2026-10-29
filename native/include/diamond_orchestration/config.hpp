@@ -57,7 +57,10 @@ struct MCTSConfig final {
     double c_puct = 1.5;
     double dirichlet_alpha = 0.3;
     double dirichlet_epsilon = 0.25;
-    uint64_t seed = 0;
+    // Historical JSON "seed" never controlled production search. Retain only
+    // its supplied value/presence so old resolved-config hashes still match;
+    // new configs omit it. Per-game search RNG comes from RunState::derive_seed.
+    std::optional<uint64_t> legacy_seed;
 
     // Training-only adaptive depth: replace the base simulation budget when a
     // dynamics position recurs within this many plies. Both controls must be
@@ -76,7 +79,10 @@ struct SelfPlayConfig final {
     int64_t max_moves = 2000;
     int64_t temperature_moves = 20;
     double temperature = 1.0;
-    uint64_t seed = 0;
+    // Historical JSON "seed" is compatibility metadata, not a second training
+    // RNG. Production derives game seeds from run_seed and job identifiers.
+    // The standalone benchmark now uses run_seed, or an explicit --seed.
+    std::optional<uint64_t> legacy_seed;
     std::string bootstrap_prior = std::string(kBootstrapPriorNone);
     double bootstrap_prior_weight = 1.0;
     std::optional<double> max_game_seconds;

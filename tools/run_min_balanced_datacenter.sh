@@ -54,7 +54,7 @@ cmake -S "$repo" -B "$build" -G Ninja \
   -DDIAMOND_BUILD_MODEL=ON -DDIAMOND_BUILD_TRAINING=ON
 cmake --build "$build" --target alphadiamond-train --parallel "${BUILD_JOBS:-$(tools/build_resources.sh build)}"
 
-config="$repo/configs/alphazero/min-balanced-orders-cuda-$mode.json"
+config="$repo/configs/alphazero/experiments/min-balanced-orders-cuda-$mode.json"
 run_id=${RUN_ID:-min-orders-$mode-$(date -u +%Y%m%dT%H%M%SZ)}
 [[ "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo 'Invalid RUN_ID.' >&2; exit 2; }
 run="$output/runs/min/$run_id"

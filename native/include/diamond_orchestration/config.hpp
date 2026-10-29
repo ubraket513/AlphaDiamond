@@ -156,6 +156,9 @@ struct TrainingConfig final {
 struct RunBudgetConfig final {
     std::optional<int64_t> max_iterations = 1;
     std::optional<double> max_wall_clock_seconds;
+    // Every training iteration publishes a checkpoint for the next pipeline
+    // stages and restart recovery, so only 1 is supported. Keep this serialized
+    // field to preserve canonical configuration bytes for supported configs.
     int64_t checkpoint_every_iterations = 1;
 
     void validate() const;

@@ -405,7 +405,7 @@ python az-bench/profiles/bench_native_callback.py --seconds 5 --device cuda:0
 ```bash
 build/native-training/native/alphadiamond-train train \
   --run-dir runtime/runs/soo/<run-id> \
-  --config configs/alphazero/soo-production.json \
+  --config configs/alphazero/current/soo-production.json \
   --warm-start models/soo/2.0.0
 
 build/native-training/native/selfplay_benchmark \

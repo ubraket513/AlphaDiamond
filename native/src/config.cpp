@@ -525,11 +525,12 @@ void RunBudgetConfig::validate() const {
             "run_budget.max_wall_clock_seconds must be a positive finite number or null");
     if (!max_iterations && !max_wall_clock_seconds)
         throw ConfigError("run_budget requires max_iterations or max_wall_clock_seconds");
-    if (checkpoint_every_iterations <= 0)
-        throw ConfigError("run_budget.checkpoint_every_iterations must be positive");
-    if (max_iterations && checkpoint_every_iterations > *max_iterations)
+    // The training stage always saves its result before arena/publication and
+    // recovery. Reject unsupported intervals instead of silently ignoring them.
+    if (checkpoint_every_iterations != 1)
         throw ConfigError(
-            "run_budget.checkpoint_every_iterations must not exceed run_budget.max_iterations");
+            "run_budget.checkpoint_every_iterations must be 1; every training iteration "
+            "requires a checkpoint for subsequent stages and recovery");
 }
 
 Json RunBudgetConfig::to_json() const {

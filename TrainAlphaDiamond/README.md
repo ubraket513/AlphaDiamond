@@ -14,7 +14,7 @@ holds source, documentation and the manifest schema.
 TrainAlphaDiamond/
   README.md                    tracked
   manifests/                   tracked  (schema + release index)
-  checkpoints/                 ignored  soo/<run-id>/step-<n>/
+  checkpoints/                 ignored  <family>/<run-id>/iteration-<n>/
   datasets/                    ignored  selfplay/ replay/ fixtures/
   releases/                    ignored  soo/ min/
   logs/                        ignored
@@ -23,15 +23,35 @@ TrainAlphaDiamond/
 
 ## Sync
 
+Run from the repository root with the Hugging Face CLI installed and authenticated.
+The Makefile provides build targets only. To upload a run's candidate checkpoints,
+use the existing script (replace the example run path and family):
+
 ```bash
-make data-push-dry-run    # show what a push would change
-make data-push
-make data-pull-dry-run
-make data-pull
+tools/push_checkpoints.sh --run-dir /absolute/path/to/runs/soo/my-run \
+  --bucket ubraket513/AlphaDiamond --family soo --dry-run
+tools/push_checkpoints.sh --run-dir /absolute/path/to/runs/soo/my-run \
+  --bucket ubraket513/AlphaDiamond --family soo
 ```
 
-No target passes `--delete`. Deleting bucket content is a separate, manual
-operation performed after reviewing a dry-run plan.
+The script uploads checkpoint roots containing `CURRENT` to
+`checkpoints/<family>/<run-id>/iteration-<n>/`. It uses `--ignore-existing`,
+does not delete remote files, and does not upload replay or logs. Use
+`--iteration <n>` to select one iteration. Existing remote files are skipped;
+skipping a file does not verify its contents.
+
+To download a run's checkpoints into this local storage root, preview and then
+run the same sync without `--dry-run`:
+
+```bash
+hf sync hf://buckets/ubraket513/AlphaDiamond/checkpoints/soo/my-run \
+  TrainAlphaDiamond/checkpoints/soo/my-run --ignore-existing --dry-run
+hf sync hf://buckets/ubraket513/AlphaDiamond/checkpoints/soo/my-run \
+  TrainAlphaDiamond/checkpoints/soo/my-run --ignore-existing
+```
+
+These commands preserve existing destination files. Validate downloaded native
+checkpoint roots with `alphadiamond-checkpoint validate` before using them.
 
 ## Immutable paths
 
@@ -59,17 +79,22 @@ build/native-training/native/alphadiamond-release init \
   <native-checkpoint-root> --family soo
 build/native-training/native/alphadiamond-release promote \
   <native-checkpoint-root> --to candidate
+build/native-training/native/alphadiamond-checkpoint export \
+  <native-checkpoint-root> --out <new-deployment-artifact> --version <version>
+build/native-training/native/alphadiamond-release validate \
+  <new-deployment-artifact>
 build/native-training/native/alphadiamond-release promote \
   <native-checkpoint-root> --to promoted \
-  --artifact <validated-deployment-artifact>
+  --artifact <new-deployment-artifact>
 ```
 
-States move one step at a time, because `candidate` is where conversion is
-gated. Promotion converts: it exports the deployment artifact and writes its
-digests back into the manifest, so a `promoted` checkpoint whose artifact was
-never built cannot exist. The checkpoint's own digest is verified first --
-these paths are immutable, and one that was overwritten invalidates every
-measurement recorded against it.
+States advance from archival to candidate to promoted. Export the native
+checkpoint-v3 root separately with `alphadiamond-checkpoint export`, then validate
+the resulting deployment artifact. Promotion validates the supplied artifact
+for the checkpoint's family and records its model/runtime digests in
+`promotion.json`; it does not export a model. Use the artifact exported from
+that checkpoint. The recorded checkpoint digest is verified before changing
+promotion state; overwriting a checkpoint invalidates measurements tied to it.
 
 ## Historical fixture manifest
 

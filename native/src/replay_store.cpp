@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cstdlib>
 #include <fstream>
 #include <span>
 #include <stdexcept>
@@ -124,20 +123,6 @@ Compatibility compatibility_from_json(const JsonValue& value) {
 }
 TrainingSample legacy_sample(const JsonValue& value, const Compatibility& compatibility) { const auto& row=object(value,"sample"); TrainingSample sample; sample.compatibility=compatibility; for(const auto& feature:array(field(row,"node_features"),"features")) for(const auto& item:array(feature,"feature row")) sample.node_features.push_back(float(number(item,"feature"))); for(const auto& player:array(field(row,"canonical_player_ids"),"players")) sample.canonical_player_ids.push_back(int32_t(integer(player,"player"))); for(const auto& pair:array(field(row,"sparse_policy"),"policy")){const auto& values=array(pair,"policy row"); if(values.size()!=2) throw std::runtime_error("policy row width");sample.sparse_policy.emplace_back(int32_t(integer(values[0],"action")),float(number(values[1],"probability")));} for(const auto& target:array(field(row,"value_target"),"targets")) sample.value_target.push_back(float(number(target,"target"))); return sample; }
 uint64_t next_splitmix(uint64_t& state) { state += 0x9e3779b97f4a7c15ULL; uint64_t value=state; value=(value^(value>>30))*0xbf58476d1ce4e5b9ULL; value=(value^(value>>27))*0x94d049bb133111ebULL; return value^(value>>31); }
-bool failure_injected(const char* name) {
-#ifdef _WIN32
-    char* value = nullptr;
-    std::size_t length = 0;
-    if (_dupenv_s(&value, &length, name) != 0)
-        return false;
-    const bool present = value != nullptr && *value != '\0';
-    std::free(value);
-    return present;
-#else
-    const auto* value = std::getenv(name);
-    return value != nullptr && *value != '\0';
-#endif
-}
 // What the store needs to remember about an ingested episode once its samples
 // are in the sampling pool and its chunk is on disk: identity, the duplicate
 // -detection fields, and the sample count the manifest reports.  Deliberately
@@ -234,10 +219,6 @@ void atomic_write(const std::filesystem::path& path, const std::string& contents
     }
     ::close(temporary_handle);
 #endif
-    if (failure_injected("DIAMOND_REPLAY_FAIL_ACTIVATE")) {
-        std::filesystem::remove(temporary);
-        throw std::runtime_error("injected replay activation failure");
-    }
 #ifdef _WIN32
     const std::wstring destination_native = extended_windows_path(path);
     if (!MoveFileExW(temporary_native.c_str(), destination_native.c_str(),
@@ -359,8 +340,6 @@ struct ReplayStore::Impl {
     void cleanup_unreachable_chunks() {
         // Garbage collection follows the authoritative manifest/episode view.
         // It may fail after publication; that does not undo committed ingestion.
-        if (failure_injected("DIAMOND_REPLAY_FAIL_BEFORE_CHUNK_CLEANUP"))
-            throw std::runtime_error("injected replay pre-cleanup failure");
         std::unordered_set<std::string> referenced;
         for (size_t i = 0; i < episodes.size(); ++i)
             if (episodes[i].completed)
@@ -381,8 +360,6 @@ struct ReplayStore::Impl {
                 referenced.contains(it->path().filename().string()))
                 continue;
             remove_file(it->path(), error);
-            if (!error && failure_injected("DIAMOND_REPLAY_FAIL_AFTER_CHUNK_DELETE"))
-                throw std::runtime_error("injected replay post-cleanup failure");
         }
         if (error)
             throw std::runtime_error("cannot clean unreachable replay chunk: " + error.message());
@@ -566,8 +543,6 @@ ReplayIngestReport ReplayStore::ingest_iteration(std::span<const Episode> episod
         accepted_encodings[i] = ReplayChunkEncoding::binary_v1;
         atomic_write(impl_->namespace_path / "chunks" / (hash + ".bin"), std::string(to_string_view(bytes)));
     }
-    if (!accepted.empty() && failure_injected("DIAMOND_REPLAY_FAIL_AFTER_CHUNK_ACTIVATE"))
-        throw std::runtime_error("injected replay failure after chunk activation");
     // Roll back resident vector lengths on pre-publication failure. Once the
     // manifest commits, retention/cleanup errors must not pretend to undo it.
     const auto old_episode_count = impl_->episodes.size();
@@ -602,8 +577,6 @@ ReplayIngestReport ReplayStore::ingest_iteration(std::span<const Episode> episod
                                      {"seed", JsonValue{int64_t(episode.seed)}}}});
             }
         }
-    if (!accepted.empty() && failure_injected("DIAMOND_REPLAY_FAIL_BEFORE_MANIFEST_COMMIT"))
-        throw std::runtime_error("injected replay failure before manifest commit");
     const auto retained_start = impl_->retained_episode_start();
     if (!accepted.empty())
         impl_->write_manifest(retained_start);

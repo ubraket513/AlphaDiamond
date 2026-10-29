@@ -6,7 +6,6 @@
 #include <atomic>
 #include <cmath>
 #include <cstddef>
-#include <cstdlib>
 #include <fstream>
 #include <initializer_list>
 #include <iterator>
@@ -270,7 +269,6 @@ void atomic_write(const std::filesystem::path& path, const std::string& contents
 #endif
     const auto temporary = path.parent_path() / (".checkpoint-tmp-" + std::to_string(pid) + "-" + std::to_string(++sequence));
     { std::ofstream output(temporary, std::ios::binary | std::ios::trunc); if (!output) throw CheckpointError("cannot write checkpoint transaction"); output << contents; if (!output) throw CheckpointError("cannot write checkpoint transaction"); }
-    if (std::getenv("DIAMOND_CHECKPOINT_FAIL_ACTIVATE")) { std::filesystem::remove(temporary); throw CheckpointError("injected checkpoint activation failure"); }
 #ifdef _WIN32
     if (!MoveFileExW(temporary.wstring().c_str(), path.wstring().c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) { std::filesystem::remove(temporary); throw CheckpointError("cannot activate checkpoint transaction"); }
 #else
@@ -678,15 +676,14 @@ CheckpointInfo state_info(const std::filesystem::path& generation) {
     }
 }
 
-void validate_provenance_for_trainer(const CheckpointInfo& info, const Trainer& trainer,
-                                     const ResolvedDevice& target) {
+void validate_provenance_for_model(const CheckpointInfo& info,
+                                   const diamond_model::DiamondModel& model,
+                                   const Compatibility& compatibility) {
     if (info.format_version != 3)
         return;
-    (void)target; // Save-device provenance is retained; checkpoints are device-portable.
     const auto parsed = diamond_support::parse_json(read_text(info.generation / kManifest));
     const auto& provenance = object_field(*std::get_if<Object>(&parsed.value), "provenance");
     const auto& architecture = object_field(provenance, "architecture");
-    const auto& model = trainer.model();
     if (unsigned_field(architecture, "width") != static_cast<uint64_t>(model->width()) ||
         unsigned_field(architecture, "residual_blocks") !=
             static_cast<uint64_t>(model->residual_blocks()) ||
@@ -694,8 +691,61 @@ void validate_provenance_for_trainer(const CheckpointInfo& info, const Trainer& 
             static_cast<uint64_t>(model->input_features()) ||
         unsigned_field(architecture, "value_size") != static_cast<uint64_t>(model->value_size()) ||
         diamond_support::canonical_json(field(provenance, "compatibility")) !=
-            diamond_support::canonical_json(compatibility_json(trainer.compatibility())))
-        throw CheckpointError("checkpoint v3 provenance is incompatible with destination trainer");
+            diamond_support::canonical_json(compatibility_json(compatibility)))
+        throw CheckpointError("checkpoint v3 provenance is incompatible with destination model");
+}
+
+// Only public loaders call these helpers, immediately after inspecting a root.
+// Keep the resolved immutable generation and its verified metadata together;
+// resolving CURRENT again could select a different generation and rehash both archives.
+CheckpointInfo load_exact_checkpoint(const CheckpointInfo& info, Trainer& trainer,
+                                     const ResolvedDevice& target) {
+    if (info.lineage &&
+        info.lineage->initialization_mode == CheckpointInitializationMode::audited_legacy_import) {
+        throw CheckpointError("audited legacy imports cannot be used for exact resume");
+    }
+    validate_provenance_for_model(info, trainer.model(), trainer.compatibility());
+    try {
+        // AdamW must be constructed against the final target-device parameter
+        // identities before its pointer-keyed state archive is restored.
+        const auto compatibility = trainer.compatibility();
+        const auto config = trainer.config();
+        auto model = fresh_model_like(trainer.model(), target.torch_device);
+        Trainer staged(std::move(model), compatibility, config, target);
+        load_model_archive(info.generation / kState, staged.model(), target.torch_device);
+        load_optimizer_archive(info.generation / kOptimizer, staged.optimizer(),
+                               target.torch_device);
+        staged.restore_checkpoint_state(config, info.training_step);
+        validate_staged_trainer(staged, target, info.training_step, trainer.model());
+        trainer = std::move(staged);
+        return info;
+    } catch (const CheckpointError&) {
+        throw;
+    } catch (const c10::Error& error) {
+        throw CheckpointError(std::string("cannot load checkpoint v2: ") + error.what());
+    } catch (const std::exception& error) {
+        throw CheckpointError(std::string("cannot load checkpoint v2: ") + error.what());
+    }
+}
+
+CheckpointInfo load_checkpoint_weights(const CheckpointInfo& info,
+                                       diamond_model::DiamondModel& model,
+                                       const ResolvedDevice& target) {
+    try {
+        // The caller-visible holder is replaced only after the entire archive
+        // has loaded and passed target-residency/structure validation.
+        auto staged = fresh_model_like(model, target.torch_device);
+        load_model_archive(info.generation / kState, staged, target.torch_device);
+        require_model_matches(staged, model, target.torch_device);
+        model = std::move(staged);
+        return info;
+    } catch (const CheckpointError&) {
+        throw;
+    } catch (const c10::Error& error) {
+        throw CheckpointError(std::string("cannot load checkpoint model weights: ") + error.what());
+    } catch (const std::exception& error) {
+        throw CheckpointError(std::string("cannot load checkpoint model weights: ") + error.what());
+    }
 }
 }  // namespace
 
@@ -842,54 +892,24 @@ CheckpointInfo load_checkpoint_v2_weights(const std::filesystem::path& root,
     require_target(target);
     // Weights-only means no optimizer deserialization/restore. v3 inspection
     // still requires optimizer.pt and reads its bytes to verify the file digest.
+    return load_checkpoint_weights(inspect_checkpoint_v2(root), model, target);
+}
+
+CheckpointInfo load_checkpoint_v2_weights(const std::filesystem::path& root,
+                                          diamond_model::DiamondModel& model,
+                                          const ResolvedDevice& target,
+                                          const Compatibility& compatibility) {
+    if (!model) throw CheckpointError("checkpoint model destination is empty");
+    require_target(target);
     const auto info = inspect_checkpoint_v2(root);
-    try {
-        // The caller-visible holder is replaced only after the entire archive
-        // has loaded and passed target-residency/structure validation.
-        auto staged = fresh_model_like(model, target.torch_device);
-        load_model_archive(info.generation / kState, staged, target.torch_device);
-        require_model_matches(staged, model, target.torch_device);
-        model = std::move(staged);
-        return info;
-    } catch (const CheckpointError&) {
-        throw;
-    } catch (const c10::Error& error) {
-        throw CheckpointError(std::string("cannot load checkpoint model weights: ") + error.what());
-    } catch (const std::exception& error) {
-        throw CheckpointError(std::string("cannot load checkpoint model weights: ") + error.what());
-    }
+    validate_provenance_for_model(info, model, compatibility);
+    return load_checkpoint_weights(info, model, target);
 }
 
 CheckpointInfo load_checkpoint_v2(const std::filesystem::path& root, Trainer& trainer,
                                   const ResolvedDevice& target) {
     require_target(target);
-    const auto info = inspect_checkpoint_v2(root);
-    if (info.lineage &&
-        info.lineage->initialization_mode == CheckpointInitializationMode::audited_legacy_import) {
-        throw CheckpointError("audited legacy imports cannot be used for exact resume");
-    }
-    validate_provenance_for_trainer(info, trainer, target);
-    try {
-        // AdamW must be constructed against the final target-device parameter
-        // identities before its pointer-keyed state archive is restored.
-        const auto compatibility = trainer.compatibility();
-        const auto config = trainer.config();
-        auto model = fresh_model_like(trainer.model(), target.torch_device);
-        Trainer staged(std::move(model), compatibility, config, target);
-        load_model_archive(info.generation / kState, staged.model(), target.torch_device);
-        load_optimizer_archive(info.generation / kOptimizer, staged.optimizer(),
-                               target.torch_device);
-        staged.restore_checkpoint_state(config, info.training_step);
-        validate_staged_trainer(staged, target, info.training_step, trainer.model());
-        trainer = std::move(staged);
-        return info;
-    } catch (const CheckpointError&) {
-        throw;
-    } catch (const c10::Error& error) {
-        throw CheckpointError(std::string("cannot load checkpoint v2: ") + error.what());
-    } catch (const std::exception& error) {
-        throw CheckpointError(std::string("cannot load checkpoint v2: ") + error.what());
-    }
+    return load_exact_checkpoint(inspect_checkpoint_v2(root), trainer, target);
 }
 
 CheckpointInfo load_checkpoint_v3(const std::filesystem::path& root, Trainer& trainer,
@@ -897,14 +917,14 @@ CheckpointInfo load_checkpoint_v3(const std::filesystem::path& root, Trainer& tr
     if (intent == CheckpointLoadIntent::audited_legacy_import)
         throw CheckpointError(
             "audited_legacy_import is gated pending optimizer decode and parity evidence");
-    if (intent == CheckpointLoadIntent::exact_resume) {
-        if (inspect_checkpoint_v2(root).format_version != 3)
-            throw CheckpointError("exact_resume requires a checkpoint v3 lineage manifest");
-        return load_checkpoint_v2(root, trainer, target);
-    }
-
     require_target(target);
     const auto info = inspect_checkpoint_v2(root);
+    if (intent == CheckpointLoadIntent::exact_resume) {
+        if (info.format_version != 3)
+            throw CheckpointError("exact_resume requires a checkpoint v3 lineage manifest");
+        return load_exact_checkpoint(info, trainer, target);
+    }
+
     try {
         // A warm start creates a new step-zero trainer without deserializing the
         // source AdamW archive. Inspection above may hash that file for integrity,

@@ -1,3 +1,6 @@
+// Private diagnostic interface: compiled only into its opt-in benchmark.
+// The caller owns the Trainer and input data; these functions perform the
+// diagnostic learning updates explicitly requested by that executable.
 #pragma once
 
 #include <cstdint>

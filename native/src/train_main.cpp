@@ -771,7 +771,8 @@ diamond_training::CheckpointLineage checkpoint_lineage(const CommandRequest& req
 diamond_training::CheckpointInfo
 load_actor_checkpoint(const CommandRequest& request, const ProductionConfig& config,
                       const diamond_orchestration::RunState& state,
-                      diamond_training::Trainer& trainer,
+                      diamond_model::DiamondModel& actor,
+                      const diamond_training::Compatibility& compatibility,
                       const diamond_training::ResolvedDevice& device,
                       const ProductionConfig* predecessor = nullptr) {
     const auto& value = state.payload().at("champion_checkpoint").value;
@@ -779,12 +780,18 @@ load_actor_checkpoint(const CommandRequest& request, const ProductionConfig& con
     if (!path || path->empty())
         throw CommandArtifactError("champion checkpoint is not active");
     try {
-        validate_checkpoint_context(diamond_training::inspect_checkpoint_v2(*path), request,
-                                    config, std::nullopt, std::nullopt, predecessor);
-        const auto saved = diamond_training::load_checkpoint_v3(
-            *path, trainer, device, diamond_training::CheckpointLoadIntent::exact_resume);
+        // The actor is still local and unpublished. Inspect/hash one resolved
+        // generation, load only its weights, then check the returned context
+        // before ModelPool can install it. The weights reader still verifies
+        // optimizer.pt's digest, but never deserializes or restores AdamW.
+        const auto saved = diamond_training::load_checkpoint_v2_weights(
+            *path, actor, device, compatibility);
         validate_checkpoint_context(saved, request, config, std::nullopt, std::nullopt,
                                     predecessor);
+        if (saved.lineage->initialization_mode ==
+            diamond_training::CheckpointInitializationMode::audited_legacy_import)
+            throw CommandArtifactError("audited legacy imports cannot be used for exact resume");
+        validate_board_adjacency(actor->adjacency);
         return saved;
     } catch (const diamond_training::CheckpointError& error) {
         throw CommandArtifactError(error.what());
@@ -913,11 +920,10 @@ StageOutcome execute_self_play_stage(const CommandRequest& request, const Produc
     const auto episodes_path = per_iteration / "selfplay.episodes";
     if (!std::filesystem::exists(episodes_path)) {
         auto native_model = model(config);
-        diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config),
-                                          device);
-        (void)load_actor_checkpoint(request, config, state, trainer, device, predecessor);
+        (void)load_actor_checkpoint(request, config, state, native_model, compatibility, device,
+                                    predecessor);
         diamond_pipeline::ModelPool models(1, device, actor_precision(config));
-        const auto key = models.install(compatibility, trainer.learner());
+        const auto key = models.install(compatibility, native_model);
         models.activate(key);
         const auto selfplay_job = iteration_job(config, state, operation, key);
         const auto result = diamond_pipeline::run_self_play(selfplay_job, models, {});

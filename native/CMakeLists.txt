@@ -204,10 +204,8 @@ if(DIAMOND_BUILD_TRAINING)
     # The direct native self-play -> replay -> training path is deliberately
     # separate from the schema-only replay library: it owns LibTorch models.
     add_library(diamond_native_pipeline STATIC
-        src/learning_diagnostic.cpp
         src/model_pool.cpp
         src/pipeline.cpp
-        src/vacancy_distillation.cpp
     )
     add_library(alphadiamond::diamond_native_pipeline ALIAS diamond_native_pipeline)
     target_link_libraries(diamond_native_pipeline PUBLIC
@@ -260,11 +258,17 @@ if(DIAMOND_BUILD_TRAINING)
             alphadiamond::diamond_native_pipeline
             alphadiamond::diamond_orchestration)
 
-        add_executable(min_learning_diagnostic benchmarks/min_learning_diagnostic.cpp)
+        # These experiments own their helpers; ordinary training does not compile
+        # diagnostic learning loops or vacancy distillation into its library.
+        add_executable(min_learning_diagnostic
+            benchmarks/min_learning_diagnostic.cpp
+            benchmarks/learning_diagnostic.cpp)
         target_link_libraries(min_learning_diagnostic PRIVATE
             alphadiamond::diamond_native_pipeline alphadiamond::diamond_orchestration)
 
-        add_executable(min_vacancy_realizability benchmarks/min_vacancy_realizability.cpp)
+        add_executable(min_vacancy_realizability
+            benchmarks/min_vacancy_realizability.cpp
+            benchmarks/vacancy_distillation.cpp)
         target_link_libraries(min_vacancy_realizability PRIVATE
             alphadiamond::diamond_native_pipeline alphadiamond::diamond_orchestration)
 

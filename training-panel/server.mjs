@@ -230,7 +230,7 @@ export function createPanelServer({ root = repository, binary = process.env.ALPH
           send(200, await nativeJobDetail(job, fromIteration));
         }
       } else if (request.method === 'GET' && pathname === '/api/configs') {
-        const directory = join(root, 'configs/alphazero');
+        const directory = join(root, 'configs/alphazero/current');
         const names = (await readdir(directory)).filter(name => name.endsWith('.json')).sort();
         send(200, { configs: await Promise.all(names.map(async name => ({ name,
           path: join(directory, name), config: await optionalFile(join(directory, name), true) }))) });

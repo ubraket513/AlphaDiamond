@@ -99,6 +99,14 @@ CheckpointInfo save_checkpoint_v3(const std::filesystem::path& root, Trainer& tr
 CheckpointInfo load_checkpoint_v2_weights(const std::filesystem::path& root,
                                           diamond_model::DiamondModel& model,
                                           const ResolvedDevice& target);
+// Also check v3 manifest architecture/compatibility against the destination,
+// before replacing it. Resolves and inspects the root itself, including both
+// archive digests; callers still enforce their run/config/lineage requirements.
+// Historical v2 roots retain their existing weights-reader contract.
+CheckpointInfo load_checkpoint_v2_weights(const std::filesystem::path& root,
+                                          diamond_model::DiamondModel& model,
+                                          const ResolvedDevice& target,
+                                          const Compatibility& compatibility);
 // Stage model+AdamW on target and replace Trainer only after all load checks.
 // Save-device provenance does not prevent supported CPU/CUDA device remapping.
 CheckpointInfo load_checkpoint_v2(const std::filesystem::path& root, Trainer& trainer,

@@ -8,7 +8,7 @@
 #include "diamond_model/soo_model.hpp"
 #include "diamond_orchestration/config.hpp"
 #include "diamond_pipeline/replay_store.hpp"
-#include "diamond_pipeline/vacancy_distillation.hpp"
+#include "vacancy_distillation.hpp"
 #include "diamond_support/build_provenance.hpp"
 #include "diamond_support/json.hpp"
 #include "diamond_training/checkpoint.hpp"

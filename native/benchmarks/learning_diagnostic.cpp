@@ -1,4 +1,4 @@
-#include "diamond_pipeline/learning_diagnostic.hpp"
+#include "learning_diagnostic.hpp"
 
 #include <array>
 #include <cmath>

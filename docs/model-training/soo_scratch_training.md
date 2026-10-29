@@ -133,7 +133,7 @@ start: model weights are imported, while optimizer and run state start clean.
 ```bash
 build/native-training/native/alphadiamond-train train \
   --run-dir runtime/runs/soo/soo-production \
-  --config configs/alphazero/soo-production.json \
+  --config configs/alphazero/current/soo-production.json \
   --warm-start models/soo/2.0.0
 
 build/native-training/native/alphadiamond-train resume \

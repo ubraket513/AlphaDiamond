@@ -7,7 +7,7 @@
 
 #include "diamond_model/soo_model.hpp"
 #include "diamond_orchestration/config.hpp"
-#include "diamond_pipeline/learning_diagnostic.hpp"
+#include "learning_diagnostic.hpp"
 #include "diamond_support/build_provenance.hpp"
 #include "diamond_support/json.hpp"
 #include "diamond_training/checkpoint.hpp"

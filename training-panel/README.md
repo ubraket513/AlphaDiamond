@@ -14,6 +14,13 @@ Open <http://127.0.0.1:5178>. The default binary is
 Set `ALPHADIAMOND_TRAIN_BIN=/absolute/path/to/alphadiamond-train` or `PORT` when
 starting the server to select another binary or port. Keep the panel local.
 
+The preset list reads `configs/alphazero/current/`: the three Min expert
+local pilots and the Soo bootstrap, production and six-hour configurations.
+Earlier Min configurations and the CLI-only expert arena configuration remain
+in `configs/alphazero/experiments/`; they are excluded from the training picker.
+The move preserves every configuration's contents. Dated experiment reports
+retain their original paths and recorded identities.
+
 Choose a preset, edit common settings or the complete JSON, supply a new run
 directory, and start. The run directory's parent must be `min` or `soo`, as
 required by the native CLI. An empty warm-start path uses `--scratch`;
@@ -57,7 +64,7 @@ RUN_DIR="$PWD/artifacts/example/runs/min/experiment-1"
 mkdir -p "$RUN_DIR"
 TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 \
   build/native-training-release/native/alphadiamond-train train \
-  --run-dir "$RUN_DIR" --config configs/alphazero/min-expert-cyclic-local-pilot.json \
+  --run-dir "$RUN_DIR" --config configs/alphazero/current/min-expert-cyclic-local-pilot.json \
   --warm-start /absolute/path/to/deployment-export >"$RUN_DIR/console.log" 2>&1
 ```
 

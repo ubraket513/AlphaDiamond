@@ -1,4 +1,4 @@
-#include "diamond_pipeline/vacancy_distillation.hpp"
+#include "vacancy_distillation.hpp"
 
 #include <cmath>
 #include <algorithm>

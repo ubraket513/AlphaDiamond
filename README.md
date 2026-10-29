@@ -66,6 +66,12 @@ See [repository split and SDK upgrades](docs/architecture/repository_split.md).
 resume. `alphadiamond-checkpoint` validates and exports checkpoints;
 `alphadiamond-release` validates and stages format-v3 deployment artifacts.
 
+Current training presets live in `configs/alphazero/current/`: three Min expert
+local pilots and Soo bootstrap, production and six-hour configurations.
+`configs/alphazero/experiments/` preserves earlier Min presets and the expert
+arena configuration for explicit CLI use. Configuration contents are unchanged;
+dated reports retain their original paths and recorded hashes.
+
 Model publishing remains here. `models/index.json`, GitHub
 `ubraket513/alphadiamond`, and Hugging Face `ubraket513/AlphaDiamond` retain their
 identities and download URLs. Desktop's Git remote never determines model URLs.

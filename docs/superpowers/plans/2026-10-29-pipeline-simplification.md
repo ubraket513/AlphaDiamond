@@ -123,3 +123,33 @@
 - Graphify AST 갱신 4,068 nodes/8,287 edges, 기존 semantic 130개 보존, dangling 관계 없음. 변경된 운영 문서의 의미 기록도 갱신했다.
 - 회귀 테스트/CI를 추가하거나 실행하지 않았다. 실행 작업이 없으므로 살아 있는 작업의 incremental polling/full-log 다운로드는 소스 검토까지 확인했으며 실제 훈련으로 검증하지 않았다.
 - 상세 로그: `artifacts/pipeline-cleanup-20261029/followup-verification/`. Desktop 코드/SDK lock과 shipped 모델, 실험 결과는 변경하지 않았다.
+
+## 추가 감사 잔여 항목 정리 (완료)
+
+사용자가 d04d0ed 재감사 항목의 실행을 승인했다. 학습·평가·자동메시지 중지, 테스트·CI 추가/실행 금지, 기존 데이터 보존 지시를 유지한다.
+
+- [x] 제품 checkpoint/replay 코드의 실패 주입 6개와 전용 helper 제거.
+- [x] checkpoint_every_iterations 지원값을 실제 동작과 같은 1로 제한.
+- [x] self-play는 optimizer 없이 모델 가중치만 복원; 기존 context/integrity 검증 유지.
+- [x] exact-resume 로더 내부의 중복 inspect/hash를 private helper로 통합.
+- [x] 두 진단 구현/헤더를 benchmarks에 두고 해당 실행파일에만 컴파일.
+- [x] 현재 프리셋과 실험 설정 디렉터리를 구분하고 실제 사용 경로 갱신.
+- [x] 동기화 및 export/validate/promote 문서를 실제 명령과 일치.
+- [x] 독립 소스 검토, 병렬 빌드·읽기 전용 CLI·패널 확인, Graphify 갱신.
+
+Ruling: train_main의 추가 물리적 파일 분할은 이번 기능 정리 범위에 넣지 않는다. 직전 단계별 함수 분리는 유지하고, 새 레이어보다 실제 불필요한 실행 경로 제거에 집중한다.
+
+
+### 잔여 항목 실제 확인 결과
+
+- 실패 주입 checkpoint 1개/replay 5개와 전용 helper가 제품 소스에서 제거됨. 실제 write/flush/rename/rollback/cleanup 오류 처리는 유지했으며 독립 검토 통과.
+- `checkpoint_every_iterations`는 `1`만 허용한다. 기존 필드/직렬화 형식은 유지한다. 과거에 1보다 큰 값을 쓰던 config/resume는 이제 거부될 수 있다. 이동한 17개 설정은 모두 1이며 원본과 바이트 단위로 동일하다.
+- Self-play는 로컬 모델에 weights-only reader로 한 generation을 검사/로드한 뒤 context/lineage/config/protocol/topology를 확인하고 pool에 설치한다. AdamW는 복원하지 않는다. 무결성 확인을 위한 optimizer 파일 해싱은 유지한다.
+- exact-resume의 v3→v2 내부 중복 검사는 private helper로 제거했다. 학습·후보 저장 호출부의 명시적 사전 context 검사는 유지하므로 해당 경로 전체에는 여전히 검사 2회가 있을 수 있다. 모든 checkpoint 읽기를 무조건 1회로 줄였다는 주장은 하지 않는다.
+- 진단 구현과 헤더 4개는 `native/benchmarks/`로 이동. compile database에서 opt-in 진단 실행파일만 소유하며, 일반 Release 학습 빌드에는 두 helper의 컴파일 항목이 없다.
+- 현재 프리셋 6개/보존 실험 11개를 분리. 실제 패널 API는 현재 프리셋 6개만 반환. 활성 실행문서/스크립트 경로 갱신, 과거 날짜별 보고서의 증거 경로는 보존했다.
+- GCC 15/sccache/mold/Ninja 개발 빌드 병렬 6개 22.36초, Release train/checkpoint/release 병렬 4개 23.26초. 캐시를 사용한 증분 빌드이며 전체 클린 빌드 시간은 아니다.
+- 패널 Node 문법/Vite build 통과(118ms), 서비스 재시작 후 HTTP 200·jobs=[]·presets=6 확인.
+- Release CLI help/report 정상, primary iteration11/1536-step 기존 checkpoint validate 정상, shipped Min 2.0.1 validate 정상. 학습·평가·벤치마크·회귀 테스트를 실행하지 않았다. 새 self-play actor 경로와 optimizer exact-restore의 실제 실행 확인은 하지 않았으며 빌드·독립 소스 검토 범위다.
+- Graphify 갱신: 기존 semantic 130개 유지, 옮긴 진단 파일로 문서 관계 2개 재연결, dangling 관계 없음. 운영 문서 의미 기록 갱신.
+- 근거 로그: `artifacts/pipeline-cleanup-20261029/residual-verification/`. 기존 모델·실험 산출물·Desktop 저장소는 변경하지 않았고 자동 메시지는 재생성하지 않았다.

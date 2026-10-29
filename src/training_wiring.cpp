@@ -92,6 +92,10 @@ validate_training_config_transition(const ProductionConfig& from, const Producti
          "self_play.bootstrap_prior");
     note(from.self_play.bootstrap_prior_weight != to.self_play.bootstrap_prior_weight,
          "self_play.bootstrap_prior_weight");
+    // A new self-play phase may focus an existing order group. This changes
+    // future episodes only; model/optimizer tensors and prior replay stay intact.
+    note(from.self_play.turn_order_group != to.self_play.turn_order_group,
+         "self_play.turn_order_group");
     note(from.arena.enabled != to.arena.enabled, "arena.enabled");
 
     // Project only explicitly mutable fields back to their previous values.
@@ -111,6 +115,7 @@ validate_training_config_transition(const ProductionConfig& from, const Producti
     immutable_projection.training.policy_loss_domain = from.training.policy_loss_domain;
     immutable_projection.self_play.bootstrap_prior = from.self_play.bootstrap_prior;
     immutable_projection.self_play.bootstrap_prior_weight = from.self_play.bootstrap_prior_weight;
+    immutable_projection.self_play.turn_order_group = from.self_play.turn_order_group;
     immutable_projection.arena.enabled = from.arena.enabled;
     if (immutable_projection != from)
         throw ConfigError("training config transition changes an immutable field");

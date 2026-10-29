@@ -1,7 +1,9 @@
 # Graph Report - AlphaDiamond  (2026-10-29)
 
 ## Corpus Check
-- cluster-only mode — file stats not available
+- 306 files · ~237,355 words
+- Verdict: corpus is large enough that graph structure adds value.
+- Unclassified: 237 file(s) not represented in the graph (top: .f32 146, .jsonl 30, .csv 16)
 
 ## Summary
 - 4032 nodes · 8221 edges · 255 communities (240 shown, 15 thin omitted)
@@ -9,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `bb95831a`
+- Built from commit: `3637a328`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -284,14 +286,14 @@
 ## Surprising Connections (you probably didn't know these)
 - `Task 2: `max_game_seconds` configuration surface` --references--> `SelfPlayConfig`  [INFERRED]
   docs/archive/plans/2026-08-20-rtx3060-alphazero-training.md → include/diamond_orchestration/config.hpp
-- `7. Self-play, batching, and abort semantics` --references--> `TrainingSample`  [INFERRED]
-  docs/archive/specs/2026-08-25-native-gpu-training.md → include/diamond_training/training_sample.hpp
-- `Task 4: Add legal-set policy-fit diagnostics to `selfplay_benchmark`` --references--> `EpisodeDiagnostics`  [INFERRED]
-  docs/archive/reports/2026-09-02-min-a0-transition-roadmap.md → include/soo/selfplay.hpp
-- `An observability gap this exposed` --references--> `SelfPlayResult`  [INFERRED]
-  docs/model-training/repetition_trigger_config_gap.md → include/diamond_pipeline/pipeline.hpp
 - `재대조 결과와 확인 범위` --references--> `ModelPool`  [INFERRED]
   docs/archive/plans/2026-10-29-pipeline-simplification.md → include/diamond_pipeline/model_pool.hpp
+- `An observability gap this exposed` --references--> `SelfPlayResult`  [INFERRED]
+  docs/model-training/repetition_trigger_config_gap.md → include/diamond_pipeline/pipeline.hpp
+- `Task 1: Add the shared device resolver` --references--> `ResolvedDevice`  [INFERRED]
+  docs/archive/plans/2026-08-25-cuda-device-runtime-and-checkpoint-portability.md → include/diamond_training/device.hpp
+- `7. Self-play, batching, and abort semantics` --references--> `TrainingSample`  [INFERRED]
+  docs/archive/specs/2026-08-25-native-gpu-training.md → include/diamond_training/training_sample.hpp
 
 ## Import Cycles
 - None detected.
@@ -1259,7 +1261,7 @@ Cohesion: 0.40
 Nodes (4): Answer, Outcome, Q: How does the training panel read native training metrics?, Source Nodes
 
 ## Knowledge Gaps
-- **1083 isolated node(s):** `root_`, `candidate_player_by_job_`, `actions`, `encoded`, `job` (+1078 more)
+- **1083 isolated node(s):** `repetitions`, `scratch`, `device`, `repetitions`, `warmups` (+1078 more)
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1976 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **15 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -1267,15 +1269,15 @@ Nodes (4): Answer, Outcome, Q: How does the training panel read native training 
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `string()` connect `string` to `run_state.cpp`, `replay_store.cpp`, `trainer.cpp`, `cstdint`, `Options`, `rating.cpp`, `MinRatingEvent`, `Options`, `ProductionConfig`, `ProductionConfig::from_json`, `OpeningBlockSummary`, `training_step_benchmark.cpp`, `ReplayStore::Impl`, `train_main.cpp`, `EncodingVersion`, `rating_store.cpp`, `execute_stage`, `CommandRequest`, `AlphaDiamond Milestone 2 Implementation Plan`, `Options`, `RatingRegistry`, `schedule.cpp`, `min_bootstrap_probe.cpp`, `RunState`, `SelfPlayResult`, `checkpoint.cpp`, `stdexcept`, `IterationRequest`, `MaterializedOpeningSuite`, `CheckpointError`, `promotion.cpp`, `JsonParser`, `EloConfig`, `ResolvedDevice`, `rating_sync_main.cpp`, `RunResult`, `report.cpp`, `SooRatingEvent`, `Compatibility`, `execute_initialize_stage`, `CheckpointProvenance`, `min_expert_arena.cpp`, `AlphaDiamond Python-Zero Proposed PR Sequence`, `CheckpointInfo`, `load_checkpoint`, `run`, `replay_segment.cpp`, `Trainer::train`, `Options`, `Args`, `selfplay_benchmark.cpp`, `DeploymentArtifact`, `ModelIndex`, `pipeline.cpp`, `SelfPlayConfig`, `training_wiring.cpp`, `soo_model.cpp`, `Episode`, `CheckpointLineage`, `min_learning_diagnostic.cpp`, `TrainingConfig`, `IterationResult`, `checkpoint_export.cpp`, `device.cpp`, `min_vacancy_realizability.cpp`, `Options`, `checkpoint_benchmark.cpp`, `MaterializedOpening`, `ModelKey`, `release_main.cpp`, `MinRating`, `EpisodeRecord`, `copy_parameter`, `AbortedGameDiagnostics`, `json.cpp`, `SooLeaderboardEntry`, `read_exact`?**
-  _High betweenness centrality (0.312) - this node is a cross-community bridge._
+  _High betweenness centrality (0.316) - this node is a cross-community bridge._
 - **Are the 4 inferred relationships involving `ProductionConfig` (e.g. with `Findings that change the design (discovered, not in the prompt)` and `Task 13A: Generalize the scheduler from lane IDs to evaluation tickets`) actually correct?**
   _`ProductionConfig` has 4 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `root_`, `candidate_player_by_job_`, `actions` to the rest of the system?**
+- **What connects `repetitions`, `scratch`, `device` to the rest of the system?**
   _1083 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `run_state.cpp` be split into smaller, more focused modules?**
   _Cohesion score 0.062206572769953054 - nodes in this community are weakly interconnected._
-- **Why does `ProductionConfig` connect `ProductionConfig` to `MCTSConfig`, `string`, `AlphaDiamond Python-Zero Migration Design`, `min_learning_diagnostic.cpp`, `TrainingConfig`, `ProductionConfig::from_json`, `train_main.cpp`, `execute_stage`, `CommandRequest`, `AlphaDiamond Milestone 2 Implementation Plan`, `ReplayConfig`, `ArenaConfig`, `InferenceConfig`, `RTX 5060 Ti Worker-Scaling Findings`, `main`, `MaterializedOpeningSuite`, `ResolvedDevice`, `NetworkConfig`, `execute_initialize_stage`, `AlphaDiamond Python-Zero Proposed PR Sequence`, `RTX 3060 GPU Training Runbook`, `RTX 3060 AlphaZero Training Implementation Plan`, `run_self_play`, `SelfPlayConfig`, `Min A0 Transition and Parallel MCTS Decision Implementation Plan`, `training_wiring.cpp`?**
-  _High betweenness centrality (0.060) - this node is a cross-community bridge._
+- **Why does `State` connect `State` to `cstdint`, `Options`, `SearchSession`, `Match`, `Native Soo Self-Play — Phase 0 Design`, `SearchSession3P`, `train_main.cpp`, `EncodingVersion`, `mcts3p.cpp`, `run_episodes`, `execute_stage`, `CommandRequest`, `MaterializedOpening`, `EpisodeSearch`, `Arena`, `EpisodeLane`, `Resolved: the 768-game completion regression was a match-construction bug`, `ModelPool`, `min_bootstrap_probe.cpp`, `RunState`, `main`, `VectorNode`, `EvalOutcome`, `SearchResult`, `ResolvedDevice`, `EpisodeJob`, `Native Soo Self-Play — Phase 1 Progress`, `execute_initialize_stage`, `StageTiming`, `moves_from`, `BatchItem`?**
+  _High betweenness centrality (0.063) - this node is a cross-community bridge._
 - **Are the 12 inferred relationships involving `State` (e.g. with `8. Phase 1 implementation plan` and `Steps 1–4 — prior, rules, state, encoder`) actually correct?**
   _`State` has 12 INFERRED edges - model-reasoned connections that need verification._
 - **Should `replay_store.cpp` be split into smaller, more focused modules?**

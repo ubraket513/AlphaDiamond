@@ -17,6 +17,8 @@
 
 namespace diamond_pipeline {
 
+// Actor execution dtype, separate from learner dtype and FP32's TF32 math mode.
+// Reduced precision requires CUDA; legal normalization/CPU packing use FP32.
 enum class InferencePrecision { fp32, fp16, bf16 };
 
 class PipelineError : public std::runtime_error { public: using std::runtime_error::runtime_error; };
@@ -24,6 +26,9 @@ class CancelledError final : public PipelineError { public: using PipelineError:
 class DeadlineExceededError final : public PipelineError { public: using PipelineError::PipelineError; };
 class IncompatibleCheckpointError final : public PipelineError { public: using PipelineError::PipelineError; };
 
+// Owns detached actor snapshots for one evaluator thread. The caller serializes
+// install/activate/evaluate and stats access; this class starts no worker threads.
+// Batch items borrow lane storage only for the duration of evaluate().
 class ModelPool final : public soo::BatchEvaluator {
   public:
     struct EvaluationStats final {
@@ -33,15 +38,10 @@ class ModelPool final : public soo::BatchEvaluator {
         std::size_t batch_size = 0;
         std::size_t max_legal_actions = 0;
 
-        // Where one batch actually goes. `evaluator_busy_fraction` counts all
-        // of this as "the evaluator", so a high value says nothing about
-        // whether the GPU is saturated: it may be CPU collation, three host to
-        // device copies, the forward pass, the softmax, the copy back, or the
-        // scatter into the waiting lanes. Splitting it is what makes the next
-        // optimisation decidable. GPU-side spans are measured with CUDA events
-        // because the work is enqueued asynchronously and a host clock would
-        // attribute all of it to whichever call happens to synchronise;
-        // on CPU the same fields fall back to a host clock.
+        // Per-batch component telemetry, not GPU utilization. CUDA event spans
+        // require DIAMOND_EVAL_STAGE_TIMING; otherwise these are host intervals
+        // even on CUDA, where enqueue/synchronization affect stage attribution.
+        // CPU intervals are synchronous. Event readback can change throughput.
         double collation_seconds = 0.0;
         double h2d_seconds = 0.0;
         double forward_seconds = 0.0;
@@ -55,20 +55,27 @@ class ModelPool final : public soo::BatchEvaluator {
     ModelPool(std::size_t capacity, diamond_training::ResolvedDevice device,
               InferencePrecision precision = InferencePrecision::fp32);
 
+    // Copies source storage; key hashes the FP32 snapshot before inference casts.
+    // A new key at capacity fails rather than silently evicting another actor.
     ModelKey install(const Compatibility& compatibility, const diamond_model::DiamondModel& source);
+    // Reads native checkpoint weights into staging, then installs a detached
+    // actor. No optimizer state is restored and no checkpoint file is written.
     ModelKey install_checkpoint(const Compatibility& compatibility,
                                 const std::filesystem::path& checkpoint_root,
                                 diamond_model::DiamondModel staging);
     void activate(const ModelKey& key);
     const ModelKey& active_key() const;
-    // Read-only observation of the currently active, immutable actor.
+    // Borrowed observation; callers must preserve the actor's immutable role and
+    // must not race installation/replacement through LibTorch holder aliases.
     const diamond_model::DiamondModel& active_model() const;
     std::size_t resident_count() const;
     void require_compatible(const Compatibility& expected) const;
+    // Checks only at this call boundary; does not interrupt an in-flight forward.
     void require_ready(std::stop_token stop, std::chrono::steady_clock::time_point deadline) const;
+    // Validates/stages the entire result before replacing caller-owned outcomes.
     void evaluate(std::vector<soo::BatchItem>& batch) override;
-    // Summed over every batch since the last reset. last_evaluation_stats()
-    // describes one batch and is useless for a run-level breakdown.
+    // Successful nonempty batches since reset: counts/times and batch rows sum;
+    // max_legal_actions retains the maximum. Reset leaves last-batch stats alone.
     EvaluationStats accumulated_evaluation_stats() const noexcept {
         return accumulated_evaluation_stats_;
     }
@@ -80,6 +87,7 @@ class ModelPool final : public soo::BatchEvaluator {
         evaluated_batches_ = 0;
     }
 
+    // Empty evaluate() clears this; rejected input leaves prior stats unchanged.
     EvaluationStats last_evaluation_stats() const noexcept {
         return last_evaluation_stats_;
     }
@@ -99,18 +107,9 @@ class ModelPool final : public soo::BatchEvaluator {
     EvaluationStats accumulated_evaluation_stats_;
     std::size_t evaluated_batches_ = 0;
 
-    // Reused pinned staging buffers, grown on demand and never shrunk.
-    //
-    // Three fresh heap allocations and three pageable host-to-device copies per
-    // batch cost a third of the evaluator's time, close to the forward pass
-    // itself. Pageable memory cannot be copied asynchronously: the driver has
-    // to stage it through an internal pinned buffer first. Pinning the source
-    // once removes that staging copy and lets the transfer overlap.
-    //
-    // Reuse is safe because one evaluator thread drives one pool, and because
-    // the device-to-host copy at the end of every evaluate() synchronises the
-    // stream -- so the previous batch's transfers have completed before the
-    // next one can overwrite these buffers.
+    // Reallocated only when shape/dtype requires it; pinned for CUDA transfers.
+    // One evaluator thread owns these buffers. The blocking result copy completes
+    // prior input use before the next call may overwrite them; no lock is added.
     torch::Tensor staging_features_;
     torch::Tensor staging_legal_indices_;
     torch::Tensor staging_valid_mask_;

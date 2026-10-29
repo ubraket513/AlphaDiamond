@@ -1,3 +1,10 @@
+// Production CLI: validated configuration enters the durable coordinator, whose
+// stage callbacks below invoke the existing self-play, replay, learner, checkpoint
+// and arena modules. This file owns run-directory writes and command diagnostics;
+// it does not implement search or tensor mathematics. Stage reports and checkpoint
+// provenance are the recovery contract, not a request to silently redo failed work.
+// The command executes stages sequentially; their native workers own parallelism.
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -56,6 +63,9 @@ using diamond_orchestration::StageOutcome;
 std::filesystem::path root(const CommandRequest& request) {
     return request.run_dir;
 }
+// Publish one report through a sibling temporary file and rename. Readers see
+// a complete JSON document; this is not a multi-file transaction or an fsync
+// guarantee. The caller owns the run directory and sequencing of related writes.
 void write_json(const std::filesystem::path& path, Json value) {
     static std::atomic_uint64_t sequence{0};
     std::filesystem::create_directories(path.parent_path());
@@ -86,16 +96,23 @@ void write_json(const std::filesystem::path& path, Json value) {
 #endif
 }
 
+// Required artifacts fail on open, read or parse errors. Callers allowing an
+// absent optional report must make that decision explicitly before calling here.
 Object read_object(const std::filesystem::path& path, const char* description) {
     std::ifstream input(path, std::ios::binary);
     if (!input)
-        throw CommandArtifactError(std::string(description) + " is missing");
+        throw CommandArtifactError(std::string("cannot open ") + description + ": " + path.string());
     try {
-        const auto parsed =
-            diamond_support::parse_json(std::string(std::istreambuf_iterator<char>(input), {}));
-        return std::get<Object>(parsed.value);
+        const std::string bytes(std::istreambuf_iterator<char>(input), {});
+        if (input.bad())
+            throw CommandArtifactError(std::string("cannot read ") + description + ": " +
+                                       path.string());
+        return std::get<Object>(diamond_support::parse_json(bytes).value);
+    } catch (const CommandArtifactError&) {
+        throw;
     } catch (const std::exception& error) {
-        throw CommandArtifactError(std::string(description) + " is invalid: " + error.what());
+        throw CommandArtifactError(std::string(description) + " is invalid: " + path.string() +
+                                   ": " + error.what());
     }
 }
 
@@ -175,6 +192,16 @@ diamond_training::Compatibility wire(const ProductionConfig& config) {
                      config.model_version, network,
                      soo::encoding_version_from_name(config.encoder_version));
 }
+// Keep the learner's three settings in one place without exposing LibTorch in
+// orchestration's public configuration API. ProductionConfig has already validated
+// the domain string; initialization, actor loading and training use the same mapping.
+diamond_training::TrainingConfig trainer_config(const ProductionConfig& config) {
+    return {config.training.learning_rate, config.training.weight_decay,
+            config.training.policy_loss_domain == "legal"
+                ? diamond_training::PolicyLossDomain::legal
+                : diamond_training::PolicyLossDomain::full};
+}
+
 diamond_pipeline::InferencePrecision actor_precision(const ProductionConfig& config) {
     if (config.runtime.precision == "fp16") return diamond_pipeline::InferencePrecision::fp16;
     if (config.runtime.precision == "bf16") return diamond_pipeline::InferencePrecision::bf16;
@@ -564,6 +591,10 @@ void validate_checkpoint_topology(const diamond_training::CheckpointInfo& saved)
     validate_board_adjacency(adjacency);
 }
 
+// File hashes alone do not establish run identity or board semantics. Inspect
+// before loading, then validate the returned generation again at each call site.
+// Later training stages also constrain iteration/replay; initialization does not.
+// The predecessor is accepted only after the command validates its config transition.
 void validate_checkpoint_context(const diamond_training::CheckpointInfo& saved,
                                  const CommandRequest& request, const ProductionConfig& config,
                                  std::optional<uint64_t> expected_iteration = std::nullopt,
@@ -586,6 +617,8 @@ void validate_checkpoint_context(const diamond_training::CheckpointInfo& saved,
             diamond_support::canonical_json(predecessor->to_json()) &&
         saved.provenance->protocol_ids_json ==
             diamond_support::canonical_json(Json{protocol_ids(*predecessor)});
+    // Older serialized configs may omit defaults now represented by the parser.
+    // Equality still checks the complete parsed config; parse failure grants nothing.
     bool legacy_semantic_match = false;
     try {
         const auto saved_config = ProductionConfig::from_json(
@@ -604,6 +637,9 @@ void validate_checkpoint_context(const diamond_training::CheckpointInfo& saved,
         throw CommandArtifactError("native checkpoint replay provenance mismatch");
 }
 
+// Learner source: previous candidate after iteration zero, otherwise the explicit
+// initialization mode. Scratch, deployment warm start and exact native resume have
+// different optimizer/step contracts. A failed load never selects another mode.
 IterationSource load_iteration_source(const CommandRequest& request, const ProductionConfig& config,
                                       int64_t iteration, diamond_training::Trainer& trainer,
                                       const diamond_training::ResolvedDevice& device,
@@ -711,6 +747,9 @@ diamond_training::CheckpointLineage checkpoint_lineage(const CommandRequest& req
     return lineage;
 }
 
+// Actors play the active champion, while the learner continues its last candidate.
+// Rejection intentionally leaves these sources different; newest-file selection
+// would silently change the training procedure. The pool receives a detached snapshot.
 diamond_training::CheckpointInfo
 load_actor_checkpoint(const CommandRequest& request, const ProductionConfig& config,
                       const diamond_orchestration::RunState& state,
@@ -762,22 +801,21 @@ StageOutcome stage_report(const CommandRequest& request, int64_t iteration, RunS
     return {.result = std::move(result), .progress = std::move(progress)};
 }
 
+// A report is reusable only for this operation, iteration and stage. Reuse also
+// restores the recorded coordinator progress; arbitrary JSON at this path is not
+// a completion marker. Invalid or inaccessible reports fail the command.
 StageOutcome load_stage_report(const CommandRequest& request, int64_t iteration, RunStage stage,
                                const std::string& operation) {
-    std::ifstream input(stage_report_path(request, iteration, stage), std::ios::binary);
-    if (!input)
-        throw CommandArtifactError("persisted stage report is missing");
     try {
-        auto result =
-            diamond_support::parse_json(std::string(std::istreambuf_iterator<char>(input), {}));
-        const auto& object = std::get<Object>(result.value);
+        auto object = read_object(stage_report_path(request, iteration, stage),
+                                  "persisted stage report");
         if (std::get<std::string>(object.at("operation_id").value) != operation ||
             std::get<int64_t>(object.at("iteration").value) != iteration ||
             std::get<std::string>(object.at("stage").value) != stage_label(stage)) {
             throw CommandArtifactError("persisted stage report identity mismatch");
         }
         const auto progress = std::get<Object>(object.at("run_progress").value);
-        return {.result = std::move(result), .progress = progress};
+        return {.result = Json{std::move(object)}, .progress = progress};
     } catch (const CommandArtifactError&) {
         throw;
     } catch (const std::exception& error) {
@@ -789,6 +827,12 @@ StageOutcome load_stage_report(const CommandRequest& request, int64_t iteration,
 Object evaluate(const CommandRequest& request, const ProductionConfig& config,
                 const diamond_training::ResolvedDevice& device);
 
+// Durable sequence: initialize -> self-play -> ingest -> train -> save candidate
+// -> promotion arena -> rating -> promote/reject -> persist -> complete. The
+// coordinator determines which callback runs; each branch publishes its own report.
+// Existing reports are identity-checked first. TRAIN may reuse a staged checkpoint
+// only after validating its iteration and replay provenance. Stage-specific source
+// selection remains here, rather than being hidden in a general checkpoint wrapper.
 StageOutcome execute_stage(const CommandRequest& request, const ProductionConfig& config,
                            const diamond_orchestration::RunState& state, RunStage stage,
                            const std::string& operation,
@@ -807,12 +851,7 @@ StageOutcome execute_stage(const CommandRequest& request, const ProductionConfig
     const auto episodes_path = per_iteration / "selfplay.episodes";
     if (stage == RunStage::initialize) {
         auto native_model = model(config);
-        diamond_training::Trainer trainer(
-            native_model, compatibility,
-            {config.training.learning_rate, config.training.weight_decay,
-             config.training.policy_loss_domain == "legal"
-                 ? diamond_training::PolicyLossDomain::legal
-                 : diamond_training::PolicyLossDomain::full}, device);
+        diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config), device);
         const auto source =
             load_iteration_source(request, config, iteration, trainer, device, predecessor);
         std::filesystem::path champion;
@@ -856,12 +895,7 @@ StageOutcome execute_stage(const CommandRequest& request, const ProductionConfig
     if (stage == RunStage::self_play) {
         if (!std::filesystem::exists(episodes_path)) {
             auto native_model = model(config);
-            diamond_training::Trainer trainer(
-                native_model, compatibility,
-                {config.training.learning_rate, config.training.weight_decay,
-                 config.training.policy_loss_domain == "legal"
-                     ? diamond_training::PolicyLossDomain::legal
-                     : diamond_training::PolicyLossDomain::full}, device);
+            diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config), device);
             (void)load_actor_checkpoint(request, config, state, trainer, device, predecessor);
             diamond_pipeline::ModelPool models(1, device, actor_precision(config));
             const auto key = models.install(compatibility, trainer.learner());
@@ -1081,16 +1115,12 @@ StageOutcome execute_stage(const CommandRequest& request, const ProductionConfig
         diamond_pipeline::TrainingResult trained;
         IterationSource source;
         auto native_model = model(config);
-        diamond_training::Trainer trainer(
-            native_model, compatibility,
-            {config.training.learning_rate, config.training.weight_decay,
-             config.training.policy_loss_domain == "legal"
-                 ? diamond_training::PolicyLossDomain::legal
-                 : diamond_training::PolicyLossDomain::full}, device);
+        diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config), device);
         source = load_iteration_source(request, config, iteration, trainer, device, predecessor);
         // Only the branch that actually trains needs the samples.  A resumed
         // TRAIN reloads the staged checkpoint and just checks the manifest
-        // digest, so it opens metadata-only.
+        // digest, so it opens metadata-only. Opening still performs ReplayStore
+        // orphan cleanup; metadata-only is not a read-only filesystem contract.
         const bool must_train = !std::filesystem::exists(staged / "CURRENT");
         const bool replay_cache_hit = must_train && resources.replay_loaded();
         const auto open_started = std::chrono::steady_clock::now();
@@ -1167,15 +1197,11 @@ StageOutcome execute_stage(const CommandRequest& request, const ProductionConfig
     if (stage == RunStage::save_candidate) {
         const auto staged = per_iteration / "trained-checkpoint";
         auto native_model = model(config);
-        diamond_training::Trainer trainer(
-            native_model, compatibility,
-            {config.training.learning_rate, config.training.weight_decay,
-             config.training.policy_loss_domain == "legal"
-                 ? diamond_training::PolicyLossDomain::legal
-                 : diamond_training::PolicyLossDomain::full}, device);
+        diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config), device);
         diamond_training::CheckpointInfo saved;
         try {
-            // Provenance validation reads the manifest digest and nothing else.
+            // Provenance uses the manifest digest, but opening ReplayStore can
+            // still remove orphan chunks even in metadata-only mode.
             const auto open_started = std::chrono::steady_clock::now();
             diamond_pipeline::ReplayStore replay(root(request) / "replay", compatibility,
                                                  static_cast<std::size_t>(config.replay.capacity),
@@ -1476,6 +1502,9 @@ StageOutcome execute_stage(const CommandRequest& request, const ProductionConfig
     return stage_report(request, iteration, stage, operation, {{"status", Json{"completed"}}});
 }
 
+// Reconstruct total attempted games (completed + aborted) and the highest learner
+// step from persisted iteration reports. Absence means an unfinished stage; a
+// missing self-play report also skips that iteration's train report, as before.
 Result aggregate_result(const CommandRequest& request) {
     Result result;
     const auto iterations = root(request) / "iterations";
@@ -1484,34 +1513,42 @@ Result aggregate_result(const CommandRequest& request) {
          it.increment(error)) {
         if (!it->is_directory(error))
             continue;
-        std::ifstream input(it->path() / "self-play.json", std::ios::binary);
-        if (!input)
+        // Incomplete stages may have no report. A status/open/parse failure is
+        // different: never turn an unreadable existing report into lower totals.
+        const auto selfplay_path = it->path() / "self-play.json";
+        if (!std::filesystem::exists(selfplay_path, error)) {
+            if (error)
+                throw CommandArtifactError("cannot inspect stage report: " + selfplay_path.string() +
+                                           ": " + error.message());
             continue;
+        }
         try {
-            const auto json =
-                diamond_support::parse_json(std::string(std::istreambuf_iterator<char>(input), {}));
-            const auto& object = std::get<Object>(json.value);
+            const auto object = read_object(selfplay_path, "persisted self-play stage report");
             result.games +=
                 static_cast<std::size_t>(std::get<int64_t>(object.at("completed_games").value) +
                                          std::get<int64_t>(object.at("aborted_games").value));
-        } catch (const std::exception&) {
-            throw CommandArtifactError("persisted self-play stage report is invalid");
+        } catch (const std::exception& failure) {
+            throw CommandArtifactError("invalid self-play totals: " + selfplay_path.string() +
+                                       ": " + failure.what());
         }
-        std::ifstream train_report(it->path() / "train.json", std::ios::binary);
-        if (!train_report)
+        const auto train_path = it->path() / "train.json";
+        if (!std::filesystem::exists(train_path, error)) {
+            if (error)
+                throw CommandArtifactError("cannot inspect stage report: " + train_path.string() +
+                                           ": " + error.message());
             continue;
+        }
         try {
-            const auto json = diamond_support::parse_json(
-                std::string(std::istreambuf_iterator<char>(train_report), {}));
-            const auto& object = std::get<Object>(json.value);
-            result.step = std::max(result.step, static_cast<uint64_t>(std::get<int64_t>(
-                                                    object.at("training_step").value)));
-        } catch (const std::exception&) {
-            throw CommandArtifactError("persisted train stage report is invalid");
+            const auto object = read_object(train_path, "persisted train stage report");
+            result.step = std::max(result.step, static_cast<uint64_t>(
+                                                   std::get<int64_t>(object.at("training_step").value)));
+        } catch (const std::exception& failure) {
+            throw CommandArtifactError("invalid training totals: " + train_path.string() +
+                                       ": " + failure.what());
         }
     }
     if (error)
-        throw CommandArtifactError("cannot scan persisted stage reports");
+        throw CommandArtifactError("cannot scan persisted stage reports: " + error.message());
     return result;
 }
 

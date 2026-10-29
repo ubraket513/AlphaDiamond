@@ -17,12 +17,17 @@ enum class PolicyLossDomain {
     legal,
 };
 
+// Learner loss/optimizer settings; update budgets and replay sampling live above
+// Trainer, and inference precision belongs to the actor's ModelPool.
 struct TrainingConfig {
     double learning_rate;
     double weight_decay;
     PolicyLossDomain policy_loss_domain = PolicyLossDomain::full;
 };
 
+// One update's telemetry. samples_per_second excludes replay sampling, self-play
+// and checkpoint I/O. CUDA memory fields require peak_cuda_memory_available;
+// allocator peaks are device/process observations, not exclusive model memory.
 struct TrainingMetrics {
     double total_loss;
     double policy_loss;
@@ -48,7 +53,7 @@ enum class ModelRole {
 
 // Rebuilds a model from source architecture and copies every named parameter
 // and buffer to target. The result owns distinct storage and has the requested
-// runtime role applied.
+// role applied: learner is trainable, actor/candidate are eval with frozen parameters.
 diamond_model::DiamondModel snapshot_model(const diamond_model::DiamondModel& source,
                                            const Compatibility& compatibility, torch::Device target,
                                            ModelRole role);
@@ -59,34 +64,26 @@ diamond_model::DiamondModel migrate_goal_inputs(const diamond_model::DiamondMode
                                                 const Compatibility& target,
                                                 const ResolvedDevice& device);
 
-// Zeroes the final value layer, leaving every other parameter untouched.
-//
-// A freshly initialised Min network answers every leaf with an arbitrary
-// three-vector, which is a bias toward seats the network has no reason to
-// prefer -- and during the bootstrap phase, where the policy prior comes from
-// the vacancy heuristic rather than the network, that noise is the only thing
-// competing with the heuristic's sense of direction. Zeroing the last layer
-// makes the initial value exactly [0,0,0]: neutral rather than random.
-//
-// Deliberately applied after construction, not inside it. The model consumes
-// exactly the same RNG draws either way, so a zero-initialised network and a
-// random one differ in this layer and are bit-identical everywhere else, which
-// is what makes an A/B between them an experiment about one term.
-//
-// Symmetry does not survive the first optimizer step: the final layer sees a
-// gradient immediately, and the layers below it start moving on the second,
-// once that layer is no longer zero.
+// Explicit initialization: zeros only the final value layer under no-grad.
+// Keeping this outside construction preserves its RNG draws and other tensors.
+// It creates neutral initial values, not a constraint maintained during training.
 void zero_value_head(const diamond_model::DiamondModel& model);
 
 // A versioned SHA-256 identity over sorted named parameters then named buffers.
-// FP32 tensor data is serialized canonically as contiguous CPU little-endian bytes.
+// Requires finite FP32 data; copies to contiguous CPU little-endian bytes and
+// may synchronize CUDA. This is not a state.pt archive-file digest.
 std::string canonical_model_digest(const diamond_model::DiamondModel& model);
 
+// Owns a private trainable snapshot and AdamW bound to its parameter identities.
+// The caller serializes updates/snapshots/checkpoint access. Updates change only
+// memory; durable progress requires a separate checkpoint publication.
 class Trainer {
   public:
     Trainer(diamond_model::DiamondModel model, Compatibility compatibility, TrainingConfig config,
             const ResolvedDevice& device);
 
+    // One update from a borrowed batch. Invalid samples fail before gradient
+    // reset; later failures are not a transaction over weights/optimizer state.
     TrainingMetrics train(std::span<const TrainingSample> samples);
     uint64_t training_step() const {
         return training_step_;
@@ -100,6 +97,7 @@ class Trainer {
     const ResolvedDevice& device() const {
         return device_;
     }
+    // model() and learner() alias the same module; neither creates a snapshot.
     diamond_model::DiamondModel& model() {
         return model_;
     }
@@ -112,11 +110,15 @@ class Trainer {
     const diamond_model::DiamondModel& learner() const {
         return model_;
     }
+    // Independent eval storage with frozen parameters; isolated from later updates.
     diamond_model::DiamondModel candidate_snapshot() const;
     torch::optim::AdamW& optimizer() {
         return optimizer_;
     }
+    // Records an update already performed by the distillation path; does not
+    // execute AdamW itself. The optimizer must remain bound to learner tensors.
     void record_external_optimizer_step();
+    // Checkpoint bookkeeping only: does not deserialize weights or optimizer.
     void restore_checkpoint_state(TrainingConfig config, uint64_t training_step) {
         config_ = config;
         training_step_ = training_step;

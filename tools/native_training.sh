@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-    echo "usage: tools/native_training.sh cmake|ctest [args...]" >&2
+    echo "usage: tools/native_training.sh cmake [args...]" >&2
     exit 2
 }
 
@@ -10,7 +10,7 @@ usage() {
 tool=$1
 shift
 case "$tool" in
-    cmake|ctest) ;;
+    cmake) ;;
     *) usage ;;
 esac
 

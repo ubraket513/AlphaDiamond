@@ -5,8 +5,7 @@ AlphaZero training stack. The two-player configuration is called **Soo**; the
 three-player one is **Min**.
 
 **This is a C++ project.** There is no Python engine, trainer, bridge, or test
-suite. Only the offline analysis summarizers allowlisted in
-`cmake/VerifyPythonZero.cmake` remain as research tooling. Rules, encoding,
+suite. Offline analysis summarizers remain as research tooling. Rules, encoding,
 search, self-play, training,
 checkpointing, arena and release are all native. Anything you read elsewhere
 about a Python oracle, a `_diamond_native` pybind extension, `src/diamond/`, a
@@ -18,24 +17,18 @@ for how and why.
 
 ## Rules that are expensive to rediscover
 
-- **The frozen fixtures are the oracle, except for replay.** `tests/golden/`
-  and `tests/native/fixtures/` are normative and **cannot be regenerated** —
-  the implementation that produced them is gone. Settle contract questions by
-  reading them, never by reasoning about what the C++ currently does. The one
-  exception is `tests/golden/replay-v1/`: `ReplayStore` is schema-4-only and no
-  longer reads schema 1/2/3 at all, so that corpus is unreadable by this tree
-  and the replay tests build their stores natively instead. It is kept only as
-  a historical record.
+- **Runtime topology remains authoritative SDK data.** The five binary tables in
+  `data/topology/` are embedded by Desktop. The regression corpus and
+  test suites have been removed; preserve historical experiment evidence.
 - **Game geometry has exactly one authority.** Seats come from
   `soo::standard_soo_match()` and `soo::standard_min_match()` in
   `native/src/board.cpp`, never from triples written at a call site. Five
   hand-written copies drifted once: the trainer played a different game from the
   Qt application, and Soo self-play completed 77 % of games instead of 98 % for
-  as long as it lasted. `match_geometry_test` pins the factory to
-  `tests/golden/rules-v1.txt`. See
+  as long as it lasted. The former geometry regression and its findings are recorded in
   [docs/model-training/baseline_768_completion_regression.md](docs/model-training/baseline_768_completion_regression.md).
 - **Do not micro-optimise before measuring.** A simple native representation and
-  exact fixture parity come first.
+  direct numerical/behavioral verification come first.
 - **Measure at a scale that can answer the question.** Self-play completion
   varies enough run to run that sixteen games cannot distinguish two
   configurations; 768 games is the harness the findings in `docs/model-training/`
@@ -46,40 +39,35 @@ for how and why.
 | path | what |
 |---|---|
 | `native/include/soo/`, `native/src/` | the core: board, rules, encoder, MCTS, self-play, training, checkpoint, arena |
-| `native/qt/` | the Qt application |
-| `native/tests/` | the test suite, run by CTest |
+| sibling `AlphaDiamondDesktop/app/` | the Qt application |
 | `native/benchmarks/` | benchmarks, kept out of production code |
-| `tests/golden/` | frozen normative fixtures: rules, MCTS, topology |
-| `tests/native/fixtures/` | frozen normative fixtures from the retired parity gates |
+| `data/topology/` | canonical runtime topology tables |
 | `configs/alphazero/` | training configurations |
 | `models/` | shipped deployment artifacts (format v3) |
 | `docs/` | design records and measured findings |
 
-## Build and test
+## Build and direct validation
 
-CMake is the build system and CTest runs the tests; the Makefile is a command
-facade over the presets in `CMakePresets.json` (`native-ci`, `native-training`,
-`native-release`, `native-qt`, `native-asan`, `native-package`).
+CMake owns product targets and flags. Regression suites and GitHub CI have been
+removed at the user's request; use actual builds and direct CLI/product checks.
 
 ```bash
-make test-native                 # core contract tests, no LibTorch needed
-make test-training               # LibTorch training tests
-make test-qt                     # Qt + LibTorch application tests
-make package                     # CPack ZIP, models bundled beside the binary
+make build
+# LibTorch training on Linux; select native-training on other platforms.
+make build PRESET=native-training-linux
 ```
 
-The training preset needs LibTorch. Point CMake at it and build directly when
-you need a specific target:
+Point CMake at a compatible standalone LibTorch installation when required:
 
 ```bash
 tools/native_training.sh cmake --preset native-training -G Ninja \
     -DCMAKE_PREFIX_PATH=<libtorch-root>
-tools/native_training.sh cmake --build --preset native-training --parallel
-tools/native_training.sh ctest --preset native-training --output-on-failure
+tools/native_training.sh cmake --build --preset native-training \
+    --parallel "$(tools/build_resources.sh build)"
 ```
 
-`tools/native_training.sh` wraps `cmake`/`ctest` so the Visual Studio
-environment is picked up on Windows; on Linux and macOS it is a passthrough.
+`tools/native_training.sh` initializes the Visual Studio environment for CMake
+on Windows and passes through on Linux/macOS. Desktop is built separately.
 
 ## Commands
 
@@ -105,7 +93,7 @@ every aborted game, with target-camp occupancy and blocker mobility).
 ## Shipping a model
 
 ```bash
-make package                     # CPack ZIP, models bundled beside the binary
+cmake --build --preset native-release --target package --parallel 8
 ```
 
 Artifact format v3 declares the model family and architecture and is validated

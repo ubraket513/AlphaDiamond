@@ -11,6 +11,9 @@
 
 #include "diamond_training/checkpoint.hpp"
 
+// Actor residency and batched inference, driven synchronously by one evaluator
+// thread. Models/staging belong to the pool; BatchItem payloads/outcomes belong
+// to lanes and remain borrowed until evaluate() returns.
 namespace diamond_pipeline {
 
 ModelPool::ModelPool(std::size_t capacity, diamond_training::ResolvedDevice device,
@@ -28,6 +31,8 @@ ModelKey ModelPool::install(const Compatibility& compatibility,
         throw std::invalid_argument("model pool requires a model");
     auto actor = diamond_training::snapshot_model(source, compatibility, device_.torch_device,
                                                   diamond_training::ModelRole::actor);
+    // Identify original FP32 content before an optional execution-dtype cast.
+    // This key is independent of native state.pt serialization and learner state.
     ModelKey key{compatibility.model_name, compatibility.model_version,
                  diamond_training::canonical_model_digest(actor)};
     if (precision_ == InferencePrecision::fp16)
@@ -77,6 +82,7 @@ void ModelPool::require_compatible(const Compatibility& expected) const {
 
 void ModelPool::require_ready(std::stop_token stop,
                               std::chrono::steady_clock::time_point deadline) const {
+    // Cooperative boundary check only, not cancellation of an active CUDA call.
     if (stop.stop_requested()) throw CancelledError("native pipeline cancelled");
     if (std::chrono::steady_clock::now() >= deadline)
         throw DeadlineExceededError("native pipeline deadline exceeded");
@@ -103,6 +109,8 @@ void ModelPool::evaluate(std::vector<soo::BatchItem>& batch) {
         throw PipelineError("active model value width is incompatible with its output family");
     }
 
+    // Validate all borrowed rows before allocating/copying device inputs. Search
+    // supplies legal actions; duplicate/out-of-range entries are contract errors.
     std::size_t max_legal_actions = 0;
     std::vector<std::uint8_t> seen(static_cast<std::size_t>(kActionSpace), 0);
     for (const soo::BatchItem& item : batch) {
@@ -158,13 +166,9 @@ void ModelPool::evaluate(std::vector<soo::BatchItem>& batch) {
         c10::Event post_start, post_end;
         c10::Event d2h_start, d2h_end;
     };
-    // Opt-in. Reading a CUDA event requires synchronising on it, which blocks
-    // the evaluator thread until the GPU drains and serialises what is
-    // otherwise a pipelined stream of batches. Measured cost of leaving it on:
-    // evaluations/s fell from 77.7k to 49.9k, a third of throughput. A
-    // measurement that changes the thing it measures has to be something you
-    // ask for, so production runs pay nothing and the split is available when
-    // DIAMOND_EVAL_STAGE_TIMING is set.
+    // Opt-in, cached on the first nonempty call. CUDA event readback synchronizes
+    // and can perturb throughput. Without it, host intervals include asynchronous
+    // enqueue/wait effects and must not be interpreted as isolated kernel times.
     static const bool stage_timing = [] {
         const char* flag = std::getenv("DIAMOND_EVAL_STAGE_TIMING");
         return flag != nullptr && *flag != '\0' && *flag != '0';
@@ -284,6 +288,8 @@ void ModelPool::evaluate(std::vector<soo::BatchItem>& batch) {
     const auto post_host_start = EvalClock::now();
     if (on_cuda)
         events->post_start.record(events->stream);
+    // Normalize only actual legal actions, in FP32 even for reduced actors.
+    // Padding is masked out; one packed CPU return also carries row-finite flags.
     const auto legal_logits = logits.gather(1, device_legal_indices);
     const auto padded_priors = torch::softmax(
         legal_logits.masked_fill(device_valid_mask.eq(0), -std::numeric_limits<float>::infinity()),
@@ -323,6 +329,8 @@ void ModelPool::evaluate(std::vector<soo::BatchItem>& batch) {
     }
 
     const auto scatter_start = EvalClock::now();
+    // Stage every result before exposing any row to a lane. Rejected output must
+    // leave all caller-owned outcomes unchanged, although inference already ran.
     std::vector<soo::EvalOutcome> staged_outcomes;
     staged_outcomes.reserve(batch.size());
     for (std::size_t row = 0; row < batch.size(); ++row) {
@@ -351,6 +359,8 @@ void ModelPool::evaluate(std::vector<soo::BatchItem>& batch) {
         *batch[row].outcome = std::move(staged_outcomes[row]);
     const auto scatter_end = EvalClock::now();
 
+    // Outcomes commit above; these counters are telemetry, not durable progress.
+    // Timing failure does not roll back outcomes already committed above.
     stats.collation_seconds = host_seconds(collation_start, collation_end);
     stats.scatter_seconds = host_seconds(scatter_start, scatter_end);
     if (on_cuda) {

@@ -1,3 +1,8 @@
+// Standalone Min comparison executable. It validates v3 checkpoint identities,
+// freezes an invocation/schedule in a NEW output directory, then evaluates every
+// scheduled seat/order. It never trains, promotes, retries or chooses checkpoints.
+// Completed rows and pending counts are evidence; summaries alone are not a
+// statistical strength claim. The external experiment analyzer handles that gate.
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -171,6 +176,11 @@ struct LoadedCheckpoint {
     Json identity;
 };
 
+// Require the requested expert group and exact architecture before installing a
+// detached actor snapshot. Weights-only load does not restore AdamW, but checkpoint
+// inspection still verifies the optimizer file hash. State archive hash, runtime
+// tensor digest and configuration digest identify different objects; record all.
+// Recheck generation/manifest after load rather than accepting a changed CURRENT.
 LoadedCheckpoint load_checkpoint(const Path& root, std::string_view expected_group,
                                  const Config& arena,
                                  const diamond_training::ResolvedDevice& device) {
@@ -241,6 +251,9 @@ soo::Match ordered_match(const std::array<int, 3>& order) {
     return match;
 }
 
+// Materialize a descriptor with legal random moves using its seed and ply depth.
+// The same descriptor is deliberately reused across balanced assignments. Its
+// metadata hash alone is not a board-content hash or proof of held-out freshness.
 soo::State opening(const soo::Match& match,
                    const diamond_orchestration::MaterializedOpening& descriptor) {
     descriptor.validate();
@@ -354,6 +367,10 @@ struct Counts {
     }
 };
 
+// Rewrite snapshots after each whole turn-order group. A missing optional result
+// is pending, not a loss or abort. Each JSON file is replaced separately, so readers
+// may briefly see adjacent snapshots; invocation status becomes complete only once
+// all groups return. No partial snapshot implies successful completion.
 void save_arm(const Path& out, const std::vector<ScheduledGame>& games,
               const std::vector<std::optional<Json>>& results, double seconds) {
     Counts total;
@@ -398,6 +415,11 @@ void save_arm(const Path& out, const std::vector<ScheduledGame>& games,
     write_json(out / "summary.json", Json{std::move(summary)});
 }
 
+// One synchronous scheduler run per turn order keeps each Match immutable while
+// lanes execute in parallel. Pools and borrowed router references live throughout
+// the call. wire_arena_episode fixes evaluation exploration/repetition policy;
+// it is intentionally different from training self-play policy. Any failure escapes
+// without starting a replacement run; already published snapshots remain evidence.
 void run_arm(const Path& out, const Config& config, const std::vector<ScheduledGame>& games,
              soo::BatchEvaluator& candidate, soo::BatchEvaluator& reference) {
     std::filesystem::create_directory(out);
@@ -436,6 +458,10 @@ void run_arm(const Path& out, const Config& config, const std::vector<ScheduledG
     }
 }
 
+// Explicit reference modes are mutually exclusive: shared model or cyclic/reverse
+// pair. Optional shared-control is another requested arm, not an error fallback.
+// Load/validate before creating output; retain failed invocation evidence on error.
+// Torch CPU threads are fixed to one here; scheduler parallelism comes from config.
 void run(const Arguments& args) {
     const auto config_bytes = read(args.config);
     const auto config = Config::from_json(diamond_support::parse_json(config_bytes));

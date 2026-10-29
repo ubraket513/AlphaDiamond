@@ -1,3 +1,7 @@
+// Deterministic opening descriptors, balanced seat/order schedules and native
+// promotion statistics. These functions own only returned data; no models, files
+// or worker threads are created. Game execution materializes the actual board
+// from each seed/depth elsewhere. Invalid/incomplete dimensions fail explicitly.
 #include "diamond_orchestration/schedule.hpp"
 
 #include <algorithm>
@@ -227,6 +231,9 @@ std::vector<SooRatedMatch> schedule_soo_pair(const std::vector<std::string>& ope
     return result;
 }
 
+// Each opening gets 3! seat assignments x 3! turn orders = 36 matches. Candidate
+// identity is a participant role; all assignments must remain together to avoid
+// turning a favorable seat/order into apparent model strength.
 std::vector<MinRatedMatch> schedule_min_triple(const std::vector<std::string>& openings,
                                                 const std::array<std::string, 3>& participants) {
     validate_openings<3>(openings);
@@ -271,6 +278,11 @@ void MaterializedOpeningSuite::validate() const {
         throw ScheduleError("materialized opening suite is incompatible with its configuration");
 }
 
+// serialized_state is a descriptor, not a serialized board. Its digest includes
+// suite metadata; different IDs therefore do not prove different board inputs.
+// In particular seed XOR index lets adjacent suite seeds reuse the same underlying
+// seed. Held-out selection must compare actual (seed, depth), not just labels/hashes.
+// Changing this mapping would change historical schedules, so preserve it here.
 MaterializedOpeningSuite materialize_opening_suite(const OpeningSuiteConfig& config) {
     config.validate();
     MaterializedOpeningSuite result;
@@ -382,6 +394,11 @@ summarize_min_opening_blocks(const std::vector<MinOpeningBlock>& blocks,
         });
 }
 
+// Native promotion uses complete opening blocks as the resampling unit; aborted
+// blocks are counted but excluded from this mean/interval. This is NOT the separate
+// experiment analyzer's pessimistic abort bound or simultaneous multi-endpoint
+// gate. Callers must interpret incomplete-block counts alongside the returned CI.
+// Seeded bootstrap and linear quantiles are deterministic for these inputs.
 OpeningBlockBootstrap bootstrap_opening_blocks(const OpeningBlockSummary& summary,
                                                const PromotionStatisticsConfig& config,
                                                double promotion_threshold) {

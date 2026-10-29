@@ -1,5 +1,11 @@
 #pragma once
 
+// Serializable production settings consumed by the orchestration adapters.
+// Parsing/validation and canonical serialization live in config.cpp; worker
+// creation, live batching and model ownership belong to their runtime modules.
+// A stored resolved config is checkpoint evidence, so legacy field presence
+// and supplied values must survive loading even when no runtime consumes them.
+
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -34,6 +40,8 @@ struct NetworkConfig final {
 
 struct RuntimeConfig final {
     std::string device = "cpu";
+    // Actor inference precision; this is not a CPU search-thread setting or a
+    // complete description of process-wide LibTorch/TF32 environment settings.
     std::string precision = "fp32";
 
     void validate() const;
@@ -44,19 +52,17 @@ struct RuntimeConfig final {
 
 struct MCTSConfig final {
     int64_t simulations = 200;
+    // Positive finite PUCT coefficient, forwarded to both training and arena
+    // search. Distinct from root noise and move temperature; 1.5 is historical.
     double c_puct = 1.5;
     double dirichlet_alpha = 0.3;
     double dirichlet_epsilon = 0.25;
     uint64_t seed = 0;
 
-    // Adaptive search budget for the repetition attractor. The aborted tail is a
-    // short-cycle shuffle rather than slow progress -- median 31.6 % unique
-    // positions, one position revisited 61 times, 68.4 % of moves returning
-    // within 8 ply -- so the budget is spent where a game has demonstrably
-    // looped. `simulations_late` applies instead of `simulations` when the
-    // current position already occurred within `repeat_window` plies of the
-    // game; both zero disables the trigger and every move uses `simulations`.
-    // See docs/model-training/soo_scratch_training.md sections 6.2 and 6.6.
+    // Training-only adaptive depth: replace the base simulation budget when a
+    // dynamics position recurs within this many plies. Both controls must be
+    // positive, or both zero to disable the trigger. This does not configure
+    // arena's independent eight-ply, temperature-1 repetition escape policy.
     int64_t simulations_late = 0;
     int64_t repeat_window = 0;
 
@@ -74,6 +80,8 @@ struct SelfPlayConfig final {
     std::string bootstrap_prior = std::string(kBootstrapPriorNone);
     double bootstrap_prior_weight = 1.0;
     std::optional<double> max_game_seconds;
+    // Balance jobs over all turn orders or one declared Min specialist group;
+    // these settings select training data, not evaluator model ownership.
     bool balance_turn_orders = false;
     std::string turn_order_group = "all";
 
@@ -84,7 +92,11 @@ struct SelfPlayConfig final {
 };
 
 struct WorkerConfig final {
+    // Concurrent game states, not threads. Pending jobs refill retired lanes.
     int64_t logical_lanes = 1;
+    // CPU search workers, independent of LibTorch intra-op threads. The
+    // scheduler also has one evaluator thread; this does not promise full CPU
+    // utilization or bind workers to physical cores.
     int64_t search_threads = 1;
     // Two, not one: games must exceed lanes or the job queue never engages, and
     // a default configuration has to be a valid one.
@@ -98,10 +110,17 @@ struct WorkerConfig final {
 };
 
 struct InferenceConfig final {
+    // Positions per evaluator call and batch collection wait in microseconds.
+    // The batch size is a cap, not a promise of a full batch or a learner batch.
     int64_t max_batch_size = 1;
     int64_t max_wait_us = 1;
-    int64_t request_queue_capacity = 1;
-    double response_timeout_s = 5.0;
+    // Legacy serialized metadata only: the current in-process scheduler does
+    // not use these as a live queue limit or response deadline. Preserve each
+    // supplied value and its presence for old resolved-config identity; omit
+    // absent fields in new configs. Resume transitions cannot edit either.
+    // Optional means an absent JSON key, not permission to accept JSON null.
+    std::optional<int64_t> request_queue_capacity;
+    std::optional<double> response_timeout_s;
 
     void validate() const;
     diamond_support::JsonValue to_json() const;
@@ -120,6 +139,7 @@ struct ReplayConfig final {
 };
 
 struct TrainingConfig final {
+    // Samples per optimizer update, independent of inference.max_batch_size.
     int64_t batch_size = 128;
     int64_t train_steps_per_iteration = 1;
     double learning_rate = 1e-3;
@@ -145,6 +165,9 @@ struct RunBudgetConfig final {
 };
 
 struct ArenaConfig final {
+    // Promotion scheduling and decision inputs. Effective episode search is
+    // assembled by wire_arena_episode: noise-free/greedy except for its fixed
+    // seeded repetition escape. It does not inherit self-play temperature.
     bool enabled = true;
     int64_t games = 36;
     uint64_t seed = 0;
@@ -203,6 +226,9 @@ struct ProductionConfig final {
     // Absent in historical resolved configs; preserve their serialized identity.
     std::string encoder_version = "diamond-camp-relative-v1";
 
+    // Cross-section checks supplement each group's local range/type checks.
+    // Equality includes optional legacy presence; no runtime normalization may
+    // erase that distinction when comparing checkpoint-boundary transitions.
     void validate() const;
     diamond_support::JsonValue to_json() const;
     static ProductionConfig from_json(const diamond_support::JsonValue& value);

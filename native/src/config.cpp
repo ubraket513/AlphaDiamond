@@ -1,5 +1,10 @@
 #include "diamond_orchestration/config.hpp"
 
+// Strict JSON -> typed settings -> canonical JSON for the production control
+// plane. Local validators reject invalid units/ranges; ProductionConfig adds
+// cross-section contracts. Serialization also participates in checkpoint
+// identity, so accepting historical keys must not silently rewrite their data.
+
 #include <cmath>
 #include <cctype>
 #include <limits>
@@ -400,33 +405,49 @@ WorkerConfig WorkerConfig::from_json(const Json& value) {
 }
 
 void InferenceConfig::validate() const {
-    if (max_batch_size <= 0 || max_wait_us <= 0 || request_queue_capacity <= 0)
-        throw ConfigError("inference batch, wait, and queue limits must be positive");
-    if (!std::isfinite(response_timeout_s) || response_timeout_s <= 0)
+    if (max_batch_size <= 0 || max_wait_us <= 0)
+        throw ConfigError("inference batch and wait limits must be positive");
+    // Legacy data still obeys its historical value contract when supplied;
+    // optional presence does not turn a bad old value into an ignored default.
+    if (request_queue_capacity && *request_queue_capacity <= 0)
+        throw ConfigError("inference.request_queue_capacity must be positive");
+    if (response_timeout_s &&
+        (!std::isfinite(*response_timeout_s) || *response_timeout_s <= 0))
         throw ConfigError("inference.response_timeout_s must be a positive finite number");
 }
 
 Json InferenceConfig::to_json() const {
     validate();
-    return Json{Object{{"max_batch_size", Json{max_batch_size}},
-                       {"max_wait_us", Json{max_wait_us}},
-                       {"request_queue_capacity", Json{request_queue_capacity}},
-                       {"response_timeout_s", Json{response_timeout_s}}}};
+    Object output{{"max_batch_size", Json{max_batch_size}},
+                  {"max_wait_us", Json{max_wait_us}}};
+    // Preserve old nondefault values without materializing absent legacy keys
+    // as defaults or null. A loaded resolved config retains its native
+    // canonical identity; new configs expose only active batching controls.
+    if (request_queue_capacity)
+        output.emplace("request_queue_capacity", Json{*request_queue_capacity});
+    if (response_timeout_s)
+        output.emplace("response_timeout_s", Json{*response_timeout_s});
+    return Json{std::move(output)};
 }
 
 InferenceConfig InferenceConfig::from_json(const Json& value) {
     const Object& input = object(value, "inference");
-    require_exact_keys(
-        input, {"max_batch_size", "max_wait_us", "request_queue_capacity", "response_timeout_s"},
-        "inference");
+    // Each historical key is independently optional, while unknown keys still
+    // fail. Presence is evidence: absent stays absent and a present null/wrong
+    // type still fails the original integer/number parser rather than falling
+    // back to a runtime default. No scheduler consumes these legacy values.
+    require_keys(input, {"max_batch_size", "max_wait_us"},
+                 {"request_queue_capacity", "response_timeout_s"}, "inference");
     InferenceConfig result{
         .max_batch_size =
             integer(field(input, "max_batch_size", "inference"), "inference.max_batch_size"),
-        .max_wait_us = integer(field(input, "max_wait_us", "inference"), "inference.max_wait_us"),
-        .request_queue_capacity = integer(field(input, "request_queue_capacity", "inference"),
-                                          "inference.request_queue_capacity"),
-        .response_timeout_s = number(field(input, "response_timeout_s", "inference"),
-                                     "inference.response_timeout_s")};
+        .max_wait_us = integer(field(input, "max_wait_us", "inference"), "inference.max_wait_us")};
+    if (input.contains("request_queue_capacity"))
+        result.request_queue_capacity = integer(field(input, "request_queue_capacity", "inference"),
+                                                "inference.request_queue_capacity");
+    if (input.contains("response_timeout_s"))
+        result.response_timeout_s = number(field(input, "response_timeout_s", "inference"),
+                                           "inference.response_timeout_s");
     result.validate();
     return result;
 }

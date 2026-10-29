@@ -8,9 +8,7 @@
   },
   "inference": {
     "max_batch_size": 128,
-    "max_wait_us": 100,
-    "request_queue_capacity": 4096,
-    "response_timeout_s": 600.0
+    "max_wait_us": 100
   },
   "mcts": {
     "c_puct": 1.5,

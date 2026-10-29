@@ -29,7 +29,8 @@ enum class CheckpointLoadIntent {
 };
 
 // v3 records the origin of a run. Digests are lowercase SHA-256 hex strings.
-// `model_step` is the native model/training step represented by this generation.
+// `model_step` is the native local step represented by this generation; a warm
+// start's source_training_step is evidence, not the new run's update counter.
 struct CheckpointLineage {
     CheckpointInitializationMode initialization_mode = CheckpointInitializationMode::scratch;
     std::string run_id;
@@ -43,8 +44,9 @@ struct CheckpointLineage {
     std::optional<std::string> optimizer_reset_reason;
 };
 
-// Section-F provenance. Callers should provide immutable source/config/replay
-// facts; trainer/device/architecture facts are recorded by save_checkpoint_v3.
+// Callers supply immutable source/config/replay facts; save_checkpoint_v3 adds
+// trainer/device/architecture facts. Preserve config bytes/digests as evidence,
+// not as a promotion decision. The RNG gap below limits reproducibility claims.
 struct CheckpointProvenance {
     std::string source_git_commit = "unavailable";
     std::string resolved_config_bytes = "{}";
@@ -59,6 +61,8 @@ struct CheckpointProvenance {
     uint64_t rng_state_version = 0;
 };
 
+// v3 model/optimizer digests identify archive files, not canonical tensor content
+// or deployment runtime artifacts. Historical native v2 roots lack these fields.
 struct CheckpointInfo {
     std::filesystem::path generation;
     uint64_t training_step = 0;
@@ -69,31 +73,40 @@ struct CheckpointInfo {
     std::optional<CheckpointProvenance> provenance;
 };
 
-// A checkpoint root uses CURRENT to one fully-written immutable v2 or v3
+// Blocking native persistence API; caller serializes writes and Trainer access.
+// A checkpoint root uses CURRENT to select one immutable v2 or v3
 // generation. Each generation contains state.pt, optimizer.pt, and training_step.
-// A legacy .pt file is deliberately not a valid root.
+// A legacy .pt file is deliberately not a valid root. The historical *_v2 reader
+// names also accept supported v3 roots and check their manifest/archive digests.
 CheckpointInfo inspect_checkpoint_v2(const std::filesystem::path& root);
 // Verify the active generation is structurally complete and both LibTorch
-// archives can be read. This does not load weights into a model.
+// archives can be opened on CPU. Does not validate a destination architecture,
+// bind optimizer state or execute a forward pass.
 CheckpointInfo validate_checkpoint_v2(const std::filesystem::path& root);
-// Copy the active v2 generation into a new checkpoint root without changing
-// its payload. The destination must not already exist.
+// Copy the active native generation into a new root without changing its payload
+// or copying all history. Destination must be new; no raw Python conversion.
 CheckpointInfo migrate_checkpoint_v2(const std::filesystem::path& source,
                                      const std::filesystem::path& destination);
 CheckpointInfo save_checkpoint_v2(const std::filesystem::path& root, Trainer& trainer);
 // Writes the same immutable generation/CURRENT transaction as v2, with a
-// strict v3 manifest carrying explicit initialization lineage.
+// strict v3 lineage/provenance manifest. CURRENT replacement is the publication
+// point; failed pointer replacement can leave an unreferenced generation.
 CheckpointInfo save_checkpoint_v3(const std::filesystem::path& root, Trainer& trainer,
                                   const CheckpointLineage& lineage,
                                   const CheckpointProvenance& provenance = {});
+// Stage/validate weights on target, then replace the holder. No AdamW restore;
+// inspection still requires/hashes the source optimizer archive for v3 roots.
 CheckpointInfo load_checkpoint_v2_weights(const std::filesystem::path& root,
                                           diamond_model::DiamondModel& model,
                                           const ResolvedDevice& target);
+// Stage model+AdamW on target and replace Trainer only after all load checks.
+// Save-device provenance does not prevent supported CPU/CUDA device remapping.
 CheckpointInfo load_checkpoint_v2(const std::filesystem::path& root, Trainer& trainer,
                                   const ResolvedDevice& target);
 // `exact_resume` restores model and AdamW state transactionally. `warm_start`
 // restores weights into a fresh optimizer at step zero. Legacy import is
 // deliberately gated: this native checkpoint reader cannot claim its parity.
+// Exact resume requires v3 here; global LibTorch RNG state is not restored.
 CheckpointInfo load_checkpoint_v3(const std::filesystem::path& root, Trainer& trainer,
                                   const ResolvedDevice& target, CheckpointLoadIntent intent);
 

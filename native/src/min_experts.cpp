@@ -1,3 +1,8 @@
+// Geometric classifier and synchronous batch partition for Min specialists.
+// Compare canonical camp-cell sets in seat order so relabeling/rotating a match
+// preserves its specialist. Reversing the turn order may change the specialist.
+// Classifier validation throws invalid_argument; evaluator failures propagate.
+// Unsupported matches are never rerouted.
 #include "soo/min_experts.hpp"
 
 #include <array>
@@ -36,6 +41,9 @@ MinTurnOrderGroup request_group(const BatchItem& item) {
 
 } // namespace
 
+// Finished players remain part of Match: classification describes the original
+// game's topology/order, rather than changing expert as players finish. Validate
+// IDs and camps before indexing topology tables used by canonical_geometry.
 MinTurnOrderGroup min_turn_order_group(const Match& match) {
     if (match.count != 3)
         throw std::invalid_argument("Min turn-order groups require three players");
@@ -74,6 +82,9 @@ MinTurnOrderGroup min_turn_order_group_from_name(std::string_view name) {
     throw std::invalid_argument("unknown Min turn-order group: expected cyclic or reverse");
 }
 
+// prepare and evaluate must make the same geometric decision so buffers prepared
+// by one model pool are consumed by that pool. ArenaModelRouter sits outside this
+// router: root owner first, then that owner's cyclic/reverse expert.
 void MinExpertRouter::prepare(BatchItem& item) {
     (request_group(item) == MinTurnOrderGroup::cyclic ? cyclic_ : reverse_).prepare(item);
 }

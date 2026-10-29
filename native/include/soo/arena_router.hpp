@@ -1,3 +1,6 @@
+// Arena assignment boundary: choose the network belonging to the real mover at
+// a search root. This is a required game rule for comparisons, not a recovery path.
+// Both evaluators are borrowed and must outlive this router and all scheduled work.
 #pragma once
 
 #include <algorithm>
@@ -22,6 +25,10 @@ class ArenaModelRouter final : public BatchEvaluator {
         (candidate_owns_root(item) ? candidate_ : champion_).prepare(item);
     }
 
+    // Copy request descriptors into owner batches. BatchItem's referenced state,
+    // encoding and output buffers still belong to scheduler lanes; evaluation
+    // writes through those references. The evaluator thread invokes this method
+    // synchronously, so no extra worker or queue is introduced here.
     void evaluate(std::vector<BatchItem>& batch) override {
         std::vector<BatchItem> candidate;
         std::vector<BatchItem> champion;
@@ -34,6 +41,9 @@ class ArenaModelRouter final : public BatchEvaluator {
     }
 
   private:
+    // job indexes the candidate's physical player ID fixed by the schedule.
+    // root_player remains the real mover even when a leaf's current player has
+    // changed. Invalid IDs fail instead of selecting a default network.
     bool candidate_owns_root(const BatchItem& item) const {
         if (!item.state || !item.encoded)
             throw std::invalid_argument("arena evaluation requires a state and encoding");

@@ -24,6 +24,9 @@
 
 #include "diamond_support/json.hpp"
 
+// Mutable learner/AdamW execution and detached model snapshots. Replay selection,
+// stage cancellation and checkpoint publication belong to callers; no Trainer
+// method here writes durable training progress or launches worker threads.
 namespace diamond_training {
 namespace {
 
@@ -356,6 +359,8 @@ void append_tensor(std::string& stream, std::string_view kind, const std::string
 diamond_model::DiamondModel snapshot_model(const diamond_model::DiamondModel& source,
                                            const Compatibility& compatibility,
                                            torch::Device target_device, ModelRole role) {
+    // A LibTorch holder copy aliases storage. Reconstruct and copy named tensors
+    // so learner updates cannot mutate actors/candidates or their source model.
     require_expected_architecture(source, compatibility);
     const torch::Device source_device = model_device(source);
     auto snapshot = diamond_model::DiamondModel(source->width(), source->residual_blocks(),
@@ -438,6 +443,8 @@ diamond_model::DiamondModel migrate_goal_inputs(const diamond_model::DiamondMode
 }
 
 void migrate_goal_inputs(const diamond_model::DiamondModel& source, Trainer& target) {
+    // Copy into existing learner tensors, not a replacement holder: AdamW keeps
+    // pointer-keyed parameter bindings even though its step-zero state is empty.
     if (target.training_step() != 0 || !target.optimizer().state().empty())
         throw std::invalid_argument("goal migration requires a fresh optimizer at step zero");
     require_expected_architecture(target.learner(), target.compatibility());
@@ -465,6 +472,8 @@ void zero_value_head(const diamond_model::DiamondModel& model) {
 }
 
 std::string canonical_model_digest(const diamond_model::DiamondModel& model) {
+    // Semantic FP32 identity with stable names/shapes/byte order, not archive
+    // serialization identity. CPU canonicalization can synchronize device work.
     std::string stream;
     append_string(stream, "alphadiamond.canonical-model-digest.v1");
     const auto parameters = collect_named_tensors(model, true);
@@ -498,6 +507,8 @@ void Trainer::record_external_optimizer_step() {
 }
 
 TrainingMetrics Trainer::train(std::span<const TrainingSample> samples) {
+    // Input rejection precedes gradient reset. This guarantee does not extend to
+    // arbitrary failures after backward/AdamW mutation; no rollback is attempted.
     const auto total_start = StepClock::now();
     if (samples.empty())
         throw std::invalid_argument("training batch must not be empty");
@@ -516,6 +527,9 @@ TrainingMetrics Trainer::train(std::span<const TrainingSample> samples) {
         validate_sample(sample, compatibility_, feature_count, value_count);
     }
 
+    // Borrow samples for this call and assemble contiguous FP32 host tensors.
+    // All listed sparse actions, including zero-probability ones, define the
+    // legal-loss mask; legal moves are not regenerated from a board here.
     std::vector<float> feature_buffer(
         checked_product(batch_count, feature_count, "training feature buffer"));
     std::vector<float> policy_buffer(
@@ -568,6 +582,8 @@ TrainingMetrics Trainer::train(std::span<const TrainingSample> samples) {
     require_model_device(model_, device_.torch_device);
     const bool is_cuda = device_.torch_device.is_cuda();
     const c10::DeviceIndex device_index = device_.torch_device.index();
+    // Allocator observation only. Unavailable peak stats do not select another
+    // training device or recover an optimizer/forward failure.
     bool peak_cuda_memory_available = false;
 #if defined(DIAMOND_TORCH_WITH_CUDA)
     if (is_cuda) {
@@ -609,6 +625,9 @@ TrainingMetrics Trainer::train(std::span<const TrainingSample> samples) {
         predicted_values.sizes() != torch::IntArrayRef({batch_size, value_size})) {
         throw std::invalid_argument("learner output shape mismatch");
     }
+    // Legal loss normalizes over listed actions and zeros masked log terms to
+    // avoid 0 * -inf. Policy CE is batch-mean; value MSE also averages seat values.
+    // Inference precision is separate: this learner path has no AMP/scaler cast.
     auto policy_log_probabilities =
         config_.policy_loss_domain == PolicyLossDomain::legal
             ? torch::log_softmax(policy_logits.masked_fill(legal_policy.logical_not(),
@@ -631,6 +650,7 @@ TrainingMetrics Trainer::train(std::span<const TrainingSample> samples) {
         events->backward_start.record(events->stream);
     const auto backward_start = StepClock::now();
     total_loss.backward();
+    // Residency/structure check, not a comprehensive finite-gradient scan.
     require_gradients(model_, device_.torch_device);
     const auto backward_end = StepClock::now();
     if (events)
@@ -647,6 +667,8 @@ TrainingMetrics Trainer::train(std::span<const TrainingSample> samples) {
         events->optimizer_end.record(events->stream);
         events->optimizer_end.synchronize();
     }
+    // The update is already applied. Later telemetry errors cannot roll it back;
+    // a durable checkpoint is still a separate caller-owned publication.
     ++training_step_;
 
     uint64_t peak_cuda_allocated_bytes = 0;
@@ -670,6 +692,9 @@ TrainingMetrics Trainer::train(std::span<const TrainingSample> samples) {
     }
 #endif
 
+    // Total includes preflight, collation, update checks and synchronization, but
+    // ends before metric scalar extraction. Replay sampling/open and checkpoint
+    // I/O are outside this call. Component spans need not sum exactly to total.
     const auto total_end = StepClock::now();
     const double total_step_seconds = seconds_between(total_start, total_end);
     if (!std::isfinite(total_step_seconds) || total_step_seconds <= 0.0) {

@@ -71,12 +71,10 @@ never built cannot exist. The checkpoint's own digest is verified first --
 these paths are immutable, and one that was overwritten invalidates every
 measurement recorded against it.
 
-## CI fixtures
+## Historical fixture manifest
 
-[manifests/ci-fixtures.json](manifests/ci-fixtures.json) names every large file
-CI needs, with its SHA-256 and the bucket path it lives at. An entry carrying
-`tracked_in_git` is a temporary exception -- the file still ships in the
-repository -- and the native `repository_hygiene` CTest verifies its digest matches the
-manifest, so the exception cannot rot into an accidental commit. When CI fetches
-these from the bucket by path and digest, drop the `tracked_in_git` field and
-`git rm` the file; the hygiene test then enforces its absence.
+[manifests/ci-fixtures.json](manifests/ci-fixtures.json) records the original
+Gate-D checkpoint path, digest and bucket identity. The regression suites and
+GitHub CI workflows that consumed fixtures have been removed. Retain this
+manifest and the recorded checkpoint as historical experiment evidence; it is
+not a current CI fetch contract.

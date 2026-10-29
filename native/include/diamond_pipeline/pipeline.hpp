@@ -1,3 +1,7 @@
+// Native operation contracts, not another coordinator. Production train_main
+// calls self-play, ingest and train separately; the benchmark can use run_iteration.
+// Pool/store/trainer arguments are borrowed for the synchronous call. Callers must
+// serialize mutations of those objects and keep them alive until the call returns.
 #pragma once
 
 #include <cstddef>
@@ -18,6 +22,10 @@
 
 namespace diamond_pipeline {
 
+// Carries one operation's explicit inputs. jobs own initial states/seeds; model_key
+// names the actor snapshot already installed in the borrowed pool. Batch size is
+// samples per learner step, training_steps is update count, iteration fixes replay
+// sampling seeds. checkpoint_root is used only by the convenience run_iteration.
 struct IterationRequest {
     std::string operation_id;
     ModelKey model_key;
@@ -101,6 +109,9 @@ struct AbortedGameDiagnostics {
     soo::EpisodeDiagnostics state;
 };
 
+// Owns completed and aborted episode records. Only completed episodes contain
+// learning samples; abort diagnostics are kept separately and never relabeled as
+// terminal targets. Metrics are observations of this invocation, not durable state.
 struct SelfPlayResult {
     std::string operation_id;
     std::size_t completed_games = 0;
@@ -135,12 +146,21 @@ std::vector<Episode> load_episode_artifact(const std::filesystem::path& path,
                                            std::string_view operation_id,
                                            const Compatibility& compatibility);
 
+// Enforces actor identity; returns owned samples without ingesting them. The stop
+// token is not an immediate interrupt of run_episodes; scheduler limits govern the
+// in-flight games. CLI/Panel immediate Stop terminates the process externally.
 SelfPlayResult run_self_play(const IterationRequest& request, ModelPool& models,
                              std::stop_token stop = {});
+// Writes replay chunks/manifest through ReplayStore's existing ingestion contract.
+// Kept separate so the production coordinator can persist the self-play artifact
+// before ingestion and distinguish that side effect from learner updates.
 ReplayIngestReport ingest_self_play(ReplayStore& replay, std::span<const Episode> episodes);
 TrainingResult train_replay(const IterationRequest& request, ReplayStore& replay,
                             diamond_training::Trainer& trainer, std::stop_token stop = {});
 
+// Sequential convenience for benchmark callers. It is not transactional: ingested
+// replay and completed optimizer updates survive a later failure. Optional output
+// uses the v2 checkpoint writer; production publishes v3 provenance explicitly.
 IterationResult run_iteration(const IterationRequest& request, ModelPool& models,
                               ReplayStore& replay, diamond_training::Trainer& trainer,
                               std::stop_token stop);

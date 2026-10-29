@@ -24,6 +24,9 @@
 #include "diamond_support/json.hpp"
 #include "diamond_pipeline/replay_segment.hpp"
 
+// Persistent replay storage: publish chunk descriptors before reclaiming files.
+// Sampling uses only the resident view; this file owns no learner or background
+// writer. The run owner provides exclusive access to a store/root.
 namespace diamond_pipeline {
 namespace {
 using diamond_support::JsonValue;
@@ -187,6 +190,8 @@ std::filesystem::path stream_path(const std::filesystem::path& path) {
 #endif
 }
 void atomic_write(const std::filesystem::path& path, const std::string& contents) {
+    // Flush this temporary file before replacement. POSIX parent-directory
+    // durability is not established here; atomic activation is not a writer lock.
     static std::atomic_uint64_t sequence{0};
     std::filesystem::create_directories(path.parent_path());
     const auto process_id =
@@ -257,12 +262,8 @@ struct ReplayStore::Impl {
     std::vector<EpisodeRecord> episodes;
     std::vector<TrainingSample> samples;
     Array aborted_records;
-    // Per-episode chunk digest, positionally aligned with `episodes`; empty for
-    // an aborted episode, which has no chunk.  This used to hold the whole
-    // parsed chunk body per episode, which cost ~30 KB per sample and was
-    // retained for the store's lifetime -- at a 1M capacity that alone is tens
-    // of gigabytes.  Every use was ultimately after the digest, so only the
-    // digest is kept.
+    // Digest/encoding positions match episodes. Aborts have no payload chunk;
+    // completed records retain identity without keeping another encoded body.
     std::vector<std::string> chunk_digests;
     std::vector<ReplayChunkEncoding> chunk_encodings;
 
@@ -330,6 +331,8 @@ struct ReplayStore::Impl {
     }
 
     size_t retained_episode_start() const {
+        // Keep a suffix of whole episodes covering capacity. The resident vector
+        // is trimmed separately, so a boundary chunk can hold more retained rows.
         size_t retained_samples = 0;
         size_t first = 0;
         for (size_t i = episodes.size(); i-- > 0;) {
@@ -354,6 +357,8 @@ struct ReplayStore::Impl {
     }
 
     void cleanup_unreachable_chunks() {
+        // Garbage collection follows the authoritative manifest/episode view.
+        // It may fail after publication; that does not undo committed ingestion.
         if (failure_injected("DIAMOND_REPLAY_FAIL_BEFORE_CHUNK_CLEANUP"))
             throw std::runtime_error("injected replay pre-cleanup failure");
         std::unordered_set<std::string> referenced;
@@ -398,6 +403,8 @@ ReplayStore::ReplayStore(std::filesystem::path root, Compatibility compatibility
     impl_->namespace_path = std::move(root) / "persistent-replay-v2" /
                             impl_->compatibility.family() / compatibility_digest;
     impl_->manifest_path = impl_->namespace_path / "manifest.json";
+    // Construction can publish an empty namespace. must_exist refuses only this
+    // creation path; existing stores still undergo orphan cleanup below.
     if (!std::filesystem::exists(impl_->manifest_path)) {
         if (open_mode == ReplayOpenMode::must_exist)
             throw std::runtime_error("replay manifest does not exist");
@@ -455,11 +462,8 @@ ReplayStore::ReplayStore(std::filesystem::path root, Compatibility compatibility
         if (contents == ReplayContents::metadata_only)
             continue;
 
-        // Full open: read and verify each chunk exactly once, materialising its
-        // samples straight into the pool.  This used to parse every chunk
-        // twice -- once to count, then again after clearing -- which at a 1M
-        // capacity meant parsing ~2 GB of JSON per store construction, and a
-        // training iteration constructs a store in three separate stages.
+        // Full open verifies each chunk once and materializes its rows. Metadata
+        // opens trust descriptors for size/digest access, not payload integrity.
         const auto chunk_name = impl_->chunk_path(digest, encoding);
         if (encoding == ReplayChunkEncoding::json_v1) {
             const auto chunk_bytes = read_file_bytes(impl_->namespace_path / "chunks" / chunk_name);
@@ -500,6 +504,8 @@ ReplayStore::ReplayStore(ReplayStore&&) noexcept = default;
 ReplayStore& ReplayStore::operator=(ReplayStore&&) noexcept = default;
 
 ReplayIngestReport ReplayStore::ingest_iteration(std::span<const Episode> episodes) {
+    // Validate identity/idempotence before publishing data. Duplicate game IDs
+    // must describe the same completed payload or the same abort metadata.
     std::unordered_set<std::string> known; for(const auto& episode:impl_->episodes) known.insert(episode.game_id);
     for (const auto& row : impl_->aborted_records) { const auto& aborted = object(row, "aborted"); if (const auto value = aborted.find("game_id"); value != aborted.end()) known.insert(string(value->second, "aborted game id")); }
     std::vector<const Episode*> accepted;
@@ -548,6 +554,8 @@ ReplayIngestReport ReplayStore::ingest_iteration(std::span<const Episode> episod
     }
     // Digests are captured here, where each body is serialised once anyway, so
     // the commit below never has to rebuild a chunk body.  Empty means aborted.
+    // Chunks become reachable only when the manifest is replaced. A failure here
+    // may leave orphan files, but cannot expose partially accepted sample data.
     std::vector<std::string> accepted_digests(accepted.size());
     std::vector<ReplayChunkEncoding> accepted_encodings(accepted.size(),
                                                        ReplayChunkEncoding::json_v1);
@@ -560,6 +568,8 @@ ReplayIngestReport ReplayStore::ingest_iteration(std::span<const Episode> episod
     }
     if (!accepted.empty() && failure_injected("DIAMOND_REPLAY_FAIL_AFTER_CHUNK_ACTIVATE"))
         throw std::runtime_error("injected replay failure after chunk activation");
+    // Roll back resident vector lengths on pre-publication failure. Once the
+    // manifest commits, retention/cleanup errors must not pretend to undo it.
     const auto old_episode_count = impl_->episodes.size();
     const auto old_sample_count = impl_->samples.size();
     const auto old_aborted_count = impl_->aborted_records.size();
@@ -605,6 +615,8 @@ ReplayIngestReport ReplayStore::ingest_iteration(std::span<const Episode> episod
         impl_->chunk_encodings.resize(old_chunk_encoding_count);
         throw;
     }
+    // The manifest is now authoritative. Reclaim only unreferenced chunks after
+    // aligning the resident descriptors and bounded sample vector with it.
     if (!accepted.empty())
         impl_->discard_episode_prefix(impl_->retained_episode_start());
     if(impl_->samples.size()>impl_->capacity) impl_->samples.erase(impl_->samples.begin(),impl_->samples.end()-static_cast<std::ptrdiff_t>(impl_->capacity));
@@ -645,6 +657,8 @@ std::string ReplayStore::manifest_digest() const {
 }
 uint64_t ReplayStore::replay_seed() const noexcept { return impl_ ? impl_->replay_seed : 0; }
 uint64_t replay_sampling_seed(uint64_t replay_seed, uint64_t iteration, uint64_t training_step) {
+    // train_replay supplies the local update index, starting at zero per TRAIN
+    // stage; no persisted RNG cursor or cumulative Trainer counter is consumed.
     uint64_t state = replay_seed;
     state ^= next_splitmix(state) ^ (iteration + 0x2545f4914f6cdd1dULL);
     state ^= next_splitmix(state) ^ (training_step + 0x9e3779b97f4a7c15ULL);
@@ -677,6 +691,8 @@ std::vector<TrainingSample> ReplayStore::sample(size_t count, uint64_t seed) con
     out.reserve(count);
     for (const auto index : selected)
         out.push_back(impl_->samples[index]);
+    // Observation only: this does not influence later draws or manifest identity.
+    // The mutable stats still require callers to serialize access to this store.
     impl_->sampling_stats = {.selection_slots = swaps.size(), .copied_samples = out.size()};
     return out;
 }
@@ -684,6 +700,8 @@ ReplaySamplingStats ReplayStore::last_sampling_stats() const noexcept {
     return impl_ ? impl_->sampling_stats : ReplaySamplingStats{};
 }
 void ReplayStore::prune() {
+    // Publish reachability first. Failure during later cleanup can leave extra
+    // files, but must not make the manifest reference a deleted chunk.
     const auto first = impl_->retained_episode_start();
     if (first == 0) return;
     impl_->write_manifest(first);

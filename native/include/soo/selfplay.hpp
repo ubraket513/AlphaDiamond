@@ -1,4 +1,7 @@
-// Many logical games over a fixed search-worker pool, plus one global batcher.
+// Native game production and explicit scheduler measurements over a fixed
+// search-worker pool and one evaluator thread per run. The finite episode path
+// consumes caller-owned jobs; the timed harness recycles games until its window
+// ends. The caller retains evaluator/model ownership throughout the call.
 //
 // The architectural criterion this exists to satisfy: a CPU worker must never
 // sleep alongside a game that is waiting on the evaluator. Synchronous MCTS
@@ -53,21 +56,19 @@ struct BatchItem {
     const Match* match = nullptr;
 };
 
-// Whatever answers a batch. The dummy is native and sleeps; the Gate D one
-// crosses into Python. Called only on the evaluator thread, one batch at a
-// time, so implementations need no locking of their own.
+// Evaluator interface borrowed by a run. evaluate() is serialized on that run's
+// evaluator thread; prepare() is called concurrently on search workers. This
+// does not make a shared evaluator instance safe across simultaneous runs or
+// permit unsynchronized mutable state shared by prepare/evaluate.
 class BatchEvaluator {
   public:
     virtual ~BatchEvaluator() = default;
 
     // Called on a SEARCH WORKER, before the lane is handed to the batcher.
     //
-    // Anything an evaluator can compute from the request alone belongs here,
-    // not in evaluate(). The workers sit at a few percent utilisation while the
-    // single evaluator thread is the serial resource that must never be
-    // starved, so work left in evaluate() is charged to the scarce thread. The
-    // native vacancy prior is 7.5 us/eval -- 240 us per batch of 32 on the
-    // critical path if computed there.
+    // Request-local CPU preparation can run here without blocking the single
+    // evaluator thread. Each worker owns its lane's pending request until it
+    // submits it; shared evaluator state still needs its own synchronization.
     virtual void prepare(BatchItem& item) { (void)item; }
 
     // Called on the evaluator thread, one batch at a time.
@@ -85,22 +86,24 @@ class DummyBatchEvaluator : public BatchEvaluator {
 };
 
 struct SchedulerConfig {
+    // Wall-clock throughput harness, not a finite production episode queue.
     int games = 64;             // logical games in flight
-    int threads = 4;            // search workers
-    int max_batch = 32;
-    int max_wait_us = 2000;
+    int threads = 4;            // CPU search workers; not Torch intra-op threads
+    int max_batch = 32;         // evaluator positions per call, at most
+    int max_wait_us = 2000;     // collection wait in microseconds
     int simulations = 64;
+    // Same positive finite PUCT coefficient as the episode path.
+    double c_puct = 1.5;
     int max_moves = 400;
     double eval_latency_ms = 0.0;   // artificial per-batch evaluator cost
     double seconds = 5.0;           // measurement window
     bool trace_moves = false;       // record each lane's move sequence
     int stop_after_moves = 0;       // per lane; 0 = run for the full window
 
-    // Exploration.  All zero reproduces the deterministic Gate C behaviour
-    // exactly, including drawing nothing, so every measurement taken before
-    // stochastic MCTS existed remains reproducible.
+    // Root noise and move sampling are independent of the PUCT coefficient.
+    // Their zero settings keep the deterministic baseline, including RNG use.
     double temperature = 0.0;       // move sampling, for the first N moves
-    int temperature_moves = 0;      // SelfPlayConfig.temperature_moves
+    int temperature_moves = 0;
     double dirichlet_alpha = 0.3;
     double dirichlet_epsilon = 0.0;
     uint64_t seed = 0;              // base seed; each lane derives its own
@@ -118,7 +121,7 @@ struct SchedulerConfig {
 
 struct EpisodeJob {
     State initial_state;
-    uint64_t seed = 0;      // Python's derive_game_seed for this attempt
+    uint64_t seed = 0;      // caller-derived per-game seed, belonging to the job, not its lane
     std::optional<Match> match; // Per-game turn order; absent keeps the batch default.
 };
 
@@ -183,9 +186,9 @@ struct Episode {
     std::vector<uint8_t> finish_order;
     int move_count = 0;
     bool completed = false;
-    // Set when the game hit max_moves instead of a terminal state.  Python's
-    // runner returns zero samples for an aborted episode; the moves are kept
-    // here anyway so the caller can decide, and the caller does discard them.
+    // Set on a move-limit abort. Moves remain available for diagnostics;
+    // production replay ingestion is responsible for rejecting incomplete
+    // episodes rather than treating this partial trajectory as training data.
     bool move_limit_exceeded = false;
     // Set when the game's own monotonic deadline elapsed. This is deliberately
     // distinct from the move limit and caller cancellation.
@@ -204,69 +207,55 @@ struct Episode {
 };
 
 struct EpisodeConfig {
-    // Concurrent games.  0 means "derive it": min(jobs, 2 * max_batch), which
-    // is pitfall 7.6's rule.
-    //
-    // Jobs beyond this many are *queued*, not run in parallel, and a lane takes
-    // the next unstarted job the moment its own game ends.  That is not a
-    // detail -- with one lane per job, batch occupancy collapses to 1.0 for the
-    // second half of the run while a handful of long games straggle (measured:
-    // 128 games, lengths 63 to 402, mean batch 64.0 over the first tenth of
-    // dispatches and 1.0 over the last half).  The Python pool learned the same
-    // thing and calls it Finding 3, worth 35 % samples/hour.
+    // Runtime inputs shared by training, arena and explicit benchmarks. Jobs
+    // beyond this concurrency bound wait for a lane; finishing a game refills
+    // that lane from the queue. Zero keeps the existing automatic choice
+    // min(jobs, 2 * max_batch). The actual count never exceeds available jobs.
     int lanes = 0;
+    // CPU search workers, independent of logical games and Torch intra-op
+    // threads. Evaluation runs on a separate thread shared by all lanes.
     int threads = 4;
+    // Maximum evaluator positions per dispatch and collection wait in us.
+    // These do not control the learner's samples per optimizer update.
     int max_batch = 32;
     int max_wait_us = 2000;
     int simulations = 64;
+    // Positive finite PUCT coefficient forwarded to the 2P/3P search sessions.
+    // Keeping 1.5 as the default preserves existing callers' search behavior.
+    double c_puct = 1.5;
     int max_moves = 2000;
-    // Per-game, monotonic budget. An absent or zero duration disables it.
+    // Per-game monotonic budget. Absent or zero disables it; expiry is recorded
+    // separately from a move-limit abort and from an execution failure.
     std::optional<std::chrono::steady_clock::duration> max_game_duration;
     double temperature = 1.0;
     int temperature_moves = 20;
     double dirichlet_alpha = 0.3;
     double dirichlet_epsilon = 0.25;
 
-    // Adaptive search: spend more only where games go wrong.
-    //
-    // ``simulations_late`` applies from move ``late_move_threshold`` onward; 0
-    // disables it and every move uses ``simulations``.  The aborted tail is a
-    // short-cycle attractor -- median 31.6 % unique positions, one position
-    // revisited 61 times, 68 % of moves returning within 8 ply -- and deeper
-    // search is what sees past it.  Applying that depth to the 90 % of games
-    // that never get into trouble buys nothing and costs half the throughput.
+    // Alternate search budget, not a move-sampling temperature. Zero disables
+    // adaptation. With a positive repeat_window the recent-position trigger
+    // takes precedence; otherwise late_move_threshold is the low-level trigger.
+    // Production training validates its paired window/budget fields separately.
     int simulations_late = 0;
     int late_move_threshold = 0;
 
-    // Repetition trigger: spend ``simulations_late`` on a move only when the
-    // position has already occurred within the last ``repeat_window`` plies of
-    // this game.  0 disables it.
-    //
-    // This targets what the audit actually found.  The aborted tail is a
-    // short-cycle attractor -- median 31.6 % unique positions, one position
-    // revisited 61 times, 68.4 % of moves returning within 8 ply -- so the
-    // signal to spend on is repetition, not lateness.  A move-number threshold
-    // pays for every long game whether or not it is stuck; this pays only where
-    // the game has demonstrably looped.
-    //
-    // Takes precedence over ``late_move_threshold`` when both are set.
+    // History of dynamics positions: occupancy, side to move and finish state,
+    // excluding the bookkeeping turn counter. Budget adaptation and move
+    // sampling can independently consult it. In particular arena deliberately
+    // uses window 8 and simulations_late 0, so a window alone is not a request
+    // for deeper search.
     int repeat_window = 0;
 
-    // Use this move-selection temperature when the current physical position
-    // already occurred within ``repeat_window`` plies. Zero keeps the normal
-    // temperature schedule. Search remains unchanged; only the seeded choice
-    // among root visit counts escapes a demonstrated cycle.
+    // On a repeated position only, replace the normal move-temperature schedule
+    // with this value. Zero retains that schedule without disabling an adaptive
+    // search budget. Arena uses 1.0 here; ordinary training leaves it at zero.
+    // Sampling is seeded by game and move, not by worker scheduling order.
     double repetition_temperature = 0.0;
 
-    // Bootstrap phase: take the policy prior from the vacancy heuristic instead
-    // of the network, keeping values from the network.
-    //
-    // A randomly initialised network has no idea how to make progress toward
-    // the target camp, and a game ends only when a camp is filled -- so without
-    // this every from-scratch game runs to ``max_moves``, produces no samples,
-    // and the run learns nothing.  The heuristic is stated in canonical
-    // coordinates, where the acting seat's target is always canonical z-, so it
-    // is seat-agnostic and applies to Min exactly as it does to Soo.
+    // Blend the canonical vacancy heuristic into legal network priors while
+    // retaining network values. Weight 1 replaces the network policy; weight 0
+    // leaves it unchanged. This is a declared bootstrap phase, not a fallback
+    // after a model failure. Geometry is canonicalized for the acting seat.
     bool bootstrap_prior = false;
     double bootstrap_prior_weight = 1.0;
     EncodingVersion encoding = EncodingVersion::legacy_v1;
@@ -285,11 +274,17 @@ struct EpisodeMetrics {
     // How often repetition changed the move-selection temperature.
     uint64_t repetition_moves = 0;
     double wall_seconds = 0.0;
+    // Host wall time spent inside evaluator calls, not sampled GPU utilization.
     double evaluator_seconds = 0.0;
-    double worker_busy_seconds = 0.0;
+    double worker_busy_seconds = 0.0; // summed across search workers, not wall time
     std::vector<uint32_t> batch_sizes;
 };
 
+// Consume finite jobs and return one episode per input in job order, including
+// explicit move/deadline aborts. The evaluator is borrowed until all threads
+// join; individual request pointers are borrowed only for their dispatch.
+// Worker/evaluator failures stop the run and propagate after joining; they are
+// not converted into completed games. Empty jobs immediately return no episodes.
 std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJob>& jobs,
                                   const EpisodeConfig& config, BatchEvaluator& batch_evaluator,
                                   EpisodeMetrics& metrics);
@@ -319,7 +314,9 @@ struct SchedulerMetrics {
     std::vector<std::vector<int32_t>> lane_moves;
 };
 
-// Runs the scheduler for config.seconds and returns what it measured.
+// Run the timed recycling harness for config.seconds (or its existing trace
+// stop condition). This returns workload measurements, not training episodes;
+// evaluator/worker exceptions propagate after the run's threads are joined.
 SchedulerMetrics run_scheduler(const Match& match, const State& opening,
                                const SchedulerConfig& config, BatchEvaluator& evaluator);
 

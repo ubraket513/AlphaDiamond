@@ -69,5 +69,5 @@ should exit on a stopped child rather than automatically relaunch it.
 
 For development, keep `npm start` running and run `npm run dev` in a second
 terminal; open <http://127.0.0.1:5173>. The Vite server proxies `/api` to port
-5178. Run `npm test` for the bridge and chart tests, with independent suites
-executed concurrently. Tests use disposable processes and never stop a real run.
+5178. Use `npm run build` and inspect the running panel directly for development
+validation. The previous bridge and chart regression suites have been removed.

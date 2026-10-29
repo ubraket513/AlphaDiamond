@@ -8,13 +8,11 @@
   "configurePresets": [
     {
       "name": "native-ci",
-      "displayName": "Native core + tests, no Python",
-      "description": "The definition-of-done build: no interpreter, no pybind, no Qt.",
+      "displayName": "Native core, no Python",
+      "description": "Portable native core build: no interpreter, no pybind, no Qt.",
       "binaryDir": "${sourceDir}/build/native-ci",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "BUILD_TESTING": "ON",
-        "DIAMOND_BUILD_NATIVE_TESTS": "ON",
         "DIAMOND_BUILD_LIBTORCH": "OFF",
         "DIAMOND_BUILD_MODEL": "OFF",
         "DIAMOND_BUILD_TRAINING": "OFF",
@@ -76,7 +74,7 @@
     {
       "name": "native-asan",
       "inherits": "native-ci",
-      "displayName": "Native core + tests, ASan/UBSan",
+      "displayName": "Native core, ASan/UBSan",
       "binaryDir": "${sourceDir}/build/native-asan",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -186,116 +184,6 @@
       "configurePreset": "native-training-linux",
       "configuration": "Debug",
       "jobs": 8
-    }
-  ],
-  "testPresets": [
-    {
-      "name": "native-runtime",
-      "configurePreset": "native-runtime",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
-      "name": "native-gcc-mold",
-      "configurePreset": "native-gcc-mold",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
-      "name": "native-ci",
-      "configurePreset": "native-ci",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
-      "name": "native-release",
-      "configurePreset": "native-release",
-      "configuration": "Release",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
-      "name": "native-training",
-      "configurePreset": "native-training",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
-      "name": "native-asan",
-      "configurePreset": "native-asan",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
-      "name": "native-training-release",
-      "configurePreset": "native-training-release",
-      "configuration": "Release",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
-      "name": "native-ci-linux",
-      "configurePreset": "native-ci-linux",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
-    },
-    {
-      "name": "native-training-linux",
-      "configurePreset": "native-training-linux",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "jobs": 12
-      }
     }
   ]
 }

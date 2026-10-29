@@ -1,5 +1,10 @@
 #include "diamond_orchestration/training_wiring.hpp"
 
+// Translate production settings at the existing orchestration/runtime boundary.
+// Training owns its worker/lane and sample budgets; arena owns the scheduled
+// game group's concurrency and fixed evaluation policy. These pure adapters
+// neither launch work nor change the serialized config to match effective caps.
+
 #include <algorithm>
 #include <cstdint>
 #include <limits>
@@ -29,6 +34,7 @@ TrainingIterationWiring wire_training_iteration(const ProductionConfig& config) 
                     native_int(config.inference.max_batch_size, "inference.max_batch_size"),
                 .max_wait_us = native_int(config.inference.max_wait_us, "inference.max_wait_us"),
                 .simulations = native_int(config.mcts.simulations, "mcts.simulations"),
+                .c_puct = config.mcts.c_puct,
                 .max_moves = native_int(config.self_play.max_moves, "self_play.max_moves"),
                 .temperature = config.self_play.temperature,
                 .temperature_moves =
@@ -78,10 +84,6 @@ validate_training_config_transition(const ProductionConfig& from, const Producti
          "inference.max_batch_size");
     note(from.inference.max_wait_us != to.inference.max_wait_us,
          "inference.max_wait_us");
-    note(from.inference.request_queue_capacity != to.inference.request_queue_capacity,
-         "inference.request_queue_capacity");
-    note(from.inference.response_timeout_s != to.inference.response_timeout_s,
-         "inference.response_timeout_s");
     note(from.training.train_steps_per_iteration != to.training.train_steps_per_iteration,
          "training.train_steps_per_iteration");
     note(from.training.policy_loss_domain != to.training.policy_loss_domain,
@@ -92,6 +94,11 @@ validate_training_config_transition(const ProductionConfig& from, const Producti
          "self_play.bootstrap_prior_weight");
     note(from.arena.enabled != to.arena.enabled, "arena.enabled");
 
+    // Project only explicitly mutable fields back to their previous values.
+    // Legacy queue/timeout fields deliberately remain in this comparison: an
+    // inactive setting is still checkpoint metadata, and changing its value or
+    // absent/present state is not a throughput transition. Loading the same
+    // stored settings continues to preserve old nondefault values unchanged.
     auto immutable_projection = to;
     immutable_projection.runtime.precision = from.runtime.precision;
     immutable_projection.workers.logical_lanes = from.workers.logical_lanes;
@@ -99,9 +106,6 @@ validate_training_config_transition(const ProductionConfig& from, const Producti
     immutable_projection.workers.games_per_iteration = from.workers.games_per_iteration;
     immutable_projection.inference.max_batch_size = from.inference.max_batch_size;
     immutable_projection.inference.max_wait_us = from.inference.max_wait_us;
-    immutable_projection.inference.request_queue_capacity =
-        from.inference.request_queue_capacity;
-    immutable_projection.inference.response_timeout_s = from.inference.response_timeout_s;
     immutable_projection.training.train_steps_per_iteration =
         from.training.train_steps_per_iteration;
     immutable_projection.training.policy_loss_domain = from.training.policy_loss_domain;
@@ -135,15 +139,17 @@ soo::EpisodeConfig wire_arena_episode(const ProductionConfig& config, std::size_
         .max_batch = bounded(config.inference.max_batch_size, "inference.max_batch_size"),
         .max_wait_us = native_int(config.inference.max_wait_us, "inference.max_wait_us"),
         .simulations = native_int(config.mcts.simulations, "mcts.simulations"),
+        .c_puct = config.mcts.c_puct,
         .max_moves = native_int(config.arena.max_moves, "arena.max_moves"),
         .temperature = 0.0,
         .temperature_moves = 0,
         .dirichlet_alpha = config.mcts.dirichlet_alpha,
         .dirichlet_epsilon = 0.0,
-        // Promotion is greedy except when a physical position has already
-        // occurred within eight plies. Seeded temperature sampling on that
-        // move breaks the demonstrated cycle without adding search cost or
-        // making ordinary arena play stochastic.
+        // Arena escape is an evaluation rule, independent of training's depth
+        // trigger. Keep the base search budget; only a matching dynamics
+        // position within eight plies enables seeded temperature-1 sampling.
+        // Copying mcts.repeat_window/simulations_late here changes the protocol.
+        .simulations_late = 0,
         .repeat_window = 8,
         .repetition_temperature = 1.0,
         // The arena plays the phase the config declares. While a run is

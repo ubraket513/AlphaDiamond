@@ -1,3 +1,8 @@
+// Reusable native operations shared by the production stage callbacks and the
+// end-to-end benchmark. This module has no run-state machine or promotion policy.
+// The caller owns ModelPool, ReplayStore and Trainer and keeps them alive for each
+// synchronous operation. Failures propagate; ingestion/training already performed
+// before an error are not rolled back as one transaction.
 #include "diamond_pipeline/pipeline.hpp"
 
 #include <algorithm>
@@ -13,6 +18,9 @@
 namespace diamond_pipeline {
 namespace {
 
+// Completed games alone have terminal labels. Preserve every legal root action,
+// including zero-visit entries needed by legal-domain loss. Policy targets are
+// normalized visits; Min value components are +1/0/-1 in canonical player order.
 TrainingSample sample_from_move(const soo::EpisodeMove& move, const soo::Episode& episode,
                                 const Compatibility& compatibility) {
     TrainingSample sample;
@@ -134,6 +142,9 @@ TrainingSample read_sample(std::istream& input, const Compatibility& compatibili
 
 }  // namespace
 
+// Coordinator hand-off, not the replay format: host-native scalar encoding with
+// an operation ID. A sibling temporary is flushed then renamed, but no fsync or
+// multi-writer guarantee is provided. Callers must serialize writers for this path.
 void save_episode_artifact(const std::filesystem::path& path, std::string_view operation_id,
                            std::span<const Episode> episodes) {
     if (operation_id.empty())
@@ -173,6 +184,10 @@ void save_episode_artifact(const std::filesystem::path& path, std::string_view o
     std::filesystem::rename(temporary, path);
 }
 
+// Reload the SELF_PLAY hand-off under caller-supplied model compatibility. The
+// operation ID rejects another stage's data; bounded counts reject malformed
+// lengths. Replay ingestion subsequently validates samples/episode semantics.
+// No replay directory is opened or changed by this reader.
 std::vector<Episode> load_episode_artifact(const std::filesystem::path& path,
                                            std::string_view operation_id,
                                            const Compatibility& compatibility) {
@@ -214,6 +229,11 @@ std::vector<Episode> load_episode_artifact(const std::filesystem::path& path,
     return episodes;
 }
 
+// The active actor must match the requested model key and compatibility. Search
+// runs to its own configured limits; this stop token is checked while waiting for
+// model readiness and converting results, not passed into run_episodes. Only
+// completed episodes produce replay samples; aborted trajectories remain diagnostics.
+// Returned vectors own their data and may outlive the borrowed actor pool.
 SelfPlayResult run_self_play(const IterationRequest& request, ModelPool& models,
                              std::stop_token stop) {
     if (request.operation_id.empty()) throw PipelineError("iteration operation_id is required");
@@ -347,6 +367,10 @@ ReplayIngestReport ingest_self_play(ReplayStore& replay, std::span<const Episode
     return replay.ingest_iteration(episodes);
 }
 
+// Draw fixed-size resident batches, then mutate the existing learner once per
+// requested step. Replay sampling has no filesystem writes; it still updates its
+// sampling statistics. Cancellation is checked between steps, not inside a tensor
+// update. A later failure does not undo completed learner updates.
 TrainingResult train_replay(const IterationRequest& request, ReplayStore& replay,
                             diamond_training::Trainer& trainer, std::stop_token stop) {
     if (request.operation_id.empty())
@@ -388,6 +412,10 @@ TrainingResult train_replay(const IterationRequest& request, ReplayStore& replay
     return result;
 }
 
+// Convenience sequence used by the end-to-end benchmark. Production uses the
+// operations separately so each stage can persist reports and validate resume
+// provenance. This helper's optional v2 checkpoint has no v3 run lineage; it is
+// not a substitute for the production command's exact-continuation contract.
 IterationResult run_iteration(const IterationRequest& request, ModelPool& models,
                               ReplayStore& replay, diamond_training::Trainer& trainer,
                               std::stop_token stop) {

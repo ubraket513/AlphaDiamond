@@ -27,6 +27,9 @@
 #include <unistd.h>
 #endif
 
+// Native generation persistence and staged loads. CURRENT is the publication
+// boundary; callers own writer exclusion and Trainer synchronization. This file
+// does not select/promote models or repair unsupported legacy checkpoints.
 namespace diamond_training {
 namespace {
 constexpr char kPointer[] = "CURRENT";
@@ -172,6 +175,8 @@ void require_adamw_state_tensor(const torch::Tensor& tensor, const torch::Tensor
 
 void validate_staged_trainer(Trainer& trainer, const ResolvedDevice& target, uint64_t training_step,
                              const diamond_model::DiamondModel& prototype) {
+    // Validate the replacement while the caller's Trainer remains untouched.
+    // AdamW state must reference these exact staged parameter identities.
     trainer.compatibility().validate();
     if (trainer.device().torch_device != target.torch_device ||
         trainer.device().canonical_name != target.canonical_name ||
@@ -252,6 +257,9 @@ std::string read_pointer(const std::filesystem::path& root) {
 }
 
 void atomic_write(const std::filesystem::path& path, const std::string& contents) {
+    // Replace the pointer only after its temporary file is closed. POSIX rename
+    // is the activation guarantee here; no file/directory fsync is performed.
+    // Unique temporary names do not serialize multiple writers to one root.
     static std::atomic_uint64_t sequence{0};
     std::filesystem::create_directories(path.parent_path());
     const auto pid =
@@ -623,6 +631,8 @@ CheckpointLineage parse_lineage(const Object& object, uint64_t training_step) {
 }
 
 CheckpointInfo state_info(const std::filesystem::path& generation) {
+    // Inspect without instantiating a destination model. v3 hashes both archives
+    // and checks lineage/provenance; native v2 retains its historical contract.
     const auto state = generation / kState;
     const auto optimizer = generation / kOptimizer;
     if (!std::filesystem::is_regular_file(state) || !std::filesystem::is_regular_file(optimizer))
@@ -695,6 +705,8 @@ CheckpointInfo inspect_checkpoint_v2(const std::filesystem::path& root) {
 }
 
 CheckpointInfo validate_checkpoint_v2(const std::filesystem::path& root) {
+    // CPU readability is weaker than staged model/optimizer compatibility checks:
+    // it neither executes forward nor verifies target parameter bindings.
     const auto info = inspect_checkpoint_v2(root);
     try {
         torch::serialize::InputArchive state;
@@ -838,6 +850,8 @@ CheckpointInfo save_checkpoint_v3(const std::filesystem::path& root, Trainer& tr
 #else
         std::filesystem::rename(staged, committed);
 #endif
+        // Publish only after generation promotion. If pointer activation fails,
+        // the old CURRENT remains and this complete generation can be orphaned.
         atomic_write(root / kPointer, generation + "\n");
         return {.generation = committed,
                 .training_step = trainer.training_step(),
@@ -863,6 +877,8 @@ CheckpointInfo load_checkpoint_v2_weights(const std::filesystem::path& root,
                                           const ResolvedDevice& target) {
     if (!model) throw CheckpointError("checkpoint model destination is empty");
     require_target(target);
+    // Weights-only means no optimizer deserialization/restore. v3 inspection
+    // still requires optimizer.pt and reads its bytes to verify the file digest.
     const auto info = inspect_checkpoint_v2(root);
     try {
         // The caller-visible holder is replaced only after the entire archive
@@ -927,8 +943,9 @@ CheckpointInfo load_checkpoint_v3(const std::filesystem::path& root, Trainer& tr
     require_target(target);
     const auto info = inspect_checkpoint_v2(root);
     try {
-        // A warm start creates a new step-zero trainer. The source optimizer
-        // archive is deliberately never read, so it cannot leak state.
+        // A warm start creates a new step-zero trainer without deserializing the
+        // source AdamW archive. Inspection above may hash that file for integrity,
+        // but none of its moments/options become the new optimizer's state.
         const auto compatibility = trainer.compatibility();
         const auto config = trainer.config();
         auto model = fresh_model_like(trainer.model(), target.torch_device);

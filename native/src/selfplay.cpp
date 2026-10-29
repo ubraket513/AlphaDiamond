@@ -1,5 +1,11 @@
 #include "soo/selfplay.hpp"
 
+// A lane owns one suspended search and its pending evaluation storage. Search
+// workers advance runnable lanes, then yield requests to a single evaluator
+// thread instead of blocking per worker. Results wake those same lanes. The
+// timed harness recycles games; run_episodes refills lanes from finite jobs and
+// records outcomes in original job order. Neither path owns the supplied model.
+
 #include "soo/episode_search.hpp"
 
 #include <algorithm>
@@ -207,8 +213,11 @@ std::vector<double> blend_legal_priors(const std::vector<double>& vacancy,
 
 SchedulerMetrics run_scheduler(const Match& match, const State& opening,
                                const SchedulerConfig& config, BatchEvaluator& batch_evaluator) {
+    if (!std::isfinite(config.c_puct) || config.c_puct <= 0.0)
+        throw std::invalid_argument("c_puct must be positive and finite");
     MCTSConfig search_config;
     search_config.simulations = config.simulations;
+    search_config.c_puct = config.c_puct;
     search_config.dirichlet_alpha = config.dirichlet_alpha;
     search_config.dirichlet_epsilon = config.dirichlet_epsilon;
 
@@ -561,6 +570,11 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
     }
     if (config.threads < 1) throw std::invalid_argument("threads must be positive");
     if (config.max_batch < 1) throw std::invalid_argument("max_batch must be positive");
+    // Direct episode/benchmark callers bypass ProductionConfig validation.
+    // Reject invalid coefficients here rather than silently clamping them or
+    // letting NaN influence search comparisons. Empty jobs still return above.
+    if (!std::isfinite(config.c_puct) || config.c_puct <= 0.0)
+        throw std::invalid_argument("c_puct must be positive and finite");
     if (config.repetition_temperature < 0.0)
         throw std::invalid_argument("repetition_temperature must not be negative");
     if (!std::isfinite(config.bootstrap_prior_weight) || config.bootstrap_prior_weight < 0.0 ||
@@ -569,6 +583,7 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
 
     MCTSConfig search_config;
     search_config.simulations = config.simulations;
+    search_config.c_puct = config.c_puct;
     search_config.dirichlet_alpha = config.dirichlet_alpha;
     search_config.dirichlet_epsilon = config.dirichlet_epsilon;
     search_config.encoding = config.encoding;
@@ -578,8 +593,10 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
     const auto temperature_for = [&config](int move_count) {
         return move_count < config.temperature_moves ? config.temperature : 0.0;
     };
-    // Repetition wins over lateness when both are configured: it is the more
-    // specific signal, and the audit says it is the right one.
+    // Search-budget adaptation is separate from move-temperature escape. A
+    // zero alternate budget always keeps the base search, even if the arena's
+    // repetition history is enabled. Otherwise repetition takes precedence
+    // over the low-level move-number trigger when both are configured.
     const auto simulations_for = [&config](const EpisodeLane& lane, uint64_t key,
                                            int move_count) {
         if (config.simulations_late <= 0) return config.simulations;
@@ -670,6 +687,10 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
     std::atomic<uint64_t> boosted{0};
     std::atomic<uint64_t> repetition_moves{0};
 
+    // Capture the first cross-thread failure and wake both queues. Other
+    // workers may be waiting on either queue, so setting the stop flag alone
+    // cannot finish the run. The caller receives the exception only after all
+    // borrowed lane/evaluator storage is no longer in use.
     std::exception_ptr failure;
     std::mutex failure_mutex;
     const auto fail = [&](std::exception_ptr error) {
@@ -700,6 +721,9 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
     }
 
     const auto started = Clock::now();
+    // Worker busy time is summed per worker, so it can exceed wall time. A
+    // worker owns a runnable lane until yielding it for evaluation or ending
+    // its move; many lanes can share this fixed-size search-worker pool.
     std::vector<double> busy(static_cast<size_t>(config.threads), 0.0);
     std::vector<std::thread> workers;
     for (int w = 0; w < config.threads; ++w) {
@@ -859,6 +883,9 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                 }
 
                 const uint64_t key = dynamics_key(lane.state);
+                // Consult previous history before remembering this key, or
+                // every move would look repeated. Dynamics excludes the ply
+                // counter but retains occupancy, side-to-move and finish state.
                 const bool repeated = config.repeat_window > 0 && lane.seen_recently(key);
                 const int budget = simulations_for(lane, key, lane.move_count);
                 if (budget > config.simulations) {
@@ -869,6 +896,9 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                 }
                 lane.session.reseed(lane.game_seed + static_cast<uint64_t>(lane.move_count));
                 lane.session.set_simulations(budget);
+                // The same repetition observation may change budget, sampling,
+                // both or neither. Per-game/move seeding does not depend on the
+                // worker that resumed the lane or on evaluator batch grouping.
                 const double temperature = repeated && config.repetition_temperature > 0.0
                                                ? config.repetition_temperature
                                                : temperature_for(lane.move_count);
@@ -899,6 +929,10 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                               lane.session.value_width(), static_cast<int>(lane.job_index),
                               lane.state.current_player, &lane.match});
             }
+            // Requests borrow lane storage for this dispatch. Supply every
+            // result before returning the lanes to ready workers; otherwise
+            // a resumed search could race an unfinished evaluator write.
+            // This host elapsed interval is not a GPU-utilization counter.
             const auto eval_start = Clock::now();
             batch_evaluator.evaluate(items);
             const double eval_seconds = seconds_since(eval_start);
@@ -937,6 +971,9 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
 
     metrics.wall_seconds = seconds_since(started);
     for (const double value : busy) metrics.worker_busy_seconds += value;
+    // A run failure is not an episode abort or a partially successful return.
+    // At this point all threads have joined, so propagating it releases no
+    // lane or evaluator references that could still be used asynchronously.
     if (failure) std::rethrow_exception(failure);
 
     for (const Episode& episode : episodes) {

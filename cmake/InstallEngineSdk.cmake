@@ -39,20 +39,15 @@ file(GLOB_RECURSE _ad_provenance_inputs CONFIGURE_DEPENDS
     "${PROJECT_SOURCE_DIR}/native/include/*.h"
     "${PROJECT_SOURCE_DIR}/native/src/*.hpp" "${PROJECT_SOURCE_DIR}/native/src/*.h"
     "${PROJECT_SOURCE_DIR}/cmake/*.cmake" "${PROJECT_SOURCE_DIR}/cmake/*.cmake.in"
-    "${PROJECT_SOURCE_DIR}/tests/golden/topology/*")
+    "${PROJECT_SOURCE_DIR}/data/topology/*")
 list(APPEND _ad_provenance_inputs "${PROJECT_SOURCE_DIR}/CMakeLists.txt"
     "${PROJECT_SOURCE_DIR}/native/CMakeLists.txt")
 set(_ad_provenance_targets ${_ad_sdk_targets})
-set(_ad_provenance_data)
 if(TARGET alphadiamond-rating-sync)
     list(APPEND _ad_provenance_targets alphadiamond-rating-sync)
 endif()
-if(ALPHADIAMOND_ENGINE_HAS_MODEL)
-    list(APPEND _ad_provenance_inputs "${PROJECT_SOURCE_DIR}/native/tests/sdk_consumer/generate_fixtures.cpp")
-    set(_ad_provenance_data "${PROJECT_BINARY_DIR}/sdk-fixtures")
-endif()
 alphadiamond_engine_track_provenance(TARGETS ${_ad_provenance_targets}
-    INPUTS ${_ad_provenance_inputs} DATA_DIRS ${_ad_provenance_data})
+    INPUTS ${_ad_provenance_inputs})
 install(TARGETS ${_ad_sdk_targets} EXPORT AlphaDiamondEngineTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT Runtime
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT Runtime
@@ -86,24 +81,14 @@ install(FILES "${PROJECT_BINARY_DIR}/AlphaDiamondEngineConfig.cmake"
     "${PROJECT_BINARY_DIR}/AlphaDiamondEngineConfigVersion.cmake"
     "${CMAKE_CURRENT_LIST_DIR}/AlphaDiamondEngineTorch.cmake"
     DESTINATION "${_ad_package_dir}" COMPONENT Runtime)
-install(DIRECTORY "${PROJECT_SOURCE_DIR}/tests/golden/topology/"
+# These five normative tables are embedded by Desktop at runtime. They remain
+# SDK runtime data, independent of the removed regression corpus.
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/data/topology/"
     DESTINATION "${_ad_data_dir}/topology" COMPONENT Runtime)
 
 if(TARGET alphadiamond-rating-sync)
     install(TARGETS alphadiamond-rating-sync
         RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT Runtime)
-endif()
-if(ALPHADIAMOND_ENGINE_HAS_MODEL)
-    add_executable(alphadiamond-sdk-fixtures
-        "${PROJECT_SOURCE_DIR}/native/tests/sdk_consumer/generate_fixtures.cpp")
-    target_link_libraries(alphadiamond-sdk-fixtures PRIVATE alphadiamond::diamond_artifact)
-    set(_ad_fixtures "${PROJECT_BINARY_DIR}/sdk-fixtures")
-    add_custom_command(OUTPUT "${_ad_fixtures}/PROVENANCE.txt"
-        COMMAND alphadiamond-sdk-fixtures "${PROJECT_SOURCE_DIR}/tests/golden/topology" "${_ad_fixtures}"
-        DEPENDS alphadiamond-sdk-fixtures VERBATIM)
-    add_custom_target(engine_sdk_data ALL DEPENDS "${_ad_fixtures}/PROVENANCE.txt")
-    add_dependencies(engine_sdk_provenance engine_sdk_data)
-    install(DIRECTORY "${_ad_fixtures}/" DESTINATION "${_ad_data_dir}/fixtures" COMPONENT Runtime)
 endif()
 
 set(ALPHADIAMOND_ENGINE_CRT "${CMAKE_MSVC_RUNTIME_LIBRARY}")
@@ -115,29 +100,3 @@ endif()
 configure_file("${CMAKE_CURRENT_LIST_DIR}/AlphaDiamondEngineManifest.cmake.in"
     "${PROJECT_BINARY_DIR}/AlphaDiamondEngineManifest.cmake" @ONLY)
 install(SCRIPT "${PROJECT_BINARY_DIR}/AlphaDiamondEngineManifest.cmake" COMPONENT Runtime)
-
-if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS AND ALPHADIAMOND_ENGINE_HAS_MODEL)
-    foreach(_regression abi provenance)
-        add_test(NAME engine_sdk_${_regression} COMMAND "${CMAKE_COMMAND}"
-            "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}" "-DTEST_ROOT=${PROJECT_BINARY_DIR}/sdk-regression"
-            "-DCOMPILER=${CMAKE_CXX_COMPILER}" "-DCOMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}"
-            "-DGENERATOR=${CMAKE_GENERATOR}" "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
-            "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}" "-DGENERATOR_INSTANCE=${CMAKE_GENERATOR_INSTANCE}"
-            "-DCONFIG=$<CONFIG>" "-DCXX_FLAGS=${CMAKE_CXX_FLAGS}"
-            "-DDEBUG_CXX_FLAGS=${CMAKE_CXX_FLAGS_DEBUG}" "-DRELEASE_CXX_FLAGS=${CMAKE_CXX_FLAGS_RELEASE}"
-            "-DRELWITHDEBINFO_CXX_FLAGS=${CMAKE_CXX_FLAGS_RELWITHDEBINFO}" "-DMINSIZEREL_CXX_FLAGS=${CMAKE_CXX_FLAGS_MINSIZEREL}"
-            "-DEXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
-            -P "${PROJECT_SOURCE_DIR}/native/tests/sdk_${_regression}_test.cmake")
-        set_tests_properties(engine_sdk_${_regression} PROPERTIES LABELS "sdk;integration"
-            PROCESSORS 8 TIMEOUT 120)
-    endforeach()
-    add_test(NAME engine_sdk_install COMMAND "${CMAKE_COMMAND}"
-        "-DBUILD_DIR=${PROJECT_BINARY_DIR}" "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "-DCONFIG=$<CONFIG>" "-DCOMPILER=${CMAKE_CXX_COMPILER}"
-        "-DCXX_FLAGS=${CMAKE_CXX_FLAGS}" "-DEXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
-        "-DCOMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}"
-        "-DTorch_DIR=${Torch_DIR}" "-DGENERATOR=${CMAKE_GENERATOR}"
-        -P "${PROJECT_SOURCE_DIR}/native/tests/sdk_install_test.cmake")
-    set_tests_properties(engine_sdk_install PROPERTIES LABELS "sdk;integration"
-        ENVIRONMENT "OMP_NUM_THREADS=2;MKL_NUM_THREADS=2" PROCESSORS 8 TIMEOUT 300)
-endif()

@@ -202,35 +202,59 @@ void check_search_ownership() {
     for (size_t index = 0; index < orders.size(); ++index) {
         const auto match = ordered_match(index);
         for (uint8_t actor = 1; actor <= 3; ++actor)
-            for (const bool candidate_owns_root : {false, true}) {
-                ProbeModel cyclic(0.25), reverse(0.5), champion(-0.75);
-                soo::MinExpertRouter experts(cyclic, reverse);
-                soo::ArenaModelRouter router(experts, champion,
-                    {candidate_owns_root ? actor : actor % 3 + 1});
-                soo::MCTSConfig config;
-                config.simulations = 1;
-                soo::SearchSession3P session(match, config);
-                session.begin(opening(match, actor), 0.0);
-                while (session.advance() == soo::SearchSession3P::Status::NeedsEvaluation) {
-                    soo::EvalOutcome outcome;
-                    std::vector<soo::BatchItem> batch{{&session.pending_state(),
-                        &session.pending_features(), &session.pending_actions(), 0,
-                        &outcome, 3, 0, actor, &match}};
-                    router.prepare(batch.front());
-                    router.evaluate(batch);
-                    session.supply({outcome.priors, outcome.values});
+            for (const bool reference_pair : {false, true})
+                for (const bool candidate_owns_root : {false, true}) {
+                    ProbeModel cyclic(0.25), reverse(0.5), champion(-0.75);
+                    ProbeModel reference_cyclic(-0.25), reference_reverse(-0.5);
+                    soo::MinExpertRouter experts(cyclic, reverse);
+                    soo::MinExpertRouter references(reference_cyclic, reference_reverse);
+                    soo::BatchEvaluator& reference =
+                        reference_pair ? static_cast<soo::BatchEvaluator&>(references) : champion;
+                    soo::ArenaModelRouter router(experts, reference,
+                                                 {candidate_owns_root ? actor : actor % 3 + 1});
+                    soo::MCTSConfig config;
+                    config.simulations = 1;
+                    soo::SearchSession3P session(match, config);
+                    session.begin(opening(match, actor), 0.0);
+                    while (session.advance() == soo::SearchSession3P::Status::NeedsEvaluation) {
+                        soo::EvalOutcome outcome;
+                        std::vector<soo::BatchItem> batch{
+                            {&session.pending_state(), &session.pending_features(),
+                             &session.pending_actions(), 0, &outcome, 3, 0, actor, &match}};
+                        router.prepare(batch.front());
+                        router.evaluate(batch);
+                        session.supply({outcome.priors, outcome.values});
+                    }
+                    const double reference_score =
+                        !reference_pair ? -0.75 : (groups[index] == Group::cyclic ? -0.25 : -0.5);
+                    const double expected = !candidate_owns_root
+                                                ? reference_score
+                                                : (groups[index] == Group::cyclic ? 0.25 : 0.5);
+                    const auto& result = session.result();
+                    for (size_t action = 0; action < result.visit_counts.size(); ++action)
+                        if (result.visit_counts[action])
+                            CHECK_EQ(result.q_vectors[action][match.seat_of(actor)], expected);
+                    CHECK_EQ(cyclic.evaluated,
+                             candidate_owns_root && groups[index] == Group::cyclic ? 2 : 0);
+                    CHECK_EQ(reverse.evaluated,
+                             candidate_owns_root && groups[index] == Group::reverse ? 2 : 0);
+                    CHECK_EQ(champion.evaluated, !candidate_owns_root && !reference_pair ? 2 : 0);
+                    CHECK_EQ(reference_cyclic.evaluated, !candidate_owns_root && reference_pair &&
+                                                                 groups[index] == Group::cyclic
+                                                             ? 2
+                                                             : 0);
+                    CHECK_EQ(reference_reverse.evaluated, !candidate_owns_root && reference_pair &&
+                                                                  groups[index] == Group::reverse
+                                                              ? 2
+                                                              : 0);
+                    for (const auto* model :
+                         {&cyclic, &reverse, &champion, &reference_cyclic, &reference_reverse})
+                        CHECK_EQ(model->prepared.load(), model->evaluated);
+                    CHECK_EQ(cyclic.foreign_leaves + reverse.foreign_leaves +
+                                 champion.foreign_leaves + reference_cyclic.foreign_leaves +
+                                 reference_reverse.foreign_leaves,
+                             1);
                 }
-                const double expected = !candidate_owns_root ? -0.75 :
-                    (groups[index] == Group::cyclic ? 0.25 : 0.5);
-                const auto& result = session.result();
-                for (size_t action = 0; action < result.visit_counts.size(); ++action)
-                    if (result.visit_counts[action])
-                        CHECK_EQ(result.q_vectors[action][match.seat_of(actor)], expected);
-                CHECK_EQ(cyclic.evaluated, candidate_owns_root && groups[index] == Group::cyclic ? 2 : 0);
-                CHECK_EQ(reverse.evaluated, candidate_owns_root && groups[index] == Group::reverse ? 2 : 0);
-                CHECK_EQ(champion.evaluated, candidate_owns_root ? 0 : 2);
-                CHECK_EQ(cyclic.foreign_leaves + reverse.foreign_leaves + champion.foreign_leaves, 1);
-            }
     }
 }
 

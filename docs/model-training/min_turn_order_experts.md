@@ -35,8 +35,9 @@ the results.
 
 `min_expert_arena` accepts goals-v2 checkpoint-v3 roots and validates their Min
 architecture, compatibility and training-group provenance. It routes the
-candidate's search through the appropriate expert, while both opposing players
-use the frozen shared reference. The outer arena router selects the network from
+candidate's search through the appropriate expert. Both opposing players use
+either one frozen shared reference or a frozen cyclic/reverse reference pair.
+The outer arena router selects the network from
 the actual root player; simulated leaf actors only determine feature/value
 perspective.
 
@@ -49,6 +50,21 @@ OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 build/native-training/native/min_expert_aren
   --config configs/alphazero/min-expert-arena-local.json \
   --out artifacts/min-experts-20261014/comparison
 ```
+
+To compare against specialists, replace `--shared-checkpoint` with both
+`--reference-cyclic-checkpoint DIR` and `--reference-reverse-checkpoint DIR`.
+The reference pair routes each opposing player's search by the same geometric
+turn-order group as the candidate pair. Choose exactly one reference mode;
+missing pair members, mixed modes, duplicate flags, incompatible architectures
+and incorrect checkpoint groups fail before creating the output directory.
+The optional shared-control arm works against either reference mode.
+
+`invocation.json` records `reference_mode` as `shared` or `expert-pair`.
+Its `checkpoints` object always contains `cyclic` and `reverse`; shared mode
+also contains `shared`, while expert-pair mode contains `reference-cyclic` and
+`reference-reverse`. An optional control adds `shared-control`. Each identity
+retains the checkpoint and generation paths, model/state/optimizer/manifest and
+resolved-configuration hashes, training step, source commit and exact group.
 
 The output directory must be new. Raw outcomes and checkpoint/config identities
 are preserved separately for each arm. Both arms use identical opening, seat,

@@ -78,10 +78,12 @@ Json integers(const auto& values) {
 struct Arguments {
     Path cyclic;
     Path reverse;
-    Path shared;
+    std::optional<Path> shared;
     Path config;
     Path out;
     std::optional<Path> control;
+    std::optional<Path> reference_cyclic;
+    std::optional<Path> reference_reverse;
 };
 
 Arguments arguments(int argc, char** argv) {
@@ -90,6 +92,7 @@ Arguments arguments(int argc, char** argv) {
         const std::string flag = argv[index];
         if (flag != "--cyclic-checkpoint" && flag != "--reverse-checkpoint" &&
             flag != "--shared-checkpoint" && flag != "--shared-control-checkpoint" &&
+            flag != "--reference-cyclic-checkpoint" && flag != "--reference-reverse-checkpoint" &&
             flag != "--config" && flag != "--out")
             throw std::invalid_argument("unknown argument: " + flag);
         if (index + 1 >= argc || std::string_view(argv[index + 1]).starts_with("--") ||
@@ -99,11 +102,27 @@ Arguments arguments(int argc, char** argv) {
             throw std::invalid_argument("duplicate argument: " + flag);
     }
     for (const std::string flag : {"--cyclic-checkpoint", "--reverse-checkpoint",
-                                   "--shared-checkpoint", "--config", "--out"})
+                                   "--config", "--out"})
         if (!values.contains(flag))
             throw std::invalid_argument("required argument: " + flag);
-    Arguments result{values.at("--cyclic-checkpoint"), values.at("--reverse-checkpoint"),
-                     values.at("--shared-checkpoint"), values.at("--config"), values.at("--out")};
+    const bool shared = values.contains("--shared-checkpoint");
+    const bool reference_cyclic = values.contains("--reference-cyclic-checkpoint");
+    const bool reference_reverse = values.contains("--reference-reverse-checkpoint");
+    if (shared ? (reference_cyclic || reference_reverse) : !(reference_cyclic && reference_reverse))
+        throw std::invalid_argument(
+            "reference mode requires exactly --shared-checkpoint or both "
+            "--reference-cyclic-checkpoint and --reference-reverse-checkpoint");
+    Arguments result;
+    result.cyclic = values.at("--cyclic-checkpoint");
+    result.reverse = values.at("--reverse-checkpoint");
+    result.config = values.at("--config");
+    result.out = values.at("--out");
+    if (shared) {
+        result.shared = values.at("--shared-checkpoint");
+    } else {
+        result.reference_cyclic = values.at("--reference-cyclic-checkpoint");
+        result.reference_reverse = values.at("--reference-reverse-checkpoint");
+    }
     if (values.contains("--shared-control-checkpoint"))
         result.control = values.at("--shared-control-checkpoint");
     if (std::filesystem::exists(result.out))
@@ -433,7 +452,19 @@ void run(const Arguments& args) {
     torch::set_num_threads(1);
     auto cyclic = load_checkpoint(args.cyclic, "cyclic", config, device);
     auto reverse = load_checkpoint(args.reverse, "reverse", config, device);
-    auto shared = load_checkpoint(args.shared, "all", config, device);
+    std::optional<LoadedCheckpoint> shared;
+    std::optional<LoadedCheckpoint> reference_cyclic;
+    std::optional<LoadedCheckpoint> reference_reverse;
+    std::optional<soo::MinExpertRouter> reference_experts;
+    if (args.shared) {
+        shared = load_checkpoint(*args.shared, "all", config, device);
+    } else {
+        reference_cyclic = load_checkpoint(*args.reference_cyclic, "cyclic", config, device);
+        reference_reverse = load_checkpoint(*args.reference_reverse, "reverse", config, device);
+        reference_experts.emplace(*reference_cyclic->pool, *reference_reverse->pool);
+    }
+    soo::BatchEvaluator& reference = shared
+        ? static_cast<soo::BatchEvaluator&>(*shared->pool) : *reference_experts;
     std::optional<LoadedCheckpoint> control;
     if (args.control)
         control = load_checkpoint(*args.control, "all", config, device);
@@ -442,13 +473,19 @@ void run(const Arguments& args) {
         std::filesystem::create_directories(args.out.parent_path());
     if (!std::filesystem::create_directory(args.out))
         throw std::invalid_argument("output directory must be new: " + args.out.string());
-    Object sources{
-        {"cyclic", cyclic.identity}, {"reverse", reverse.identity}, {"shared", shared.identity}};
+    Object sources{{"cyclic", cyclic.identity}, {"reverse", reverse.identity}};
+    if (shared) {
+        sources.emplace("shared", shared->identity);
+    } else {
+        sources.emplace("reference-cyclic", reference_cyclic->identity);
+        sources.emplace("reference-reverse", reference_reverse->identity);
+    }
     if (control)
         sources.emplace("shared-control", control->identity);
     Object invocation{
         {"schema_version", Json{int64_t{1}}},
         {"status", Json{"running"}},
+        {"reference_mode", Json{shared ? "shared" : "expert-pair"}},
         {"classifier_version", Json{std::string(kClassifierVersion)}},
         {"config", config.to_json()},
         {"config_file_sha256", Json{diamond_support::sha256(config_bytes)}},
@@ -467,9 +504,9 @@ void run(const Arguments& args) {
     write_json(args.out / "invocation.json", Json{invocation});
     try {
         soo::MinExpertRouter experts(*cyclic.pool, *reverse.pool);
-        run_arm(args.out / "experts", config, games, experts, *shared.pool);
+        run_arm(args.out / "experts", config, games, experts, reference);
         if (control)
-            run_arm(args.out / "shared-control", config, games, *control->pool, *shared.pool);
+            run_arm(args.out / "shared-control", config, games, *control->pool, reference);
         invocation.insert_or_assign("status", Json{"complete"});
         write_json(args.out / "invocation.json", Json{invocation});
     } catch (const std::exception& error) {
@@ -485,7 +522,8 @@ int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string_view(argv[1]) == "--help") {
             std::cout << "min_expert_arena --cyclic-checkpoint DIR --reverse-checkpoint DIR "
-                         "--shared-checkpoint DIR --config FILE --out NEW_DIR "
+                         "(--shared-checkpoint DIR | --reference-cyclic-checkpoint DIR "
+                         "--reference-reverse-checkpoint DIR) --config FILE --out NEW_DIR "
                          "[--shared-control-checkpoint DIR]\n";
             return 0;
         }

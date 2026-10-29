@@ -57,7 +57,8 @@ std::string quote(const std::string& value) {
 }
 
 int invoke(const Path& binary, const Path& scratch, const Path& cyclic, const Path& reverse,
-           const Path& shared, const Path& config, const Path& out, bool control = true) {
+           const Path& shared, const Path& config, const Path& out, bool control = true,
+           const std::vector<std::pair<std::string, Path>>& references = {}) {
     std::string command = quote(binary.string());
     for (const auto& [flag, path] :
          std::array<std::pair<std::string, Path>, 5>{{{"--cyclic-checkpoint", cyclic},
@@ -65,6 +66,9 @@ int invoke(const Path& binary, const Path& scratch, const Path& cyclic, const Pa
                                                       {"--shared-checkpoint", shared},
                                                       {"--config", config},
                                                       {"--out", out}}})
+        if (!path.empty())
+            command += " " + flag + " " + quote(path.string());
+    for (const auto& [flag, path] : references)
         command += " " + flag + " " + quote(path.string());
     if (control)
         command += " --shared-control-checkpoint " + quote((scratch / "control").string());
@@ -186,6 +190,7 @@ void check_aborted_schedule(const Path& out) {
     CHECK_EQ(object(summary.at("groups")).size(), 2U);
     CHECK_EQ(object(summary.at("turn_orders")).size(), 6U);
     const auto invocation = read_json(out / "invocation.json");
+    CHECK_EQ(std::get<std::string>(object(invocation).at("reference_mode").value), "shared");
     const auto& identities = object(object(invocation).at("checkpoints"));
     CHECK_EQ(identities.size(), 4U);
     for (const auto& [_, identity] : identities) {
@@ -240,10 +245,14 @@ int main(int argc, char** argv) {
     checkpoint(scratch / "reverse", arena, "reverse", 13);
     checkpoint(scratch / "shared", arena, "all", 17);
     checkpoint(scratch / "control", arena, "all", 19);
+    checkpoint(scratch / "reference-cyclic", arena, "cyclic", 31);
+    checkpoint(scratch / "reference-reverse", arena, "reverse", 37);
     const auto before = files(scratch / "cyclic");
     const auto reverse_before = files(scratch / "reverse");
     const auto shared_before = files(scratch / "shared");
     const auto control_before = files(scratch / "control");
+    const auto reference_cyclic_before = files(scratch / "reference-cyclic");
+    const auto reference_reverse_before = files(scratch / "reference-reverse");
     const auto call = [&](const Path& out, const Path& cyclic, bool control = true) {
         return invoke(argv[2], scratch, cyclic, scratch / "reverse", scratch / "shared",
                       config_path, out, control);
@@ -255,6 +264,77 @@ int main(int argc, char** argv) {
     CHECK(call(aborted, scratch / "cyclic") != 0);
     CHECK_EQ(files(aborted), result_before);
     const auto invalid = scratch / "invalid";
+    const auto reference_call = [&](const auto& references, const Path& shared = Path{}) {
+        return invoke(argv[2], scratch, scratch / "cyclic", scratch / "reverse", shared,
+                      config_path, invalid, false, references);
+    };
+    using Flags = std::vector<std::pair<std::string, Path>>;
+    const Flags pair{{"--reference-cyclic-checkpoint", scratch / "reference-cyclic"},
+                     {"--reference-reverse-checkpoint", scratch / "reference-reverse"}};
+    const auto reject_reference = [&](const Flags& flags, const Path& shared,
+                                      std::string_view reason) {
+        CHECK(reference_call(flags, shared) != 0);
+        CHECK(read(scratch / "cli.log").find(reason) != std::string::npos);
+        CHECK(!std::filesystem::exists(invalid));
+    };
+    reject_reference({}, {}, "reference mode");
+    reject_reference({pair[0]}, {}, "reference mode");
+    reject_reference({pair[1]}, {}, "reference mode");
+    reject_reference(pair, scratch / "shared", "reference mode");
+    reject_reference({pair[0]}, scratch / "shared", "reference mode");
+    reject_reference({pair[1]}, scratch / "shared", "reference mode");
+    reject_reference({pair[0], pair[1], pair[0]}, {}, "duplicate argument");
+    reject_reference({pair[0], pair[1], pair[1]}, {}, "duplicate argument");
+    reject_reference({{"--reference-cyclic-checkpoint", {}}, pair[1]}, {}, "missing value");
+    reject_reference({pair[0], {"--reference-reverse-checkpoint", {}}}, {}, "missing value");
+    reject_reference({{"--reference-cyclic-checkpoint", scratch / "shared"}, pair[1]}, {},
+                     "turn_order_group must be cyclic");
+    reject_reference({pair[0], {"--reference-reverse-checkpoint", scratch / "cyclic"}}, {},
+                     "turn_order_group must be reverse");
+    const auto pair_out = scratch / "expert-pair";
+    REQUIRE(invoke(argv[2], scratch, scratch / "cyclic", scratch / "reverse", {}, config_path,
+                   pair_out, true, pair) == 0, "CPU expert-reference arena must execute");
+    const auto pair_invocation = read_json(pair_out / "invocation.json");
+    CHECK_EQ(std::get<std::string>(object(pair_invocation).at("reference_mode").value),
+             "expert-pair");
+    CHECK_EQ(std::get<std::string>(object(pair_invocation).at("status").value), "complete");
+    const auto& pair_sources = object(object(pair_invocation).at("checkpoints"));
+    CHECK_EQ(pair_sources.size(), 5U);
+    CHECK(!pair_sources.contains("shared"));
+    for (const std::string group : {"cyclic", "reverse"}) {
+        const auto& identity = object(pair_sources.at("reference-" + group));
+        CHECK_EQ(std::get<std::string>(identity.at("turn_order_group").value), group);
+        const auto root = scratch / ("reference-" + group);
+        const auto info = diamond_training::inspect_checkpoint_v2(root);
+        CHECK_EQ(std::get<std::string>(identity.at("checkpoint_root").value),
+                 std::filesystem::canonical(root).string());
+        CHECK_EQ(std::get<std::string>(identity.at("generation").value),
+                 std::filesystem::canonical(info.generation).string());
+        CHECK_EQ(std::get<std::string>(identity.at("state_file_sha256").value), info.model_digest);
+        CHECK_EQ(std::get<std::string>(identity.at("manifest_sha256").value),
+                 diamond_support::sha256(read(info.generation / "manifest.json")));
+        CHECK(diamond_support::canonical_json(identity.at("runtime_model_sha256")) !=
+              diamond_support::canonical_json(object(pair_sources.at(group)).at("runtime_model_sha256")));
+    }
+    for (const std::string arm : {"experts", "shared-control"}) {
+        const auto rows = read_json(pair_out / arm / "matches.json");
+        CHECK_EQ(std::get<Array>(rows.value).size(), 36U);
+        const auto summary = read_json(pair_out / arm / "summary.json");
+        CHECK_EQ(integer(object(summary), "scheduled_matches"), 36);
+        CHECK_EQ(integer(object(summary), "pending_matches"), 0);
+        CHECK_EQ(integer(object(summary), "aborted_matches"), 36);
+        const auto& summaries = object(object(summary).at("groups"));
+        CHECK_EQ(integer(object(summaries.at("cyclic")), "aborted_matches"), 18);
+        CHECK_EQ(integer(object(summaries.at("reverse")), "aborted_matches"), 18);
+    }
+    CHECK_EQ(read(pair_out / "schedule.json"), read(aborted / "schedule.json"));
+    const auto pair_only_out = scratch / "expert-pair-only";
+    REQUIRE(invoke(argv[2], scratch, scratch / "cyclic", scratch / "reverse", {}, config_path,
+                   pair_only_out, false, pair) == 0,
+            "CPU expert-reference arena without control must execute");
+    CHECK(!std::filesystem::exists(pair_only_out / "shared-control"));
+    const auto pair_only_invocation = read_json(pair_only_out / "invocation.json");
+    CHECK_EQ(object(object(pair_only_invocation).at("checkpoints")).size(), 4U);
     CHECK(call(invalid, scratch / "shared") != 0);
     CHECK(!std::filesystem::exists(invalid));
     CHECK(call(invalid, scratch / "reverse") != 0);
@@ -262,9 +342,13 @@ int main(int argc, char** argv) {
     auto wide = arena;
     wide.network.width = 16;
     checkpoint(scratch / "wide", wide, "cyclic", 23);
+    reject_reference({{"--reference-cyclic-checkpoint", scratch / "wide"}, pair[1]}, {},
+                     "architecture differs");
     CHECK(call(invalid, scratch / "wide") != 0);
     CHECK(!std::filesystem::exists(invalid));
     checkpoint(scratch / "legacy", arena, "cyclic", 29, true);
+    reject_reference({{"--reference-cyclic-checkpoint", scratch / "legacy"}, pair[1]}, {},
+                     "checkpoint must be v3");
     CHECK(call(invalid, scratch / "legacy") != 0);
     CHECK(!std::filesystem::exists(invalid));
     arena.arena.games = 72;
@@ -308,6 +392,8 @@ int main(int argc, char** argv) {
     CHECK_EQ(files(scratch / "reverse"), reverse_before);
     CHECK_EQ(files(scratch / "shared"), shared_before);
     CHECK_EQ(files(scratch / "control"), control_before);
+    CHECK_EQ(files(scratch / "reference-cyclic"), reference_cyclic_before);
+    CHECK_EQ(files(scratch / "reference-reverse"), reference_reverse_before);
     if (soo_test::failures() == 0)
         std::filesystem::remove_all(scratch);
     else

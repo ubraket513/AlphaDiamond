@@ -2466,15 +2466,15 @@
     "semantic_hash": ""
   },
   "training-panel/server.mjs": {
-    "mtime": 1793223720.4981189,
-    "seen": 1793226758.5834,
-    "ast_hash": "e045ab994fcaf9c8314905f7cf7f0a57",
+    "mtime": 1793244587.8685598,
+    "seen": 1793244869.379685,
+    "ast_hash": "ce6879a48c2704498f9d9e5ee0cf6d9e",
     "semantic_hash": ""
   },
   "training-panel/server.test.mjs": {
-    "mtime": 1793223797.7695832,
-    "seen": 1793224083.9769738,
-    "ast_hash": "3191924960a76dd79cc98f687cbce300",
+    "mtime": 1793244578.9893992,
+    "seen": 1793244869.3796859,
+    "ast_hash": "c1bd528ae812e5797395a073528793fb",
     "semantic_hash": ""
   },
   "training-panel/src/App.svelte": {
@@ -2526,9 +2526,9 @@
     "semantic_hash": ""
   },
   "training-panel/README.md": {
-    "mtime": 1793223761.9709175,
-    "seen": 1793226758.5834656,
-    "ast_hash": "3fa5df21d1d6162779a1036ec896c1a7",
+    "mtime": 1793244587.8685598,
+    "seen": 1793244869.3797524,
+    "ast_hash": "1a163c6584140cd94d28d79bf3dd8302",
     "semantic_hash": ""
   },
   "training-panel/index.html": {
@@ -2551,9 +2551,15 @@
   },
   "docs/superpowers/plans/2026-10-29-min-comparative-improvement.md": {
     "mtime": 1793234476.1230366,
-    "seen": 1793235205.3477185,
-    "ast_hash": "",
-    "semantic_hash": "927cf3fcbc6acd219b08d3ae72cd0128"
+    "seen": 1793244869.3797247,
+    "ast_hash": "927cf3fcbc6acd219b08d3ae72cd0128",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20261029_005458_704c584e_how_does_the_immutable_min_comparative_plan_reuse.md": {
+    "mtime": 1793235298.0690684,
+    "seen": 1793244869.3797379,
+    "ast_hash": "8af4900b17791af03287b5ce0c297afb",
+    "semantic_hash": ""
   },
   "training-panel/package-lock.json": {
     "mtime": 1793215961.110656,

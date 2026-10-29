@@ -125,6 +125,7 @@ async function launch(root, binary, body) {
     child = spawn(binary, ['train', '--run-dir', runDir, '--config', configPath,
       ...(warmStart ? ['--warm-start', resolve(root, warmStart)] : ['--scratch'])], {
       cwd: root, detached: true, stdio: ['ignore', output.fd, output.fd],
+      env: { ...process.env, TORCH_ALLOW_TF32_CUBLAS_OVERRIDE: '1' },
     });
     // Observe one short startup window so native argument/config errors reach the form.
     // The CLI owns validation; later progress and output remain in its native files.

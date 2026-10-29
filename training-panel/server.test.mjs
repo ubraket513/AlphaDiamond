@@ -27,6 +27,7 @@ if(args.includes('--config')) {
  fs.writeFileSync(dir+'/resolved-config.json', JSON.stringify(config));
 }
 fs.writeFileSync(dir+'/invocation.json', JSON.stringify(args));
+fs.writeFileSync(dir+'/environment.json', JSON.stringify({tf32:process.env.TORCH_ALLOW_TF32_CUBLAS_OVERRIDE, path:process.env.PATH}));
 console.log('native output'); console.error('native stderr');
 process.on('SIGTERM',()=>{});
 setInterval(()=>{}, 1000);
@@ -164,7 +165,7 @@ test('discovers an independently launched resume and preserves ordered native me
   assert.equal(resumed.config.training.learning_rate, 0.0002, 'a resumed run must expose its accepted active config');
 });
 
-test('launches detached native scratch/warm-start commands with persisted config and output', async t => {
+test('launches detached native scratch/warm-start commands with persisted config, output and TF32 environment', async t => {
   const { root, request } = await fixture(t);
   for (const warmStart of [undefined, join(root, 'model ; literal')]) {
     const runDir = join(root, 'runs/min', warmStart ? 'warm' : 'scratch');
@@ -176,6 +177,7 @@ test('launches detached native scratch/warm-start commands with persisted config
     const args = JSON.parse(await readFile(join(runDir, 'invocation.json'), 'utf8'));
     assert.deepEqual(args, ['train', '--run-dir', runDir, '--config', join(runDir, 'panel-config.json'), ...(warmStart ? ['--warm-start', warmStart] : ['--scratch'])]);
     assert.deepEqual(JSON.parse(await readFile(join(runDir, 'panel-config.json'), 'utf8')), config);
+    assert.deepEqual(JSON.parse(await readFile(join(runDir, 'environment.json'), 'utf8')), { tf32: '1', path: process.env.PATH });
     assert.match(await readFile(join(runDir, 'console.log'), 'utf8'), /native output\nnative stderr/);
     const stopped = await request(`/api/runs/${pid}/stop`, {});
     assert.deepEqual(stopped, { status: 200, data: { stopped: true } });

@@ -20,6 +20,10 @@ required by the native CLI. An empty warm-start path uses `--scratch`;
 otherwise the path is passed as `--warm-start`. Native startup errors appear
 in the form. The CLI validates the configuration.
 
+New panel-launched trainers enable cuBLAS TF32 with
+`TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1` and inherit the server's other environment
+variables. Set the same flag for direct CLI or Agent training launches.
+
 Active CLI and Agent jobs appear automatically through Linux process discovery.
 The list also includes active `min_expert_arena --out PATH` evaluations, with
 relative output paths resolved against the process working directory. Evaluation
@@ -36,7 +40,7 @@ output streams into `console.log` inside its run directory:
 ```sh
 RUN_DIR="$PWD/artifacts/example/runs/min/experiment-1"
 mkdir -p "$RUN_DIR"
-OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 \
+TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 \
   build/native-training-release/native/alphadiamond-train train \
   --run-dir "$RUN_DIR" --config configs/alphazero/min-expert-cyclic-local-pilot.json \
   --warm-start /absolute/path/to/deployment-export >"$RUN_DIR/console.log" 2>&1

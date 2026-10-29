@@ -12,6 +12,7 @@
 #include <limits>
 #include <optional>
 #include <random>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <cmath>
@@ -23,6 +24,7 @@
 #include "diamond_model/deployment_artifact.hpp"
 #include "diamond_model/soo_model.hpp"
 #include "diamond_orchestration/config.hpp"
+#include "diamond_orchestration/training_wiring.hpp"
 #include "diamond_pipeline/model_pool.hpp"
 #include "diamond_pipeline/policy_diagnostics.hpp"
 #include "diamond_support/build_provenance.hpp"
@@ -30,12 +32,16 @@
 #include "diamond_training/checkpoint.hpp"
 #include "diamond_training/device.hpp"
 #include "soo/board.hpp"
+#include "soo/min_experts.hpp"
 #include "soo/search_target_metrics.hpp"
 #include "soo/selfplay.hpp"
 
 namespace {
 
 struct Options {
+    // Presence, not equality with a synthetic default, determines whether a
+    // diagnostic CLI setting overrides the production configuration.
+    std::set<std::string_view> explicit_options;
     std::filesystem::path artifact = "models/soo/2.0.0";
     bool artifact_explicit = false;
     std::optional<std::filesystem::path> checkpoint;
@@ -62,8 +68,8 @@ struct Options {
     // idle, and the throughput that comes out is not the throughput production
     // sees. The production config rejects that shape outright; this benchmark
     // used to be built that way, which is why an earlier findings table had to
-    // have its throughput column retracted. Zero means "one per lane", the old
-    // behaviour, kept only so existing invocations do not silently change.
+    // have its throughput column retracted. Without --config, zero keeps the
+    // historical "one per lane" default. Configured runs inherit iteration jobs.
     std::size_t games = 0;
     std::optional<std::size_t> torch_threads;
     uint64_t seed = 17;
@@ -72,6 +78,8 @@ struct Options {
     double temperature = 1.0;
     std::size_t temperature_moves = 20;
     double dirichlet_epsilon = 0.25;
+    bool balance_turn_orders = false;
+    std::string turn_order_group = "all";
     std::optional<std::filesystem::path> scratch;
 };
 
@@ -117,12 +125,15 @@ Options parse_options(int argc, char** argv) {
                    "[--diagnostic-roots N] [--diagnostic-batch N] "
                    "[--temperature F] [--temperature-moves N] "
                    "[--dirichlet-epsilon F] [--warmups N] [--repetitions N] "
-                   "[--scratch PATH]\n";
+                   "[--scratch PATH]\n"
+                   "With --config, production workload/runtime settings apply unless explicitly "
+                   "overridden. Without it, the small synthetic defaults apply.\n";
             std::exit(0);
         }
         if (++index == argc)
             throw std::invalid_argument(std::string(option) + " requires a value");
         const std::string_view value = argv[index];
+        options.explicit_options.insert(option);
         if (option == "--artifact") {
             options.artifact = value;
             options.artifact_explicit = true;
@@ -179,8 +190,6 @@ Options parse_options(int argc, char** argv) {
         else
             throw std::invalid_argument("unknown argument: " + std::string(option));
     }
-    if (options.threads > options.lanes)
-        throw std::invalid_argument("threads must not exceed lanes");
     if (options.precision != "fp32" && options.precision != "fp16" &&
         options.precision != "bf16")
         throw std::invalid_argument("--precision must be fp32, fp16, or bf16");
@@ -193,10 +202,6 @@ Options parse_options(int argc, char** argv) {
         throw std::invalid_argument("--bootstrap-prior must be config, vacancy, or none");
     if (options.max_game_seconds && *options.max_game_seconds < 0.0)
         throw std::invalid_argument("--max-game-seconds must be non-negative");
-    if (options.games != 0 && options.games <= options.lanes) {
-        throw std::invalid_argument(
-            "--games must exceed --lanes, otherwise the job queue never engages");
-    }
     if (!(options.temperature >= 0.0) || !(options.dirichlet_epsilon >= 0.0) ||
         options.dirichlet_epsilon > 1.0) {
         throw std::invalid_argument(
@@ -207,7 +212,8 @@ Options parse_options(int argc, char** argv) {
         options.torch_threads.value_or(0) > int_max || options.max_batch > int_max ||
         options.max_wait_us > static_cast<uint64_t>(std::numeric_limits<int>::max()) ||
         options.simulations > int_max || options.simulations_late.value_or(0) > int_max ||
-        options.repeat_window.value_or(0) > int_max || options.max_moves > int_max) {
+        options.repeat_window.value_or(0) > int_max || options.max_moves > int_max ||
+        options.temperature_moves > int_max) {
         throw std::invalid_argument("self-play workload counts must fit in a signed integer");
     }
     return options;
@@ -287,35 +293,75 @@ int dominant_cycle_period(const std::vector<uint64_t>& tail, int longest = 32) {
     return 0;
 }
 
-Totals run_once(const Options& options, const soo::Match& match, const soo::State& initial,
-                diamond_pipeline::ModelPool& evaluator, bool bootstrap_prior,
-                double bootstrap_prior_weight, soo::EncodingVersion encoding) {
-    const soo::EpisodeConfig config{
-        .lanes = static_cast<int>(options.lanes),
-        .threads = static_cast<int>(options.threads),
-        .max_batch = static_cast<int>(options.max_batch),
-        .max_wait_us = static_cast<int>(options.max_wait_us),
-        .simulations = static_cast<int>(options.simulations),
-        .max_moves = static_cast<int>(options.max_moves),
-        .max_game_duration = options.max_game_seconds && *options.max_game_seconds > 0.0
-                                 ? std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                                       std::chrono::duration<double>(*options.max_game_seconds))
-                                 : std::chrono::steady_clock::duration::zero(),
-        .temperature = options.temperature,
-        .temperature_moves = static_cast<int>(options.temperature_moves),
-        .dirichlet_alpha = 0.3,
-        .dirichlet_epsilon = options.dirichlet_epsilon,
-        .simulations_late = static_cast<int>(options.simulations_late.value_or(0)),
-        .repeat_window = static_cast<int>(options.repeat_window.value_or(0)),
-        .bootstrap_prior = bootstrap_prior,
-        .bootstrap_prior_weight = bootstrap_prior_weight,
-        .encoding = encoding,
+soo::EpisodeConfig episode_config(const Options& options, soo::EpisodeConfig config) {
+    // Configured runs start with the exact production wiring. Synthetic runs
+    // keep their historical small defaults; only explicit flags may replace a
+    // production value, including an explicit zero that disables a feature.
+    const auto should_override = [&](std::string_view flag) {
+        return !options.config || options.explicit_options.contains(flag);
     };
-    const std::size_t job_count = options.games != 0 ? options.games : options.lanes;
+    if (should_override("--lanes"))
+        config.lanes = static_cast<int>(options.lanes);
+    if (should_override("--threads"))
+        config.threads = static_cast<int>(options.threads);
+    if (should_override("--max-batch"))
+        config.max_batch = static_cast<int>(options.max_batch);
+    if (should_override("--max-wait-us"))
+        config.max_wait_us = static_cast<int>(options.max_wait_us);
+    if (should_override("--simulations"))
+        config.simulations = static_cast<int>(options.simulations);
+    if (should_override("--max-moves"))
+        config.max_moves = static_cast<int>(options.max_moves);
+    if (should_override("--temperature"))
+        config.temperature = options.temperature;
+    if (should_override("--temperature-moves"))
+        config.temperature_moves = static_cast<int>(options.temperature_moves);
+    if (should_override("--dirichlet-epsilon"))
+        config.dirichlet_epsilon = options.dirichlet_epsilon;
+    if (should_override("--simulations-late"))
+        config.simulations_late = static_cast<int>(options.simulations_late.value_or(0));
+    if (should_override("--repeat-window"))
+        config.repeat_window = static_cast<int>(options.repeat_window.value_or(0));
+    // Training applies the deadline outside wire_training_iteration. The
+    // resolved option already contains its configured value or explicit override.
+    config.max_game_duration =
+        options.max_game_seconds && *options.max_game_seconds > 0.0
+            ? std::optional{std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                  std::chrono::duration<double>(*options.max_game_seconds))}
+            : std::nullopt;
+    if (options.bootstrap_prior == "vacancy") {
+        config.bootstrap_prior = true;
+        config.bootstrap_prior_weight = 1.0;
+    } else if (options.bootstrap_prior == "none") {
+        config.bootstrap_prior = false;
+        config.bootstrap_prior_weight = 0.0;
+    }
+    if (config.threads > config.lanes)
+        throw std::invalid_argument("threads must not exceed lanes");
+    if (options.games != 0 && options.games <= static_cast<std::size_t>(config.lanes))
+        throw std::invalid_argument(
+            "games must exceed lanes, otherwise the job queue never engages");
+    if (config.repeat_window > 0 && config.simulations_late == 0)
+        throw std::invalid_argument("--repeat-window requires non-zero --simulations-late");
+    return config;
+}
+
+Totals run_once(const Options& options, const soo::Match& match, const soo::State& initial,
+                diamond_pipeline::ModelPool& evaluator, const soo::EpisodeConfig& config) {
+    const std::size_t job_count = options.games != 0 ? options.games : config.lanes;
     std::vector<soo::EpisodeJob> jobs;
     jobs.reserve(job_count);
+    // Benchmark seeds stay reproducible independently of persisted training
+    // iteration/retry state; the configured base seed is still honored.
     for (std::size_t game = 0; game < job_count; ++game)
         jobs.push_back({initial, options.seed + game * 12});
+    if (options.balance_turn_orders) {
+        const auto group =
+            options.turn_order_group == "all"
+                ? std::nullopt
+                : std::optional{soo::min_turn_order_group_from_name(options.turn_order_group)};
+        soo::balance_episode_turn_orders(match, jobs, group);
+    }
 
     soo::EpisodeMetrics metrics;
     evaluator.reset_evaluation_stats();
@@ -497,7 +543,29 @@ int main(int argc, char** argv) {
     try {
         Options options = parse_options(argc, argv);
         soo::ensure_topology_configured();
-        torch::set_num_threads(static_cast<int>(options.torch_threads.value_or(options.threads)));
+        std::optional<diamond_orchestration::ProductionConfig> production_config;
+        soo::EpisodeConfig selfplay;
+        selfplay.bootstrap_prior_weight = 0.0;
+        if (options.config) {
+            production_config = read_config(*options.config);
+            const auto& config = *production_config;
+            const auto wiring = diamond_orchestration::wire_training_iteration(config);
+            selfplay = wiring.selfplay;
+            if (!options.explicit_options.contains("--device"))
+                options.device = config.runtime.device;
+            if (!options.explicit_options.contains("--precision"))
+                options.precision = config.runtime.precision;
+            if (!options.explicit_options.contains("--games"))
+                options.games = wiring.games_per_iteration;
+            if (!options.explicit_options.contains("--seed"))
+                options.seed = config.self_play.seed;
+            if (!options.max_game_seconds)
+                options.max_game_seconds = config.self_play.max_game_seconds;
+            options.balance_turn_orders = config.self_play.balance_turn_orders;
+            options.turn_order_group = config.self_play.turn_order_group;
+        }
+        selfplay = episode_config(options, selfplay);
+        torch::set_num_threads(static_cast<int>(options.torch_threads.value_or(selfplay.threads)));
         torch::set_num_interop_threads(1);
 
         const auto device = diamond_training::resolve_device(options.device);
@@ -507,10 +575,8 @@ int main(int argc, char** argv) {
         std::string runtime_sha256;
         soo::EncodingVersion encoding = soo::EncodingVersion::legacy_v1;
         bool min_model = false;
-        bool bootstrap_prior = false;
-        double bootstrap_prior_weight = 0.0;
         if (options.checkpoint) {
-            const auto config = read_config(*options.config);
+            const auto& config = *production_config;
             encoding = soo::encoding_version_from_name(config.encoder_version);
             min_model = config.model_name == "Min";
             compatibility = min_model
@@ -525,6 +591,9 @@ int main(int argc, char** argv) {
             model = diamond_model::DiamondModel(config.network.width,
                                                 config.network.residual_blocks,
                                                 compatibility.input_features(), min_model ? 3 : 1);
+            // Match production construction before the checkpoint loader
+            // validates and restores the model's parameters and buffers.
+            model->set_adjacency(diamond_model::topology_adjacency());
             const auto checkpoint =
                 diamond_training::load_checkpoint_v2_weights(*options.checkpoint, model, device);
             model_sha256 = checkpoint.model_digest;
@@ -532,15 +601,6 @@ int main(int argc, char** argv) {
             // executable provenance identifies the runtime; keep this SHA field
             // stable for schema consumers and identify the source below.
             runtime_sha256 = checkpoint.model_digest;
-            bootstrap_prior = config.self_play.bootstrap_prior !=
-                              diamond_orchestration::kBootstrapPriorNone;
-            bootstrap_prior_weight = config.self_play.bootstrap_prior_weight;
-            if (!options.simulations_late)
-                options.simulations_late = config.mcts.simulations_late;
-            if (!options.repeat_window)
-                options.repeat_window = config.mcts.repeat_window;
-            if (!options.max_game_seconds)
-                options.max_game_seconds = config.self_play.max_game_seconds;
         } else {
             const auto artifact =
                 diamond_model::validate_deployment_artifact(options.artifact, "soo");
@@ -554,16 +614,7 @@ int main(int argc, char** argv) {
             model_sha256 = artifact.model_sha256;
             runtime_sha256 = artifact.runtime_sha256;
         }
-        if (options.bootstrap_prior == "vacancy") {
-            bootstrap_prior = true;
-            bootstrap_prior_weight = 1.0;
-        }
-        if (options.bootstrap_prior == "none") {
-            bootstrap_prior = false;
-            bootstrap_prior_weight = 0.0;
-        }
-        if (options.repeat_window.value_or(0) > 0 && options.simulations_late.value_or(0) == 0)
-            throw std::invalid_argument("--repeat-window requires non-zero --simulations-late");
+        selfplay.encoding = encoding;
         const auto precision = options.precision == "fp16"
                                    ? diamond_pipeline::InferencePrecision::fp16
                                    : options.precision == "bf16"
@@ -576,16 +627,14 @@ int main(int argc, char** argv) {
         const soo::Match match = make_match(min_model);
         const soo::State initial = opening(match);
         for (std::size_t warmup = 0; warmup < options.warmups; ++warmup)
-            (void)run_once(options, match, initial, evaluator, bootstrap_prior,
-                           bootstrap_prior_weight, encoding);
+            (void)run_once(options, match, initial, evaluator, selfplay);
 
         Totals totals;
         std::vector<double> seconds;
         seconds.reserve(options.repetitions);
         for (std::size_t repetition = 0; repetition < options.repetitions; ++repetition) {
             const auto started = std::chrono::steady_clock::now();
-            Totals current = run_once(options, match, initial, evaluator, bootstrap_prior,
-                                      bootstrap_prior_weight, encoding);
+            Totals current = run_once(options, match, initial, evaluator, selfplay);
             seconds.push_back(
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count());
             accumulate(totals, std::move(current));
@@ -613,24 +662,33 @@ int main(int argc, char** argv) {
         std::cout
             << "{\"schema_version\":1,\"benchmark\":\"selfplay\",\"workload\":{\"repetitions\":"
             << options.repetitions << ",\"warmups\":" << options.warmups
-            << ",\"games\":" << (options.games != 0 ? options.games : options.lanes)
+            << ",\"configured\":" << (options.config ? "true" : "false")
+            << ",\"games\":" << (options.games != 0 ? options.games : selfplay.lanes)
             << ",\"queued\":"
-            << ((options.games != 0 && options.games > options.lanes) ? "true" : "false")
-            << ",\"temperature\":" << options.temperature
-            << ",\"temperature_moves\":" << options.temperature_moves
-            << ",\"dirichlet_epsilon\":" << options.dirichlet_epsilon
-            << ",\"seed\":" << options.seed << ",\"lanes\":" << options.lanes
-            << ",\"threads\":" << options.threads << ",\"max_batch\":" << options.max_batch
-            << ",\"max_wait_us\":" << options.max_wait_us
-            << ",\"simulations\":" << options.simulations
-            << ",\"simulations_late\":" << options.simulations_late.value_or(0)
-            << ",\"repeat_window\":" << options.repeat_window.value_or(0)
-            << ",\"max_game_seconds\":" << options.max_game_seconds.value_or(0.0)
-            << ",\"bootstrap_prior\":\"" << options.bootstrap_prior
-            << "\",\"bootstrap_prior_weight\":" << bootstrap_prior_weight
+            << ((options.games > static_cast<std::size_t>(selfplay.lanes)) ? "true" : "false")
+            << ",\"temperature\":" << selfplay.temperature
+            << ",\"temperature_moves\":" << selfplay.temperature_moves
+            << ",\"c_puct\":" << selfplay.c_puct
+            << ",\"dirichlet_alpha\":" << selfplay.dirichlet_alpha
+            << ",\"dirichlet_epsilon\":" << selfplay.dirichlet_epsilon
+            << ",\"seed\":" << options.seed << ",\"seed_scheme\":\"base-plus-game-times-12\""
+            << ",\"lanes\":" << selfplay.lanes << ",\"threads\":" << selfplay.threads
+            << ",\"max_batch\":" << selfplay.max_batch
+            << ",\"max_wait_us\":" << selfplay.max_wait_us
+            << ",\"simulations\":" << selfplay.simulations
+            << ",\"simulations_late\":" << selfplay.simulations_late
+            << ",\"repeat_window\":" << selfplay.repeat_window << ",\"max_game_seconds\":"
+            << (selfplay.max_game_duration
+                    ? std::chrono::duration<double>(*selfplay.max_game_duration).count()
+                    : 0.0)
+            << ",\"bootstrap_prior\":\"" << (selfplay.bootstrap_prior ? "vacancy" : "none")
+            << "\",\"bootstrap_prior_request\":\"" << options.bootstrap_prior
+            << "\",\"bootstrap_prior_weight\":" << selfplay.bootstrap_prior_weight
+            << ",\"balance_turn_orders\":" << (options.balance_turn_orders ? "true" : "false")
+            << ",\"turn_order_group\":\"" << options.turn_order_group << '"'
             << ",\"diagnostic_roots\":" << options.diagnostic_roots
             << ",\"diagnostic_batch\":" << options.diagnostic_batch
-            << ",\"max_moves\":" << options.max_moves
+            << ",\"max_moves\":" << selfplay.max_moves
             << "},\"environment\":{\"requested_device\":\"" << device.requested_name
             << "\",\"canonical_device\":\"" << device.canonical_name << "\",\"precision\":\""
             << options.precision << "\",\"torch_threads\":" << torch::get_num_threads()
@@ -646,8 +704,13 @@ int main(int argc, char** argv) {
             << "},\"domain\":{\"model_source\":\""
             << (options.checkpoint ? "checkpoint" : "artifact") << "\",\"model_family\":\""
             << (min_model ? "Min" : "Soo") << "\",\"model_sha256\":\"" << model_sha256
-            << "\",\"runtime_sha256\":\"" << runtime_sha256
-            << "\",\"attempted_episodes\":" << totals.attempted
+            << "\",\"runtime_sha256\":\"" << runtime_sha256 << "\",\"encoder_version\":\""
+            << compatibility.encoder_version
+            << "\",\"network_width\":" << compatibility.network_config.width
+            << ",\"residual_blocks\":" << compatibility.network_config.residual_blocks
+            << ",\"input_features\":" << compatibility.input_features()
+            << ",\"value_size\":" << (min_model ? 3 : 1)
+            << ",\"attempted_episodes\":" << totals.attempted
             << ",\"completed_episodes\":" << totals.completed
             << ",\"aborted_episodes\":" << totals.aborted
             << ",\"abort_reasons\":{\"max_moves\":" << totals.max_move_aborts
@@ -698,7 +761,7 @@ int main(int argc, char** argv) {
             << ratio(totals.evaluator_seconds, totals.wall_seconds)
             << ",\"search_worker_busy_fraction\":"
             << ratio(totals.worker_busy_seconds,
-                     totals.wall_seconds * static_cast<double>(options.threads))
+                     totals.wall_seconds * static_cast<double>(selfplay.threads))
             << ",\"samples_per_hour\":"
             << ratio(static_cast<double>(totals.completed_samples) * 3600.0, measured_seconds)
             // Where the evaluator's time actually went. evaluator_busy

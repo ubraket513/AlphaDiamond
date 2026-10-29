@@ -7,9 +7,9 @@
     "ast_empty": true
   },
   "CMakePresets.json": {
-    "mtime": 1793249194.9243824,
-    "seen": 1793249552.5137713,
-    "ast_hash": "2b8568cabb03cdf24ad58e5be70ec375",
+    "mtime": 1793251434.1077914,
+    "seen": 1793251720.2752714,
+    "ast_hash": "71c01cb34cf3d636d0144a9119ea5297",
     "semantic_hash": ""
   },
   "TrainAlphaDiamond/manifests/checkpoint.schema.json": {
@@ -682,10 +682,10 @@
     "semantic_hash": "d5c8851d13d2ff013dc321214ad0b49f"
   },
   "native/benchmarks/selfplay_benchmark.cpp": {
-    "mtime": 1791903357.1478581,
-    "seen": 1793216304.9690151,
-    "ast_hash": "519407ecd2f212d7c60ce8da7eb4c7ae",
-    "semantic_hash": "519407ecd2f212d7c60ce8da7eb4c7ae"
+    "mtime": 1793251696.1231604,
+    "seen": 1793251720.2753427,
+    "ast_hash": "c2e2943b2ab1f3585fa0574dd2d5f72b",
+    "semantic_hash": ""
   },
   "native/benchmarks/training_step_benchmark.cpp": {
     "mtime": 1793245721.4285016,
@@ -754,10 +754,10 @@
     "semantic_hash": "d803c42bbd71629e02416a60ef3d6d26"
   },
   "native/include/diamond_orchestration/run_state.hpp": {
-    "mtime": 1791891776.1756237,
-    "seen": 1793216304.9690208,
-    "ast_hash": "3042551bad791a1285bceed270ab45c5",
-    "semantic_hash": "3042551bad791a1285bceed270ab45c5"
+    "mtime": 1793251348.0475624,
+    "seen": 1793251720.27535,
+    "ast_hash": "d4b5b731c1e0cd2747c4393f8f8c9c9c",
+    "semantic_hash": ""
   },
   "native/include/diamond_orchestration/schedule.hpp": {
     "mtime": 1791891776.1756237,
@@ -790,9 +790,9 @@
     "semantic_hash": ""
   },
   "native/include/diamond_pipeline/pipeline.hpp": {
-    "mtime": 1793249448.395897,
-    "seen": 1793249552.5138555,
-    "ast_hash": "e1c57beef4b7e02b5b90cdf3eff6c669",
+    "mtime": 1793251319.9460297,
+    "seen": 1793251720.2753534,
+    "ast_hash": "db9c31747a178c70ea99292a11c55344",
     "semantic_hash": ""
   },
   "native/include/diamond_pipeline/policy_diagnostics.hpp": {
@@ -844,9 +844,9 @@
     "semantic_hash": "6e2c6fa6282eb55bc9dc932cff70ba11"
   },
   "native/include/diamond_training/checkpoint.hpp": {
-    "mtime": 1793249371.6100836,
-    "seen": 1793249552.513861,
-    "ast_hash": "6e65f3ea1d4f5f7e10eff6baa645e6a3",
+    "mtime": 1793251319.9460297,
+    "seen": 1793251720.2753587,
+    "ast_hash": "5f41f0822822710254404a71aa5e6907",
     "semantic_hash": ""
   },
   "native/include/diamond_training/checkpoint_export.hpp": {
@@ -1006,9 +1006,9 @@
     "semantic_hash": "51c2d4d55fc14677c04ae2914de6f6b2"
   },
   "native/src/checkpoint.cpp": {
-    "mtime": 1793249277.8353078,
-    "seen": 1793249552.513878,
-    "ast_hash": "9e50bd5374157821d166820fe37faebe",
+    "mtime": 1793251319.9314156,
+    "seen": 1793251720.275376,
+    "ast_hash": "3940a8910c20426966d82648943d9a3c",
     "semantic_hash": ""
   },
   "native/src/checkpoint_export.cpp": {
@@ -1030,10 +1030,10 @@
     "semantic_hash": ""
   },
   "native/src/coordinator.cpp": {
-    "mtime": 1791891776.179175,
-    "seen": 1793216304.9690454,
-    "ast_hash": "c08e912866902492f0fc9d6924abc1ae",
-    "semantic_hash": "c08e912866902492f0fc9d6924abc1ae"
+    "mtime": 1793251348.0475624,
+    "seen": 1793251720.2753787,
+    "ast_hash": "18a88164d0a9c0f67d6d82eedaddf16c",
+    "semantic_hash": ""
   },
   "native/src/deployment_artifact.cpp": {
     "mtime": 1791902803.438451,
@@ -1114,9 +1114,9 @@
     "semantic_hash": "723cabc12039cbba139492ec0cc6b5f5"
   },
   "native/src/pipeline.cpp": {
-    "mtime": 1793249448.3955376,
-    "seen": 1793249552.5138893,
-    "ast_hash": "a5ee1f37578fecf7849b120d638fb020",
+    "mtime": 1793251434.108166,
+    "seen": 1793251720.275387,
+    "ast_hash": "a7b45644166c921da5972d606d3bb75b",
     "semantic_hash": ""
   },
   "native/src/policy_diagnostics.cpp": {
@@ -1192,10 +1192,10 @@
     "semantic_hash": "2a3723052330ee6e77b8dbe2fa805cd0"
   },
   "native/src/run_state.cpp": {
-    "mtime": 1791891776.179736,
-    "seen": 1793216304.9690602,
-    "ast_hash": "825c469a555a7be9e1da40050ae2caff",
-    "semantic_hash": "825c469a555a7be9e1da40050ae2caff"
+    "mtime": 1793251348.0475624,
+    "seen": 1793251720.275395,
+    "ast_hash": "050d59785ee629a5cfc275bd4bafd003",
+    "semantic_hash": ""
   },
   "native/src/schedule.cpp": {
     "mtime": 1793249448.3960676,
@@ -1258,9 +1258,9 @@
     "semantic_hash": "78313ef2975be7e3a8243ea52109da64"
   },
   "native/src/train_main.cpp": {
-    "mtime": 1793249624.4897797,
-    "seen": 1793250008.1423388,
-    "ast_hash": "3d5fc4c12ae09ec410c25786ffa09c6d",
+    "mtime": 1793251435.1652138,
+    "seen": 1793251720.2754014,
+    "ast_hash": "1004dc678e957304183122d0524b126c",
     "semantic_hash": ""
   },
   "native/src/trainer.cpp": {
@@ -1362,10 +1362,10 @@
     "semantic_hash": "52d1c7f42f21a532780e56c344df9241"
   },
   "tools/run_min_balanced_datacenter.sh": {
-    "mtime": 1791891776.2107587,
-    "seen": 1793216304.9691236,
-    "ast_hash": "a53ad5bf405e659b93655ee903da61a8",
-    "semantic_hash": "a53ad5bf405e659b93655ee903da61a8"
+    "mtime": 1793251500.2994485,
+    "seen": 1793251720.2754128,
+    "ast_hash": "5bb0602f2a74d4f5629cb158fcfb1bd1",
+    "semantic_hash": ""
   },
   "tools/run_min_serial_search_sweep.sh": {
     "mtime": 1791891776.2107587,
@@ -1410,21 +1410,21 @@
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1793249727.3452458,
-    "seen": 1793250008.1423578,
+    "mtime": 1793251434.1080036,
+    "seen": 1793251720.275423,
     "ast_hash": "d2f3f27a4265276e4c374c7b7332b51a",
     "semantic_hash": ""
   },
   "CMakeLists.txt": {
-    "mtime": 1793249194.9232378,
-    "seen": 1793249552.51393,
-    "ast_hash": "88a10e59b7b80d0d6f0f6fb1f10507cf",
+    "mtime": 1793251346.7861705,
+    "seen": 1793251720.2754235,
+    "ast_hash": "8320122ef02848e3f70519d409a937be",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793249265.795621,
-    "seen": 1793250155.5014453,
-    "ast_hash": "59019fcea7bdab90c3a1d138b71a6202",
+    "mtime": 1793251500.3564186,
+    "seen": 1793251720.275424,
+    "ast_hash": "4b03ac77a0b670e27f7033d0795786ef",
     "semantic_hash": ""
   },
   "TrainAlphaDiamond/README.md": {
@@ -1488,8 +1488,8 @@
     "semantic_hash": "b03dca7d00f693d11e21e418f9b633a8"
   },
   "docs/architecture/products.md": {
-    "mtime": 1793249727.3452852,
-    "seen": 1793250155.5014522,
+    "mtime": 1793251434.1081257,
+    "seen": 1793251720.2754316,
     "ast_hash": "1b186be5376bcabab3e6bc867769c51a",
     "semantic_hash": ""
   },
@@ -1506,9 +1506,9 @@
     "semantic_hash": ""
   },
   "docs/development/build-cycle.md": {
-    "mtime": 1793249265.7958536,
-    "seen": 1793250155.5014546,
-    "ast_hash": "13f2bebd280a5cfe2d421d8f41335f21",
+    "mtime": 1793251500.356491,
+    "seen": 1793251720.2754343,
+    "ast_hash": "8fb1e6d93920eff1f517034c179095b3",
     "semantic_hash": ""
   },
   "docs/model-training/balanced_turn_orders.md": {
@@ -1854,9 +1854,9 @@
     "semantic_hash": ""
   },
   "native/CMakeLists.txt": {
-    "mtime": 1793249635.5645485,
-    "seen": 1793250155.5014942,
-    "ast_hash": "01847077dfcf9e0f5edf67693b3d9712",
+    "mtime": 1793251346.7863102,
+    "seen": 1793251720.2754755,
+    "ast_hash": "b51ad5b8b2947dc2e8d076c7d8b15410",
     "semantic_hash": ""
   },
   "runtime/runs/soo/cpu8h-soo-20260819/README.md": {
@@ -1866,8 +1866,8 @@
     "semantic_hash": ""
   },
   "docs/architecture/repository_split.md": {
-    "mtime": 1793249882.874994,
-    "seen": 1793250155.5014536,
+    "mtime": 1793251434.108095,
+    "seen": 1793251720.2754333,
     "ast_hash": "bf5182cfa400d0d80878298d541cf320",
     "semantic_hash": ""
   },
@@ -1884,15 +1884,15 @@
     "semantic_hash": ""
   },
   "training-panel/server.mjs": {
-    "mtime": 1793244587.8685598,
-    "seen": 1793244869.379685,
-    "ast_hash": "ce6879a48c2704498f9d9e5ee0cf6d9e",
+    "mtime": 1793251488.8538063,
+    "seen": 1793251720.2754173,
+    "ast_hash": "e6ba8db955ffaa8cc7dd8440e65dfdfa",
     "semantic_hash": ""
   },
   "training-panel/src/App.svelte": {
-    "mtime": 1793223785.229365,
-    "seen": 1793226758.5834017,
-    "ast_hash": "ef73598a3459a88a5ae4d86da57c7078",
+    "mtime": 1793251556.1885078,
+    "seen": 1793251720.2754183,
+    "ast_hash": "a8f3b52e61c65e0932713b76ff153864",
     "semantic_hash": ""
   },
   "training-panel/src/Chart.svelte": {
@@ -1932,9 +1932,9 @@
     "semantic_hash": ""
   },
   "training-panel/README.md": {
-    "mtime": 1793249265.7956662,
-    "seen": 1793249552.5139868,
-    "ast_hash": "e9a5a37a893f9ebe630f4475ef75de5d",
+    "mtime": 1793251531.2640355,
+    "seen": 1793251720.2754767,
+    "ast_hash": "5f4551c1b5a6b9e28d17528f2838d340",
     "semantic_hash": ""
   },
   "training-panel/index.html": {
@@ -1968,9 +1968,9 @@
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-10-29-pipeline-simplification.md": {
-    "mtime": 1793250097.821484,
-    "seen": 1793250155.5014794,
-    "ast_hash": "46ce3ef30286c47f73ba15862449837f",
+    "mtime": 1793251434.108166,
+    "seen": 1793251720.2754607,
+    "ast_hash": "8f4ba2ec6fd5f319e1b5af910a578f5c",
     "semantic_hash": ""
   },
   "docs/superpowers/specs/2026-10-29-pipeline-simplification-design.md": {

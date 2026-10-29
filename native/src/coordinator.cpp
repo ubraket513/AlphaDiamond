@@ -1,6 +1,5 @@
 #include "diamond_orchestration/coordinator.hpp"
 
-#include <array>
 #include <limits>
 #include <utility>
 
@@ -22,29 +21,6 @@ namespace {
 
 using Json = diamond_support::JsonValue;
 using Object = Json::Object;
-
-constexpr std::array<RunStage, 10> kStages = {
-    RunStage::initialize, RunStage::self_play, RunStage::replay_ingest,
-    RunStage::train, RunStage::save_candidate, RunStage::promotion_arena,
-    RunStage::rating_benchmark, RunStage::promote_or_reject,
-    RunStage::persist, RunStage::complete,
-};
-constexpr std::array<std::string_view, 10> kStageNames = {
-    "INITIALIZE", "SELF_PLAY", "REPLAY_INGEST", "TRAIN", "SAVE_CANDIDATE",
-    "PROMOTION_ARENA", "RATING_BENCHMARK", "PROMOTE_OR_REJECT", "PERSIST", "COMPLETE",
-};
-
-std::string_view stage_name(RunStage stage) {
-    for (std::size_t index = 0; index < kStages.size(); ++index)
-        if (kStages[index] == stage) return kStageNames[index];
-    throw CoordinatorError("unknown run stage");
-}
-
-RunStage next_stage(RunStage stage) {
-    for (std::size_t index = 0; index + 1 < kStages.size(); ++index)
-        if (kStages[index] == stage) return kStages[index + 1];
-    throw CoordinatorError("COMPLETE is terminal");
-}
 
 const std::string& string_field(const Object& object, std::string_view name) {
     const auto found = object.find(std::string(name));

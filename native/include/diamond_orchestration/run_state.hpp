@@ -5,6 +5,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #include "diamond_support/json.hpp"
 
@@ -19,6 +20,16 @@ enum class RunStage {
     initialize, self_play, replay_ingest, train, save_candidate,
     promotion_arena, rating_benchmark, promote_or_reject, persist, complete,
 };
+
+// Stable uppercase names used by persisted run state, completion markers, and
+// coordinator operation IDs. These are separate from lowercase artifact labels.
+// An unrecognized enum value throws RunStateError.
+std::string_view stage_name(RunStage stage);
+
+// Advance in the persisted stage order. COMPLETE has no successor; starting a
+// new iteration is a separate RunStateStore operation. Invalid values and
+// COMPLETE throw RunStateError.
+RunStage next_stage(RunStage stage);
 
 class RunState final {
   public:

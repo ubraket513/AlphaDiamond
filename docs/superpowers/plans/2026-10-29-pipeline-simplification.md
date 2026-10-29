@@ -96,3 +96,30 @@
 - Desktop 실제 실행: 격리된 설정 디렉터리와 offscreen Qt로 5초 정상 기동. 저장소의 기존 모델을 읽었으며 새 학습·대국은 실행하지 않음. 전체 GUI 수동 조작 검증은 아님.
 - Desktop Graphify: 658 nodes/1,324 edges, QML semantic 18개와 관계 36개 보존, dangling edge 없음.
 - Engine Graphify: 4,051 nodes/8,150 edges. 삭제된 소스의 노드와 dangling 관계 없음. 기존 제품 semantic 126개 보존, 현재 정리·중지 상태 4개 추가.
+
+## YACHT 비교 후 추가 정리 (완료)
+
+사용자가 추가 검토의 일곱 항목을 승인했다. 훈련·평가 중지와 자동 예약 삭제, 새 테스트·CI 금지, 로컬 브랜치 및 기존 아티팩트 보존 지시는 유지한다.
+
+- [x] self-play 벤치마크에 production 설정을 먼저 적용하고 명시한 CLI 값만 덮어쓰기.
+- [x] 기존 RunStage 정의에서 단계 이름·순서를 한 번만 관리.
+- [x] 기존 checkpoint 환경 기록과 패널에 TF32 요청/허용 상태를 구분해 표시.
+- [x] train_main의 단계별 실행을 같은 파일의 직접 호출 함수로 정리. 단계별 검증은 유지.
+- [x] 호출자가 사용하지 않는 선택적 v2 저장 경로와 writer 삭제. end-to-end 벤치마크는 이미 명시적으로 v3를 저장하므로 그 경로를 유지.
+- [x] 빌드 별칭·중복 컴파일 제거, Runtime 빌드에서 replay와 진단 실행파일 제외. 진단은 기존 BENCHMARKS 옵션으로 명시 선택.
+- [x] 패널 목록/선택 작업 상세 분리, 과거 iteration 재독 감소, 로그 읽기 범위 제한과 전체 로그 접근 유지.
+- [x] 독립 소스 검토, 병렬 빌드, 읽기 전용 CLI·패널 직접 확인, Graphify 갱신.
+
+
+### 추가 정리 확인 결과
+
+- `execute_stage`는 47줄의 직접 분기로 줄였고, 같은 파일의 단계별 함수 9개로 기존 본문을 옮겼다. 단계별 검사와 재개 판단은 유지했다.
+- 설정/벤치마크, 네이티브 단계·저장·빌드, 패널의 독립 소스 검토에서 구체적 blocker는 발견되지 않았다.
+- GCC 15/sccache/mold/Ninja: 수정 후 개발 빌드 병렬 6개 8.05초, Release train/release 병렬 4개 21.82초, Runtime 병렬 6개 0.15초(증분/캐시). 최초 개발 빌드의 누락 include 오류를 수정한 뒤 재빌드했다. 전체 클린 빌드 시간은 아니다.
+- compile database에서 `training_sample.cpp`는 1회, Runtime의 replay/probe 소스는 0개임을 확인했다. Linux preset 이름과 datacenter 실행 스크립트의 옛 테스트 호출도 정리했다.
+- 패널 Node 문법 및 Vite production build 통과(111ms), 재시작 후 홈 HTTP 200·없는 작업 HTTP 404·상태 jobs=[] 확인. 과거 iteration은 브라우저에 유지하고 최신 iteration부터 다시 읽으며, 콘솔 tail은 64 KiB로 제한한다. 전체 콘솔은 별도 스트림으로 제공한다.
+- Release CLI help, 기존 primary run의 report, shipped Min 2.0.1 artifact validate가 정상 종료했다. selfplay benchmark는 help만 실행했고 실제 self-play·학습·평가는 실행하지 않았다.
+- TF32 raw 환경 요청과 LibTorch 허용 flag를 새 checkpoint provenance에 기록한다. 실행 커널 사용의 증거는 아니다. 새 checkpoint를 만들기 위한 학습은 실행하지 않았다.
+- Graphify AST 갱신 4,068 nodes/8,287 edges, 기존 semantic 130개 보존, dangling 관계 없음. 변경된 운영 문서의 의미 기록도 갱신했다.
+- 회귀 테스트/CI를 추가하거나 실행하지 않았다. 실행 작업이 없으므로 살아 있는 작업의 incremental polling/full-log 다운로드는 소스 검토까지 확인했으며 실제 훈련으로 검증하지 않았다.
+- 상세 로그: `artifacts/pipeline-cleanup-20261029/followup-verification/`. Desktop 코드/SDK lock과 shipped 모델, 실험 결과는 변경하지 않았다.

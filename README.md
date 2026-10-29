@@ -3,7 +3,7 @@
 This repository owns the native C++26 rules, encoders, search, inference,
 training, model export and Runtime SDK. The Qt/QML application now lives in
 [AlphaDiamondDesktop](../AlphaDiamondDesktop). Desktop consumes a pinned installed
-SDK and has its own build, tests and releases.
+SDK and has its own build and releases.
 
 The shared engine is implemented once. Runtime consumers link the SDK's core,
 search, support, artifact, rating and model targets; they do not compile trainer,
@@ -26,12 +26,16 @@ make build PRESET=native-training-linux
 make build PRESET=native-asan
 ```
 
-The default Linux Make preset is `native-ci-linux`; select
-`PRESET=native-training-linux` for training. Preset names are retained for
-existing local build directories and do not imply a CI workflow. The portable `native-ci`, `native-runtime` and
+The default Linux Make preset is `native-core-linux`; select
+`PRESET=native-training-linux` for training. The portable `native-core`, `native-runtime` and
 `native-training` presets also use Debug. Windows commands use
 `tools/native_training.sh` to initialize the native toolchain. No Qt kit or
 interpreter is required. See [development build cycle](docs/development/build-cycle.md).
+
+Diagnostic executables are opt-in: add `-DDIAMOND_BUILD_BENCHMARKS=ON` when
+configuring a build used for benchmarks/probes. Normal training and Runtime SDK
+builds omit them. Legacy `DIAMOND_BUILD_LIBTORCH*` options were removed; select
+`DIAMOND_BUILD_MODEL` and `DIAMOND_BUILD_TRAINING` explicitly.
 
 Optimized builds are explicit final outputs: `native-release` or
 `native-training-release`. Direct build calls should supply
@@ -44,7 +48,7 @@ Configure inference without training, build all runtime targets, then
 install the `Runtime` component:
 
 ```sh
-cmake --preset native-gcc-mold -B build/sdk -DCMAKE_PREFIX_PATH=/path/to/cpu-libtorch
+cmake --preset native-runtime-linux -B build/sdk -DCMAKE_PREFIX_PATH=/path/to/cpu-libtorch
 cmake --build build/sdk --parallel "$(tools/build_resources.sh build)"
 cmake --install build/sdk --component Runtime --prefix /path/to/sdk
 ```

@@ -18,7 +18,20 @@
   let followLog = $state(true);
   let logElement = $state();
   let speedMetric = $state('samples_per_second');
-  let job = $derived(jobs.find((item) => item.pid === selectedPid));
+  let detail = $state(null);
+  let refreshing = false;
+  let selectionVersion = 0;
+  let job = $derived.by(() => {
+    const selected = jobs.find((item) => item.pid === selectedPid);
+    if (!selected) return undefined;
+    const current = detail?.pid === selected.pid && detail.startTicks === selected.startTicks ? detail : null;
+    const iterations = current?.iterations ?? [];
+    const metrics = iterations.flatMap(({ iteration, stages }) =>
+      (stages['train.json']?.training_metrics ?? []).map(metric => ({ ...metric, iteration })))
+      .sort((a, b) => a.iteration - b.iteration || a.training_step - b.training_step);
+    return { ...selected, ...current, iterations, metrics,
+      evaluation: { ...selected.evaluation, ...current?.evaluation } };
+  });
   let evaluating = $derived(job?.kind === 'evaluation');
   let summary = $derived(job?.evaluation?.summary);
   let latest = $derived(job?.metrics.at(-1));
@@ -52,18 +65,41 @@
     return data;
   }
   async function refresh() {
+    if (refreshing) return;
+    refreshing = true;
+    let version = selectionVersion;
     try {
       const data = await api('status');
+      if (version !== selectionVersion) return;
       jobs = data.jobs;
       if (!jobs.some((item) => item.pid === selectedPid)) {
-        selectedPid = jobs[0]?.pid ?? null;
-        tab = 'console';
+        selectRun(jobs[0]?.pid ?? null);
+      }
+      const selected = jobs.find((item) => item.pid === selectedPid);
+      version = selectionVersion;
+      if (selected) {
+        const previous = detail?.pid === selected.pid && detail.startTicks === selected.startTicks ? detail : null;
+        const fromIteration = previous?.iterations.at(-1)?.iteration ?? 0;
+        const update = await api(`runs/${selected.pid}?fromIteration=${fromIteration}&startTicks=${selected.startTicks}`);
+        if (version !== selectionVersion) return;
+        detail = { ...update, pid: selected.pid, startTicks: selected.startTicks,
+          iterations: [...(previous?.iterations ?? []).filter(item => item.iteration < fromIteration), ...update.iterations] };
       }
       lastUpdate = new Date();
       error = '';
       await tick();
       if (followLog && logElement) logElement.scrollTop = logElement.scrollHeight;
-    } catch (cause) { error = cause.message; }
+    } catch (cause) { if (version === selectionVersion) error = cause.message; }
+    finally {
+      refreshing = false;
+      if (version !== selectionVersion) refresh();
+    }
+  }
+  function selectRun(pid) {
+    selectedPid = pid;
+    detail = null;
+    selectionVersion++;
+    tab = 'console';
   }
   function choosePreset(path) {
     const preset = presets.find((item) => item.path === path);
@@ -82,7 +118,7 @@
     launchError = '';
     try {
       const result = await api('runs', { runDir, config: JSON.parse(configText), ...(warmStart.trim() && { warmStart: warmStart.trim() }) });
-      selectedPid = result.pid;
+      selectRun(result.pid);
       launcherOpen = false;
       runDir = newRunDir(draft.model_name);
       await refresh();
@@ -121,10 +157,10 @@
     <div class="sidebar-heading"><h2>실행 중</h2><span class="count">{jobs.length}</span></div>
     <nav aria-label="실행 중인 훈련과 평가">
       {#each jobs as item (item.pid)}
-        <button class:active={item.pid === selectedPid} class="run-item" onclick={() => { selectedPid = item.pid; tab = 'console'; }}>
+        <button class:active={item.pid === selectedPid} class="run-item" onclick={() => { selectRun(item.pid); refresh(); }}>
           <span class="run-model">{item.kind === 'evaluation' ? 'Expert arena' : item.config?.model_name ?? 'Training'} <span class="status-dot"></span></span>
           <strong>{basename(item.runDir)}</strong>
-          <span class="run-stage">{item.state?.stage ?? 'STARTING'} <span>{#if item.kind === 'evaluation'}{number(item.evaluation?.matches?.length)} / {number(item.evaluation?.summary?.scheduled_matches)}{:else}#{number((item.state?.iteration ?? 0) + 1)}{/if}</span></span>
+          <span class="run-stage">{item.state?.stage ?? 'STARTING'} <span>{#if item.kind === 'evaluation'}{number(item.evaluation?.summary ? item.evaluation.summary.completed_matches + item.evaluation.summary.aborted_matches : null)} / {number(item.evaluation?.summary?.scheduled_matches)}{:else}#{number((item.state?.iteration ?? 0) + 1)}{/if}</span></span>
           <small>PID {item.pid}</small>
         </button>
       {:else}<p class="sidebar-empty">실행 중인 훈련·평가가 없습니다.</p>{/each}
@@ -170,6 +206,7 @@
       </div>
 
       <div class="run-meta"><span class="stage"><i class="status-dot"></i>{job.state?.stage ?? 'STARTING'}</span>{#if !evaluating}<span>{job.config?.runtime?.device} · {job.config?.runtime?.precision}</span>{/if}<span>PID {job.pid}</span>{#if job.startedAt}<span>시작 {new Date(job.startedAt).toLocaleTimeString('ko-KR')}</span>{/if}</div>
+      <p class="cadence">TF32 환경 요청 (/proc): {#if job.tf32Requests}TORCH_ALLOW_TF32_CUBLAS_OVERRIDE={job.tf32Requests.TORCH_ALLOW_TF32_CUBLAS_OVERRIDE ?? '미설정'} · NVIDIA_TF32_OVERRIDE={job.tf32Requests.NVIDIA_TF32_OVERRIDE ?? '미설정'}{:else}확인 중 또는 읽기 불가{/if}. 실제 커널 사용 여부를 뜻하지 않습니다.</p>
 
       {#if evaluating}
       <div class="stats">
@@ -199,11 +236,16 @@
       <section class="detail-panel">
         <div class="detail-toolbar">
           <div class="tabs" role="tablist" aria-label="실행 세부 정보">{#each (evaluating ? [['console', '콘솔'], ['metadata', '전체 메타데이터']] : [['console', '콘솔'], ['config', '실행 설정'], ['metadata', '전체 메타데이터']]) as [key, label]}<button role="tab" aria-selected={tab === key} class:selected={tab === key} onclick={() => { tab = key; }}>{label}</button>{/each}</div>
-          {#if tab === 'console'}<label class="follow"><input type="checkbox" bind:checked={followLog} />자동 스크롤</label>{/if}
+          {#if tab === 'console'}
+            {#if job.logAvailable}<a href={`/api/runs/${job.pid}/log?startTicks=${job.startTicks}`} target="_blank" rel="noreferrer">전체 콘솔 열기 ↗</a>{/if}
+            <label class="follow"><input type="checkbox" bind:checked={followLog} />자동 스크롤</label>
+          {/if}
         </div>
-        {#if tab === 'console'}<pre class="console" bind:this={logElement}>{job.log || '아직 CLI 출력이 없습니다.'}</pre>
+        {#if tab === 'console'}
+          {#if job.logTruncated}<p class="cadence">최근 64 KiB 출력입니다. 이전 출력은 전체 콘솔에서 확인하세요.</p>{/if}
+          <pre class="console" bind:this={logElement}>{job.log || '아직 CLI 출력이 없습니다.'}</pre>
         {:else if tab === 'config'}<pre>{pretty(job.config)}</pre>
-        {:else}<pre>{pretty(evaluating ? { state: job.state, evaluation: job.evaluation } : { state: job.state, iterations: job.iterations })}</pre>{/if}
+        {:else}<pre>{pretty(evaluating ? { state: job.state, tf32Requests: job.tf32Requests, evaluation: job.evaluation } : { state: job.state, tf32Requests: job.tf32Requests, iterations: job.iterations })}</pre>{/if}
       </section>
       <p class="command"><span>CLI</span><code>{Array.isArray(job.command) ? job.command.join(' ') : job.command}</code></p>
     {:else if !launcherOpen}

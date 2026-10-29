@@ -7,13 +7,12 @@
   },
   "configurePresets": [
     {
-      "name": "native-ci",
+      "name": "native-core",
       "displayName": "Native core, no Python",
       "description": "Portable native core build: no interpreter, no pybind, no Qt.",
-      "binaryDir": "${sourceDir}/build/native-ci",
+      "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "DIAMOND_BUILD_LIBTORCH": "OFF",
         "DIAMOND_BUILD_MODEL": "OFF",
         "DIAMOND_BUILD_TRAINING": "OFF",
         "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "OFF",
@@ -22,7 +21,7 @@
     },
     {
       "name": "native-release",
-      "inherits": "native-ci",
+      "inherits": "native-core",
       "displayName": "Native release",
       "binaryDir": "${sourceDir}/build/native-release",
       "cacheVariables": {
@@ -31,49 +30,37 @@
     },
     {
       "name": "native-runtime",
-      "inherits": "native-ci",
+      "inherits": "native-core",
       "displayName": "Native LibTorch runtime without training",
       "binaryDir": "${sourceDir}/build/native-runtime",
       "cacheVariables": {
-        "DIAMOND_BUILD_LIBTORCH": "OFF",
         "DIAMOND_BUILD_MODEL": "ON",
         "DIAMOND_BUILD_TRAINING": "OFF"
       }
     },
     {
-      "name": "native-gcc-mold",
-      "inherits": "native-runtime",
+      "name": "native-runtime-linux",
+      "inherits": [
+        "native-linux-toolchain",
+        "native-runtime"
+      ],
       "displayName": "Native development runtime with GCC 15, Ninja, sccache and mold",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/native-gcc-mold",
-      "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "/usr/bin/g++-15",
-        "CMAKE_CXX_COMPILER_LAUNCHER": "$env{HOME}/.local/bin/sccache",
-        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=mold",
-        "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=mold",
-        "CMAKE_MODULE_LINKER_FLAGS": "-fuse-ld=mold"
-      },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Linux"
-      }
+      "binaryDir": "${sourceDir}/build/${presetName}"
     },
     {
       "name": "native-training",
-      "inherits": "native-ci",
+      "inherits": "native-core",
       "displayName": "Native LibTorch training",
       "binaryDir": "${sourceDir}/build/native-training",
       "cacheVariables": {
-        "DIAMOND_BUILD_LIBTORCH": "OFF",
         "DIAMOND_BUILD_MODEL": "ON",
         "DIAMOND_BUILD_TRAINING": "ON",
-        "DIAMOND_BUILD_BENCHMARKS": "ON"
+        "DIAMOND_BUILD_BENCHMARKS": "OFF"
       }
     },
     {
       "name": "native-asan",
-      "inherits": "native-ci",
+      "inherits": "native-core",
       "displayName": "Native core, ASan/UBSan",
       "binaryDir": "${sourceDir}/build/native-asan",
       "cacheVariables": {
@@ -114,10 +101,10 @@
       }
     },
     {
-      "name": "native-ci-linux",
+      "name": "native-core-linux",
       "inherits": [
         "native-linux-toolchain",
-        "native-ci"
+        "native-core"
       ],
       "binaryDir": "${sourceDir}/build/${presetName}"
     },
@@ -138,14 +125,14 @@
       "jobs": 8
     },
     {
-      "name": "native-gcc-mold",
-      "configurePreset": "native-gcc-mold",
+      "name": "native-runtime-linux",
+      "configurePreset": "native-runtime-linux",
       "configuration": "Debug",
       "jobs": 8
     },
     {
-      "name": "native-ci",
-      "configurePreset": "native-ci",
+      "name": "native-core",
+      "configurePreset": "native-core",
       "configuration": "Debug",
       "jobs": 8
     },
@@ -174,8 +161,8 @@
       "jobs": 8
     },
     {
-      "name": "native-ci-linux",
-      "configurePreset": "native-ci-linux",
+      "name": "native-core-linux",
+      "configurePreset": "native-core-linux",
       "configuration": "Debug",
       "jobs": 8
     },

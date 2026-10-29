@@ -5,7 +5,7 @@ Ninja, sccache and mold. GNU Debug compilation uses `-O0 -g1 -pipe`; Release
 retains the compiler's optimized defaults. Link-time optimization defaults to
 off in every configuration. No optimization flags are added to dependencies.
 
-The native presets provide a fallback of eight build jobs. `tools/build_resources.sh`
+Direct build presets use eight build jobs unless overridden. `tools/build_resources.sh`
 detects CPU affinity, cgroup quotas and memory headroom and reserves memory for
 the OS/linker. Override `BUILD_JOBS=N` in Make or pass an explicit parallel count
 to CMake. Keep nested OpenMP/MKL work within the same host resource budget.
@@ -20,14 +20,14 @@ make build PRESET=native-training-linux
 
 # Direct preset invocations always supply the detected counts explicitly.
 BUILD_JOBS=$(tools/build_resources.sh build)
-cmake --preset native-gcc-mold
-cmake --build --preset native-gcc-mold --parallel "$BUILD_JOBS"
+cmake --preset native-runtime-linux
+cmake --build --preset native-runtime-linux --parallel "$BUILD_JOBS"
 ```
 
-On Linux, default Make core/training routes select `native-ci-linux` and
-`native-training-linux`. The explicit `native-gcc-mold` runtime preset selects `/usr/bin/g++-15`, `$HOME/.local/bin/sccache`, Ninja
+On Linux, default Make core/training routes select `native-core-linux` and
+`native-training-linux`. The explicit `native-runtime-linux` runtime preset selects `/usr/bin/g++-15`, `sccache`, Ninja
 and `-fuse-ld=mold`. Install these tools before configuring; mold must be on
-the compiler's executable search path. `native-ci`, `native-runtime`,
+the compiler's executable search path. `native-core`, `native-runtime`,
 `native-training` also default to Debug
 and remain usable on other supported platforms. `native-asan` remains Debug.
 Use a fresh build directory when changing compiler or generator.
@@ -63,3 +63,20 @@ cmake --build --preset native-training-release --parallel "$BUILD_JOBS"
 `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold` to the first configure of these
 portable Release presets. Set shared/module linker flags similarly when needed.
 Release remains free of LTO unless explicitly enabled.
+
+## Build selections
+
+Use `native-core-linux`, `native-runtime-linux` or `native-training-linux` for
+Linux development. The old `native-ci`, `native-ci-linux` and `native-gcc-mold`
+preset names were replaced by these product names; existing build directories
+can be reconfigured explicitly with `-B`. No compatibility alias is retained.
+
+Model and training selection uses `DIAMOND_BUILD_MODEL` and
+`DIAMOND_BUILD_TRAINING`. Runtime builds exclude replay/learner code. Diagnostics
+and probes require the existing `DIAMOND_BUILD_BENCHMARKS=ON` option; ordinary
+training presets leave it off. Use a diagnostics build explicitly, for example:
+
+```sh
+cmake --preset native-training-linux -B build/diagnostics -DDIAMOND_BUILD_BENCHMARKS=ON
+cmake --build build/diagnostics --parallel "$(tools/build_resources.sh build)"
+```

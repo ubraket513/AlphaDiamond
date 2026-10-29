@@ -4,19 +4,10 @@ project(alphadiamond LANGUAGES CXX)
 
 include(cmake/DevelopmentToolchain.cmake)
 
-option(DIAMOND_BUILD_LIBTORCH "Build native LibTorch model and training support" OFF)
-option(DIAMOND_BUILD_LIBTORCH_PROBE "Deprecated alias for DIAMOND_BUILD_LIBTORCH" OFF)
-if(DIAMOND_BUILD_LIBTORCH_PROBE)
-    set(DIAMOND_BUILD_LIBTORCH ON CACHE BOOL "Build native LibTorch model and training support" FORCE)
-endif()
-# The legacy umbrella still enables both components. New presets select them
-# explicitly so inference never implicitly enables training.
+# Inference and training are explicit product selections. Training uses models;
+# diagnostics are selected separately by DIAMOND_BUILD_BENCHMARKS.
 option(DIAMOND_BUILD_MODEL "Build native LibTorch inference models" OFF)
 option(DIAMOND_BUILD_TRAINING "Build native training, replay orchestration and release tools" OFF)
-if(DIAMOND_BUILD_LIBTORCH)
-    set(DIAMOND_BUILD_MODEL ON)
-    set(DIAMOND_BUILD_TRAINING ON)
-endif()
 if(DIAMOND_BUILD_TRAINING AND NOT DIAMOND_BUILD_MODEL)
     message(FATAL_ERROR "DIAMOND_BUILD_TRAINING requires DIAMOND_BUILD_MODEL=ON")
 endif()

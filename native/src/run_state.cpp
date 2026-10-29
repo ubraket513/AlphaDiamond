@@ -31,6 +31,8 @@ const std::set<std::string> kProgressFields = {
     "training_step", "replay_manifest", "completed_game_ids", "promotion_records", "rating_records",
 };
 
+// Shared by serialization, completion validation, and coordinator advancement.
+// Keep this order and the corresponding names stable for persisted runs.
 constexpr std::array<RunStage, 10> kStages = {
     RunStage::initialize, RunStage::self_play, RunStage::replay_ingest,
     RunStage::train, RunStage::save_candidate, RunStage::promotion_arena,
@@ -103,18 +105,6 @@ RunStage stage_from_name(std::string_view name) {
     throw RunStateError("run state has invalid stage");
 }
 
-std::string_view stage_name(RunStage stage) {
-    for (std::size_t index = 0; index < kStages.size(); ++index)
-        if (kStages[index] == stage) return kStageNames[index];
-    throw RunStateError("unknown run stage");
-}
-
-RunStage next_stage(RunStage stage) {
-    for (std::size_t index = 0; index + 1 < kStages.size(); ++index)
-        if (kStages[index] == stage) return kStages[index + 1];
-    throw RunStateError("COMPLETE is terminal");
-}
-
 void atomic_write(const std::filesystem::path& path, const std::string& contents) {
     static std::atomic_uint64_t sequence{0};
     std::filesystem::create_directories(path.parent_path());
@@ -139,6 +129,19 @@ void atomic_write(const std::filesystem::path& path, const std::string& contents
 }
 
 }  // namespace
+
+std::string_view stage_name(RunStage stage) {
+    for (std::size_t index = 0; index < kStages.size(); ++index)
+        if (kStages[index] == stage) return kStageNames[index];
+    throw RunStateError("unknown run stage");
+}
+
+RunStage next_stage(RunStage stage) {
+    for (std::size_t index = 0; index + 1 < kStages.size(); ++index)
+        if (kStages[index] == stage) return kStages[index + 1];
+    if (stage == RunStage::complete) throw RunStateError("COMPLETE is terminal");
+    throw RunStateError("unknown run stage");
+}
 
 RunState::RunState(Object payload) : payload_(std::move(payload)) {
     std::set<std::string> actual;

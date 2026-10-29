@@ -25,7 +25,7 @@ namespace diamond_pipeline {
 // Carries one operation's explicit inputs. jobs own initial states/seeds; model_key
 // names the actor snapshot already installed in the borrowed pool. Batch size is
 // samples per learner step, training_steps is update count, iteration fixes replay
-// sampling seeds. checkpoint_root is used only by the convenience run_iteration.
+// sampling seeds. The caller publishes checkpoints separately with v3 provenance.
 struct IterationRequest {
     std::string operation_id;
     ModelKey model_key;
@@ -38,7 +38,6 @@ struct IterationRequest {
     // Iteration index, which together with the store's replay seed and the
     // local step fixes every minibatch this iteration will draw.
     uint64_t iteration = 0;
-    std::optional<std::filesystem::path> checkpoint_root;
 };
 
 struct IterationResult {
@@ -159,8 +158,8 @@ TrainingResult train_replay(const IterationRequest& request, ReplayStore& replay
                             diamond_training::Trainer& trainer, std::stop_token stop = {});
 
 // Sequential convenience for benchmark callers. It is not transactional: ingested
-// replay and completed optimizer updates survive a later failure. Optional output
-// uses the v2 checkpoint writer; production publishes v3 provenance explicitly.
+// replay and completed optimizer updates survive a later failure. The caller
+// publishes v3 checkpoints explicitly, as the production coordinator does.
 IterationResult run_iteration(const IterationRequest& request, ModelPool& models,
                               ReplayStore& replay, diamond_training::Trainer& trainer,
                               std::stop_token stop);

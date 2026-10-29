@@ -87,24 +87,6 @@ target_link_libraries(alphadiamond-rating-sync PRIVATE alphadiamond::diamond_rat
 target_compile_features(alphadiamond-rating-sync PRIVATE cxx_std_20)
 install(TARGETS alphadiamond-rating-sync RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-add_library(diamond_pipeline STATIC
-    src/policy_diagnostics.cpp
-    src/replay_segment.cpp
-    src/replay_store.cpp
-    src/training_sample.cpp
-)
-add_library(alphadiamond::diamond_pipeline ALIAS diamond_pipeline)
-target_link_libraries(diamond_pipeline PUBLIC alphadiamond::soo_core alphadiamond::diamond_support)
-target_include_directories(diamond_pipeline PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-)
-target_compile_features(diamond_pipeline PUBLIC cxx_std_20)
-target_compile_options(diamond_pipeline PRIVATE
-    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic>
-    $<$<CXX_COMPILER_ID:MSVC>:/W4>
-)
-
 if(DIAMOND_BUILD_MODEL)
     find_package(Torch REQUIRED)
     include(${PROJECT_SOURCE_DIR}/cmake/AlphaDiamondEngineTorch.cmake)
@@ -127,44 +109,65 @@ if(DIAMOND_BUILD_MODEL)
         target_compile_options(diamond_model PRIVATE /bigobj)
     endif()
 
-    add_executable(soo_libtorch_probe src/soo_libtorch_probe.cpp)
-    target_link_libraries(soo_libtorch_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search ${TORCH_LIBRARIES})
-    target_compile_features(soo_libtorch_probe PRIVATE cxx_std_20)
-    target_include_directories(soo_libtorch_probe PRIVATE ${TORCH_INCLUDE_DIRS})
-    target_compile_definitions(soo_libtorch_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
-    if(MSVC)
-        target_compile_options(soo_libtorch_probe PRIVATE /bigobj)
-    endif()
+    if(DIAMOND_BUILD_BENCHMARKS)
+        add_executable(soo_libtorch_probe src/soo_libtorch_probe.cpp)
+        target_link_libraries(soo_libtorch_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search ${TORCH_LIBRARIES})
+        target_compile_features(soo_libtorch_probe PRIVATE cxx_std_20)
+        target_include_directories(soo_libtorch_probe PRIVATE ${TORCH_INCLUDE_DIRS})
+        target_compile_definitions(soo_libtorch_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
+        if(MSVC)
+            target_compile_options(soo_libtorch_probe PRIVATE /bigobj)
+        endif()
 
-    add_executable(soo_evaluator_probe src/soo_evaluator_probe.cpp)
-    target_link_libraries(soo_evaluator_probe PRIVATE alphadiamond::diamond_model)
-    target_compile_features(soo_evaluator_probe PRIVATE cxx_std_20)
-    target_compile_definitions(soo_evaluator_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
-    if(MSVC)
-        target_compile_options(soo_evaluator_probe PRIVATE /bigobj)
-    endif()
+        add_executable(soo_evaluator_probe src/soo_evaluator_probe.cpp)
+        target_link_libraries(soo_evaluator_probe PRIVATE alphadiamond::diamond_model)
+        target_compile_features(soo_evaluator_probe PRIVATE cxx_std_20)
+        target_compile_definitions(soo_evaluator_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
+        if(MSVC)
+            target_compile_options(soo_evaluator_probe PRIVATE /bigobj)
+        endif()
 
-    add_executable(soo_mcts_probe src/soo_mcts_probe.cpp)
-    target_link_libraries(soo_mcts_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search)
-    target_compile_features(soo_mcts_probe PRIVATE cxx_std_20)
-    target_compile_definitions(soo_mcts_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
-    if(MSVC)
-        target_compile_options(soo_mcts_probe PRIVATE /bigobj)
+        add_executable(soo_mcts_probe src/soo_mcts_probe.cpp)
+        target_link_libraries(soo_mcts_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search)
+        target_compile_features(soo_mcts_probe PRIVATE cxx_std_20)
+        target_compile_definitions(soo_mcts_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
+        if(MSVC)
+            target_compile_options(soo_mcts_probe PRIVATE /bigobj)
+        endif()
     endif()
 
 endif()
 
 if(DIAMOND_BUILD_TRAINING)
+    # Portable replay/schema code is needed by training, not Runtime SDK builds.
+    add_library(diamond_pipeline STATIC
+        src/policy_diagnostics.cpp
+        src/replay_segment.cpp
+        src/replay_store.cpp
+        src/training_sample.cpp
+    )
+    add_library(alphadiamond::diamond_pipeline ALIAS diamond_pipeline)
+    target_link_libraries(diamond_pipeline PUBLIC alphadiamond::soo_core alphadiamond::diamond_support)
+    target_include_directories(diamond_pipeline PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
+    target_compile_features(diamond_pipeline PUBLIC cxx_std_20)
+    target_compile_options(diamond_pipeline PRIVATE
+        $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic>
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    )
+
     add_library(diamond_training STATIC
         src/checkpoint.cpp
         src/checkpoint_export.cpp
         src/device.cpp
         src/parameter_diagnostics.cpp
-        src/training_sample.cpp
         src/trainer.cpp
     )
     add_library(alphadiamond::diamond_training ALIAS diamond_training)
-    target_link_libraries(diamond_training PUBLIC alphadiamond::diamond_model ${TORCH_LIBRARIES})
+    # Compatibility/sample schema has one compiled owner: diamond_pipeline.
+    target_link_libraries(diamond_training PUBLIC alphadiamond::diamond_model alphadiamond::diamond_pipeline ${TORCH_LIBRARIES})
     target_include_directories(diamond_training
         PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -325,19 +328,21 @@ if(DIAMOND_BUILD_TRAINING)
     install(TARGETS alphadiamond-train
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-    # Which prior carries Min out of a cold start: Soo's policy through a 3P
-    # adapter, the vacancy heuristic, or nothing.  Self-play only -- it never
-    # touches the arena or a run directory.
-    add_executable(alphadiamond-min-probe src/min_bootstrap_probe.cpp)
-    target_link_libraries(alphadiamond-min-probe
-        PRIVATE alphadiamond::diamond_model alphadiamond::soo_search
-                alphadiamond::diamond_training alphadiamond::diamond_native_pipeline
-                ${TORCH_LIBRARIES})
-    target_compile_features(alphadiamond-min-probe PRIVATE cxx_std_20)
-    target_include_directories(alphadiamond-min-probe PRIVATE ${TORCH_INCLUDE_DIRS})
-    target_compile_definitions(alphadiamond-min-probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
-    if(MSVC)
-        target_compile_options(alphadiamond-min-probe PRIVATE /bigobj)
+    if(DIAMOND_BUILD_BENCHMARKS)
+        # Which prior carries Min out of a cold start: Soo's policy through a 3P
+        # adapter, the vacancy heuristic, or nothing.  Self-play only -- it never
+        # touches the arena or a run directory.
+        add_executable(alphadiamond-min-probe src/min_bootstrap_probe.cpp)
+        target_link_libraries(alphadiamond-min-probe
+            PRIVATE alphadiamond::diamond_model alphadiamond::soo_search
+                    alphadiamond::diamond_training alphadiamond::diamond_native_pipeline
+                    ${TORCH_LIBRARIES})
+        target_compile_features(alphadiamond-min-probe PRIVATE cxx_std_20)
+        target_include_directories(alphadiamond-min-probe PRIVATE ${TORCH_INCLUDE_DIRS})
+        target_compile_definitions(alphadiamond-min-probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
+        if(MSVC)
+            target_compile_options(alphadiamond-min-probe PRIVATE /bigobj)
+        endif()
     endif()
 
 endif()

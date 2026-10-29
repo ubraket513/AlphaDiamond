@@ -20,9 +20,15 @@ required by the native CLI. An empty warm-start path uses `--scratch`;
 otherwise the path is passed as `--warm-start`. Native startup errors appear
 in the form. The CLI validates the configuration.
 
-New panel-launched trainers enable cuBLAS TF32 with
-`TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1` and inherit the server's other environment
-variables. Set the same flag for direct CLI or Agent training launches.
+New panel-launched trainers inherit the server's environment, including an explicit
+`TORCH_ALLOW_TF32_CUBLAS_OVERRIDE` value. When unset, the panel defaults that request
+to `1`; start the server with `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=0` to preserve a zero
+request for new launches. CLI and Agent launches use their own environment.
+The selected job shows its `/proc` TF32 environment requests, including
+`NVIDIA_TF32_OVERRIDE`. These requests do not prove actual TF32 kernel use.
+Native checkpoint `environment_json` records the effective cuBLAS/cuDNN allow
+flags as well as the environment requests; those flags describe permission,
+not whether a particular kernel used TF32.
 
 The three Min expert local-pilot presets use 24 search threads, 256 lanes,
 batch cap 128 and a 100µs batch wait. On this RTX 5080 machine, full ABBA runs
@@ -58,7 +64,14 @@ TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 \
 The browser and server can be closed without stopping a job. State, settings,
 iteration metadata and loss samples come directly from native files. They update
 at stage boundaries; console output appears as the CLI writes it. The panel polls
-every 1.5 seconds. Completed or stopped processes leave the active list.
+every 1.5 seconds, with one refresh in flight at a time. `/api/status` reads only
+the active jobs' state/configuration or evaluation summary. The selected job's
+`/api/runs/:pid?fromIteration=N` response supplies detailed metadata and the most
+recent 64 KiB of console output. The browser retains older iteration metadata and
+re-reads the latest seen iteration to pick up new stage files; selecting another
+job starts a fresh detail read. Full console output remains available through
+the **전체 콘솔 열기** link (`/api/runs/:pid/log`), streamed directly from the file.
+No logs or metadata are deleted. Completed or stopped processes leave the active list.
 Settings and configuration copying use `active-config.json` after an accepted
 resume transition; runs without a transition use their initial `resolved-config.json`.
 

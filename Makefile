@@ -1,7 +1,7 @@
 # CMake owns compiler flags and targets. Override worker counts for shared hosts.
 .PHONY: help configure build
 HOST_OS := $(shell uname -s)
-PRESET ?= $(if $(filter Linux,$(HOST_OS)),native-ci-linux,native-ci)
+PRESET ?= $(if $(filter Linux,$(HOST_OS)),native-core-linux,native-core)
 NATIVE_TOOL := tools/native_training.sh
 # Affinity/quota/memory-aware worker detection.
 BUILD_JOBS ?= $(or $(CMAKE_BUILD_PARALLEL_LEVEL),$(shell tools/build_resources.sh build))

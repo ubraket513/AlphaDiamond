@@ -41,6 +41,7 @@
 #include "soo/arena_router.hpp"
 #include "soo/min_experts.hpp"
 #include "soo/rules.hpp"
+#include <ATen/Context.h>
 #include <torch/version.h>
 
 #ifdef _WIN32
@@ -167,6 +168,15 @@ checkpoint_provenance(const ProductionConfig& config, const std::string& replay_
     constexpr bool dirty = false;
 #endif
     const auto config_bytes = diamond_support::canonical_json(config.to_json());
+    // Actor dtype (runtime.precision) does not describe FP32 math mode. Record
+    // the raw requests separately from LibTorch's effective backend flags:
+    // unset, an empty value, and an explicit "0" remain distinguishable. These
+    // getters observe process policy; they neither enable TF32 nor prove that
+    // a particular kernel/device used it. NVIDIA_TF32_OVERRIDE can additionally
+    // constrain the CUDA libraries below LibTorch's allow flags.
+    const auto* cublas_tf32_request = std::getenv("TORCH_ALLOW_TF32_CUBLAS_OVERRIDE");
+    const auto* nvidia_tf32_request = std::getenv("NVIDIA_TF32_OVERRIDE");
+    const auto& torch_context = at::globalContext();
     return {.source_git_commit = source_commit(),
             .resolved_config_bytes = config_bytes,
             .replay_manifest_sha256 = replay_manifest_sha256,
@@ -175,6 +185,14 @@ checkpoint_provenance(const ProductionConfig& config, const std::string& replay_
             .environment_json = diamond_support::canonical_json(Json{Object{
                 {"dirty_tree", Json{dirty}},
                 {"platform", Json{platform}},
+                {"tf32", Json{Object{
+                             {"torch_allow_tf32_cublas_override",
+                              cublas_tf32_request ? Json{cublas_tf32_request} : Json{nullptr}},
+                             {"nvidia_tf32_override",
+                              nvidia_tf32_request ? Json{nvidia_tf32_request} : Json{nullptr}},
+                             {"allow_tf32_cublas", Json{torch_context.allowTF32CuBLAS()}},
+                             {"allow_tf32_cudnn", Json{torch_context.allowTF32CuDNN()}},
+                         }}},
                 {"torch_threads", Json{static_cast<int64_t>(torch::get_num_threads())}},
                 {"torch_version", Json{TORCH_VERSION}},
             }}),
@@ -833,6 +851,718 @@ Object evaluate(const CommandRequest& request, const ProductionConfig& config,
 // Existing reports are identity-checked first. TRAIN may reuse a staged checkpoint
 // only after validating its iteration and replay provenance. Stage-specific source
 // selection remains here, rather than being hidden in a general checkpoint wrapper.
+// Establish the iteration's champion, preserving initial-checkpoint and predecessor validation.
+StageOutcome execute_initialize_stage(const CommandRequest& request, const ProductionConfig& config,
+                                      const diamond_orchestration::RunState& state,
+                                      int64_t iteration, const std::string& operation,
+                                      const diamond_training::Compatibility& compatibility,
+                                      const diamond_training::ResolvedDevice& device,
+                                      const ProductionConfig* predecessor) {
+    constexpr auto stage = RunStage::initialize;
+    auto native_model = model(config);
+    diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config), device);
+    const auto source =
+        load_iteration_source(request, config, iteration, trainer, device, predecessor);
+    std::filesystem::path champion;
+    diamond_training::CheckpointInfo saved;
+    if (iteration == 0 &&
+        request.initialization == diamond_orchestration::CommandInitialization::native_checkpoint) {
+        champion = request.checkpoint_path;
+        saved = diamond_training::inspect_checkpoint_v2(champion);
+    } else if (iteration > 0) {
+        const auto* active =
+            std::get_if<std::string>(&state.payload().at("champion_checkpoint").value);
+        if (!active || active->empty())
+            throw CommandArtifactError("previous champion checkpoint is missing");
+        champion = *active;
+        saved = diamond_training::inspect_checkpoint_v2(champion);
+    } else {
+        champion = root(request) / "initial-champion-checkpoint";
+        if (std::filesystem::exists(champion / "CURRENT")) {
+            saved = diamond_training::inspect_checkpoint_v2(champion);
+        } else {
+            saved = diamond_training::save_checkpoint_v3(
+                champion, trainer,
+                checkpoint_lineage(request, iteration, trainer.training_step(), source),
+                checkpoint_provenance(config, std::string(64, '0')));
+        }
+    }
+    validate_checkpoint_context(saved, request, config, std::nullopt, std::nullopt, predecessor);
+    return stage_report(
+        request, iteration, stage, operation,
+        {
+            {"champion_checkpoint", Json{champion.string()}},
+            {"champion_sha256", Json{saved.model_digest}},
+            {"initialization_mode", Json{initialization_name(request.initialization)}},
+            {"status", Json{"completed"}},
+        },
+        {{"champion_checkpoint", Json{champion.string()}},
+         {"champion_model_key", Json{compatibility.model_name + ":" + compatibility.model_version +
+                                     ":" + saved.model_digest}}});
+}
+
+// Reuse durable episodes or run actors, then publish the same episode and diagnostic artifacts.
+StageOutcome execute_self_play_stage(const CommandRequest& request, const ProductionConfig& config,
+                                     const diamond_orchestration::RunState& state,
+                                     int64_t iteration, const std::string& operation,
+                                     const diamond_training::Compatibility& compatibility,
+                                     const diamond_training::ResolvedDevice& device,
+                                     const ProductionConfig* predecessor) {
+    constexpr auto stage = RunStage::self_play;
+    const auto per_iteration = iteration_root(request, iteration);
+    const auto episodes_path = per_iteration / "selfplay.episodes";
+    if (!std::filesystem::exists(episodes_path)) {
+        auto native_model = model(config);
+        diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config),
+                                          device);
+        (void)load_actor_checkpoint(request, config, state, trainer, device, predecessor);
+        diamond_pipeline::ModelPool models(1, device, actor_precision(config));
+        const auto key = models.install(compatibility, trainer.learner());
+        models.activate(key);
+        const auto selfplay_job = iteration_job(config, state, operation, key);
+        const auto result = diamond_pipeline::run_self_play(selfplay_job, models, {});
+        diamond_pipeline::save_episode_artifact(episodes_path, operation, result.episodes);
+
+        // Engine counters the episode artifact cannot carry, written beside
+        // it so they are as durable as the episodes themselves and survive
+        // resume. Diagnostic only: nothing reads this back, and no gate
+        // depends on it.
+        Object abort_reasons;
+        for (const auto& episode : result.episodes) {
+            if (episode.completed)
+                continue;
+            auto [found, inserted] =
+                abort_reasons.try_emplace(episode.aborted_reason, Json{int64_t{0}});
+            (void)inserted;
+            ++std::get<int64_t>(found->second.value);
+        }
+        const auto& m = result.metrics;
+        Object order_counts;
+        for (std::size_t index = 0; index < result.episodes.size(); ++index) {
+            const auto& game = selfplay_job.jobs[index];
+            const auto& match = game.match ? *game.match : selfplay_job.match;
+            std::string order;
+            for (int seat = 0; seat < match.count; ++seat) {
+                if (seat)
+                    order += "-";
+                order += std::to_string(match.players[seat].id);
+            }
+            auto [entry, inserted] =
+                order_counts.try_emplace(order, Json{Object{{"requested", Json{int64_t{0}}},
+                                                            {"completed", Json{int64_t{0}}},
+                                                            {"aborted", Json{int64_t{0}}},
+                                                            {"samples", Json{int64_t{0}}}}});
+            (void)inserted;
+            auto& counts = std::get<Object>(entry->second.value);
+            ++std::get<int64_t>(counts.at("requested").value);
+            const auto& episode = result.episodes[index];
+            ++std::get<int64_t>(counts.at(episode.completed ? "completed" : "aborted").value);
+            std::get<int64_t>(counts.at("samples").value) +=
+                static_cast<int64_t>(episode.samples.size());
+        }
+        write_json(
+            per_iteration / "selfplay.metrics.json",
+            Json{Object{
+                {"turn_orders", Json{std::move(order_counts)}},
+                {"schema_version", Json{int64_t{2}}},
+                {"operation_id", Json{operation}},
+                {"iteration", Json{static_cast<int64_t>(iteration)}},
+                {"search",
+                 Json{Object{{"simulations", Json{config.mcts.simulations}},
+                             {"simulations_late", Json{config.mcts.simulations_late}},
+                             {"repeat_window", Json{config.mcts.repeat_window}},
+                             {"boosted_moves", Json{static_cast<int64_t>(m.boosted_moves)}},
+                             {"boosted_fraction", Json{m.boosted_fraction}}}}},
+                {"throughput",
+                 Json{Object{{"moves", Json{static_cast<int64_t>(m.moves)}},
+                             {"evaluations", Json{static_cast<int64_t>(m.evaluations)}},
+                             {"batches", Json{static_cast<int64_t>(m.batches)}},
+                             {"wall_seconds", Json{m.wall_seconds}},
+                             {"evaluator_seconds", Json{m.evaluator_seconds}},
+                             {"worker_busy_seconds", Json{m.worker_busy_seconds}},
+                             {"evaluator_busy_fraction", Json{m.evaluator_busy_fraction}}}}},
+                {"batching", Json{Object{{"max_batch_size", Json{config.inference.max_batch_size}},
+                                         {"max_wait_us", Json{config.inference.max_wait_us}},
+                                         {"batch_mean", Json{m.batch_mean}},
+                                         {"batch_p50", Json{static_cast<int64_t>(m.batch_p50)}},
+                                         {"batch_p90", Json{static_cast<int64_t>(m.batch_p90)}},
+                                         {"batch_max", Json{static_cast<int64_t>(m.batch_max)}}}}},
+                {"search_targets",
+                 Json{Object{{"all", Json{visit_target_json(m.all_targets)}},
+                             {"completed", Json{visit_target_json(m.completed_targets)}},
+                             {"aborted", Json{visit_target_json(m.aborted_targets)}}}}},
+                {"games",
+                 Json{Object{
+                     {"requested", Json{static_cast<int64_t>(result.episodes.size())}},
+                     {"completed", Json{static_cast<int64_t>(result.completed_games)}},
+                     {"aborted", Json{static_cast<int64_t>(result.aborted_games)}},
+                     {"abort_reasons", Json{std::move(abort_reasons)}},
+                     {"completed_moves_p50", Json{static_cast<int64_t>(m.completed_moves_p50)}},
+                     {"completed_moves_p90", Json{static_cast<int64_t>(m.completed_moves_p90)}},
+                     {"completed_moves_p99", Json{static_cast<int64_t>(m.completed_moves_p99)}},
+                     {"completed_moves_max", Json{static_cast<int64_t>(m.completed_moves_max)}}}}},
+            }});
+
+        // Every aborted game, in full, so the non-terminating tail can be
+        // classified rather than guessed at. Diagnostic sidecar: nothing
+        // reads it back and no gate depends on it.
+        Array aborted_games;
+        for (const auto& aborted : result.aborted_diagnostics) {
+            Array occupancy;
+            for (const uint8_t cell : aborted.state.occupancy)
+                occupancy.emplace_back(Json{static_cast<int64_t>(cell)});
+            Array camps;
+            for (const auto& camp : aborted.state.camps) {
+                Array blockers;
+                for (std::size_t b = 0; b < camp.blocker_cells.size(); ++b) {
+                    blockers.emplace_back(Json{Object{
+                        {"cell", Json{static_cast<int64_t>(camp.blocker_cells[b])}},
+                        {"owner", Json{static_cast<int64_t>(camp.blocker_owners[b])}},
+                        {"legal_moves", Json{static_cast<int64_t>(camp.blocker_legal_moves[b])}}}});
+                }
+                camps.emplace_back(Json{Object{
+                    {"player_id", Json{static_cast<int64_t>(camp.player_id)}},
+                    {"target_camp", Json{static_cast<int64_t>(camp.target_camp)}},
+                    {"own_in_target", Json{static_cast<int64_t>(camp.own_in_target)}},
+                    {"foreign_in_target", Json{static_cast<int64_t>(camp.foreign_in_target)}},
+                    {"empty_in_target", Json{static_cast<int64_t>(camp.empty_in_target)}},
+                    {"plies_since_camp_changed",
+                     Json{static_cast<int64_t>(camp.plies_since_camp_changed)}},
+                    {"blockers", Json{std::move(blockers)}}}});
+            }
+            Array recent_keys;
+            for (const uint64_t key : aborted.state.recent_keys) {
+                // As text: these exceed the exact range of a JSON double.
+                recent_keys.emplace_back(Json{std::to_string(key)});
+            }
+            aborted_games.emplace_back(Json{Object{
+                {"game_id", Json{aborted.game_id}},
+                {"seed", Json{static_cast<int64_t>(aborted.seed)}},
+                {"move_count", Json{static_cast<int64_t>(aborted.move_count)}},
+                {"abort_reason", Json{aborted.abort_reason}},
+                {"current_player", Json{static_cast<int64_t>(aborted.state.current_player)}},
+                {"unique_positions", Json{static_cast<int64_t>(aborted.state.unique_positions)}},
+                {"max_revisits", Json{static_cast<int64_t>(aborted.state.max_revisits)}},
+                {"occupancy", Json{std::move(occupancy)}},
+                {"camps", Json{std::move(camps)}},
+                {"recent_keys", Json{std::move(recent_keys)}}}});
+        }
+        write_json(per_iteration / "aborted-games.json",
+                   Json{Object{{"schema_version", Json{int64_t{1}}},
+                               {"operation_id", Json{operation}},
+                               {"iteration", Json{static_cast<int64_t>(iteration)}},
+                               {"max_moves", Json{config.self_play.max_moves}},
+                               {"aborted", Json{std::move(aborted_games)}}}});
+    }
+    const auto episodes =
+        diamond_pipeline::load_episode_artifact(episodes_path, operation, compatibility);
+    std::size_t complete = 0, aborted = 0, samples = 0, total_moves = 0;
+    Object abort_reason_distribution;
+    Array completed_ids;
+    for (const auto& episode : episodes) {
+        complete += episode.completed;
+        aborted += !episode.completed;
+        samples += episode.samples.size();
+        total_moves += static_cast<std::size_t>(episode.move_count);
+        if (episode.completed)
+            completed_ids.emplace_back(Json{episode.game_id});
+        else {
+            const auto reason = episode.aborted_reason.empty() ? std::string{"unspecified"}
+                                                               : episode.aborted_reason;
+            auto [found, inserted] =
+                abort_reason_distribution.try_emplace(reason, Json{int64_t{0}});
+            (void)inserted;
+            ++std::get<int64_t>(found->second.value);
+        }
+    }
+    return stage_report(
+        request, iteration, stage, operation,
+        {
+            {"requested_games", Json{static_cast<int64_t>(episodes.size())}},
+            {"completed_games", Json{static_cast<int64_t>(complete)}},
+            {"aborted_games", Json{static_cast<int64_t>(aborted)}},
+            {"abort_reason_distribution", Json{std::move(abort_reason_distribution)}},
+            {"new_samples", Json{static_cast<int64_t>(samples)}},
+            {"total_moves", Json{static_cast<int64_t>(total_moves)}},
+        },
+        {{"completed_game_ids", Json{std::move(completed_ids)}}});
+}
+
+// Bind ingestion to the self-play operation and commit replay before reporting its manifest.
+StageOutcome execute_replay_ingest_stage(const CommandRequest& request, int64_t iteration,
+                                         const std::string& operation,
+                                         const diamond_training::Compatibility& compatibility,
+                                         diamond_orchestration::TrainingRunResources& resources) {
+    constexpr auto stage = RunStage::replay_ingest;
+    const auto per_iteration = iteration_root(request, iteration);
+    const auto episodes_path = per_iteration / "selfplay.episodes";
+    const auto self_play_report = read_object(
+        stage_report_path(request, iteration, RunStage::self_play), "self-play stage report");
+    const auto self_play_operation =
+        std::get<std::string>(self_play_report.at("operation_id").value);
+    const auto episodes =
+        diamond_pipeline::load_episode_artifact(episodes_path, self_play_operation, compatibility);
+    const bool replay_cache_hit = resources.replay_loaded();
+    const auto open_started = std::chrono::steady_clock::now();
+    auto& replay = resources.full_replay();
+    const auto replay_open_seconds =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - open_started).count();
+    const auto ingested = diamond_pipeline::ingest_self_play(replay, episodes);
+    std::size_t complete = 0, aborted = 0;
+    for (const auto& episode : episodes) {
+        complete += episode.completed;
+        aborted += !episode.completed;
+    }
+    const auto replay_manifest = replay.manifest_path().string();
+    const auto replay_digest = replay.manifest_digest();
+    return stage_report(
+        request, iteration, stage, operation,
+        {
+            {"requested_games", Json{static_cast<int64_t>(episodes.size())}},
+            {"completed_games", Json{static_cast<int64_t>(complete)}},
+            {"aborted_games", Json{static_cast<int64_t>(aborted)}},
+            {"accepted_games", Json{static_cast<int64_t>(ingested.accepted_games)}},
+            {"duplicate_games", Json{static_cast<int64_t>(ingested.duplicate_games)}},
+            {"accepted_samples", Json{static_cast<int64_t>(ingested.accepted_samples)}},
+            {"duplicate_samples", Json{static_cast<int64_t>(ingested.duplicate_samples)}},
+            {"replay_size", Json{static_cast<int64_t>(replay.size())}},
+            {"replay_manifest", Json{replay_manifest}},
+            {"replay_manifest_sha256", Json{replay_digest}},
+            {"replay_cache_hit", Json{replay_cache_hit}},
+            {"replay_open_seconds", Json{replay_open_seconds}},
+        },
+        {{"replay_manifest", Json{replay_manifest}}});
+}
+
+// Train from the iteration source, or resume the staged checkpoint with exact replay provenance.
+StageOutcome execute_train_stage(const CommandRequest& request, const ProductionConfig& config,
+                                 const diamond_orchestration::RunState& state, int64_t iteration,
+                                 const std::string& operation,
+                                 const diamond_training::Compatibility& compatibility,
+                                 const diamond_training::ResolvedDevice& device,
+                                 diamond_orchestration::TrainingRunResources& resources,
+                                 const ProductionConfig* predecessor) {
+    constexpr auto stage = RunStage::train;
+    const auto per_iteration = iteration_root(request, iteration);
+    const auto staged = per_iteration / "trained-checkpoint";
+    diamond_pipeline::TrainingResult trained;
+    IterationSource source;
+    auto native_model = model(config);
+    diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config), device);
+    source = load_iteration_source(request, config, iteration, trainer, device, predecessor);
+    // Only the branch that actually trains needs the samples.  A resumed
+    // TRAIN reloads the staged checkpoint and just checks the manifest
+    // digest, so it opens metadata-only. Opening still performs ReplayStore
+    // orphan cleanup; metadata-only is not a read-only filesystem contract.
+    const bool must_train = !std::filesystem::exists(staged / "CURRENT");
+    const bool replay_cache_hit = must_train && resources.replay_loaded();
+    const auto open_started = std::chrono::steady_clock::now();
+    std::unique_ptr<diamond_pipeline::ReplayStore> metadata_replay;
+    diamond_pipeline::ReplayStore* replay = nullptr;
+    if (must_train) {
+        replay = &resources.full_replay();
+    } else {
+        metadata_replay = std::make_unique<diamond_pipeline::ReplayStore>(
+            root(request) / "replay", compatibility,
+            static_cast<std::size_t>(config.replay.capacity), config.replay.seed,
+            diamond_pipeline::ReplayContents::metadata_only);
+        replay = metadata_replay.get();
+    }
+    const auto replay_open_seconds =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - open_started).count();
+    if (must_train) {
+        const auto key =
+            diamond_pipeline::ModelKey{compatibility.model_name, compatibility.model_version,
+                                       diamond_training::canonical_model_digest(trainer.learner())};
+        trained = diamond_pipeline::train_replay(iteration_job(config, state, operation, key),
+                                                 *replay, trainer, {});
+        try {
+            (void)diamond_training::save_checkpoint_v3(
+                staged, trainer,
+                checkpoint_lineage(request, iteration, trainer.training_step(), source),
+                checkpoint_provenance(config, replay->manifest_digest()));
+        } catch (const diamond_training::CheckpointError& error) {
+            throw CommandArtifactError(error.what());
+        }
+    } else {
+        try {
+            validate_checkpoint_context(diamond_training::inspect_checkpoint_v2(staged), request,
+                                        config, static_cast<uint64_t>(iteration),
+                                        replay->manifest_digest(), predecessor);
+            const auto saved = diamond_training::load_checkpoint_v3(
+                staged, trainer, device, diamond_training::CheckpointLoadIntent::exact_resume);
+            validate_checkpoint_context(saved, request, config, static_cast<uint64_t>(iteration),
+                                        replay->manifest_digest(), predecessor);
+            trained.operation_id = operation;
+            trained.requested_training_steps =
+                static_cast<std::size_t>(config.training.train_steps_per_iteration);
+            trained.completed_training_steps =
+                static_cast<std::size_t>(saved.training_step - source.training_step);
+            trained.replay_size = replay->size();
+            trained.training_step = saved.training_step;
+        } catch (const diamond_training::CheckpointError& error) {
+            throw CommandArtifactError(error.what());
+        }
+    }
+    Array batch_sizes;
+    for (const auto value : trained.training_batch_sizes)
+        batch_sizes.emplace_back(Json{static_cast<int64_t>(value)});
+    return stage_report(
+        request, iteration, stage, operation,
+        {
+            {"requested_training_steps",
+             Json{static_cast<int64_t>(trained.requested_training_steps)}},
+            {"completed_training_steps",
+             Json{static_cast<int64_t>(trained.completed_training_steps)}},
+            {"training_batch_sizes", Json{std::move(batch_sizes)}},
+            {"training_metrics", Json{training_metrics_json(trained.training_metrics)}},
+            {"replay_size", Json{static_cast<int64_t>(trained.replay_size)}},
+            {"replay_cache_hit", Json{replay_cache_hit}},
+            {"replay_open_seconds", Json{replay_open_seconds}},
+            {"replay_sample_seconds", Json{trained.replay_sample_seconds}},
+            {"replay_sample_max_seconds", Json{trained.replay_sample_max_seconds}},
+            {"training_step", Json{static_cast<int64_t>(trained.training_step)}},
+            {"trained_checkpoint", Json{staged.string()}},
+        },
+        {{"training_step", Json{static_cast<int64_t>(trained.training_step)}}});
+}
+
+// Publish the validated staged learner while preserving its lineage and original provenance.
+StageOutcome execute_save_candidate_stage(const CommandRequest& request,
+                                          const ProductionConfig& config, int64_t iteration,
+                                          const std::string& operation,
+                                          const diamond_training::Compatibility& compatibility,
+                                          const diamond_training::ResolvedDevice& device,
+                                          const ProductionConfig* predecessor) {
+    constexpr auto stage = RunStage::save_candidate;
+    const auto per_iteration = iteration_root(request, iteration);
+    const auto staged = per_iteration / "trained-checkpoint";
+    auto native_model = model(config);
+    diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config), device);
+    diamond_training::CheckpointInfo saved;
+    try {
+        // Provenance uses the manifest digest, but opening ReplayStore can
+        // still remove orphan chunks even in metadata-only mode.
+        const auto open_started = std::chrono::steady_clock::now();
+        diamond_pipeline::ReplayStore replay(root(request) / "replay", compatibility,
+                                             static_cast<std::size_t>(config.replay.capacity),
+                                             config.replay.seed,
+                                             diamond_pipeline::ReplayContents::metadata_only);
+        validate_checkpoint_context(diamond_training::inspect_checkpoint_v2(staged), request,
+                                    config, static_cast<uint64_t>(iteration),
+                                    replay.manifest_digest(), predecessor);
+        saved = diamond_training::load_checkpoint_v3(
+            staged, trainer, device, diamond_training::CheckpointLoadIntent::exact_resume);
+        validate_checkpoint_context(saved, request, config, static_cast<uint64_t>(iteration),
+                                    replay.manifest_digest(), predecessor);
+    } catch (const diamond_training::CheckpointError& error) {
+        throw CommandArtifactError(error.what());
+    }
+    if (!saved.lineage || !saved.provenance ||
+        saved.lineage->iteration != static_cast<uint64_t>(iteration) ||
+        saved.lineage->model_step != saved.training_step)
+        throw CommandArtifactError("trained candidate checkpoint v3 lineage is invalid");
+    const auto candidate = candidate_checkpoint(request, iteration);
+    try {
+        if (std::filesystem::exists(candidate / "CURRENT")) {
+            const auto active = diamond_training::inspect_checkpoint_v2(candidate);
+            if (active.format_version != 3 || !active.lineage ||
+                active.lineage->iteration != static_cast<uint64_t>(iteration) ||
+                active.training_step != saved.training_step) {
+                saved = diamond_training::save_checkpoint_v3(candidate, trainer, *saved.lineage,
+                                                             *saved.provenance);
+            } else {
+                saved = active;
+            }
+        } else {
+            saved = diamond_training::save_checkpoint_v3(candidate, trainer, *saved.lineage,
+                                                         *saved.provenance);
+        }
+    } catch (const diamond_training::CheckpointError& error) {
+        throw CommandArtifactError(error.what());
+    }
+    return stage_report(request, iteration, stage, operation,
+                        {
+                            {"candidate_checkpoint", Json{candidate.string()}},
+                            {"candidate_sha256", Json{saved.model_digest}},
+                            {"training_step", Json{static_cast<int64_t>(saved.training_step)}},
+                            {"lineage_iteration", Json{iteration}},
+                            {"lineage_valid", Json{true}},
+                        },
+                        {{"candidate_checkpoint", Json{candidate.string()}},
+                         {"training_step", Json{static_cast<int64_t>(saved.training_step)}}});
+}
+
+// Evaluate the durable candidate/champion pair, including the explicit arena-disabled path.
+StageOutcome execute_promotion_arena_stage(const CommandRequest& request,
+                                           const ProductionConfig& config,
+                                           const diamond_orchestration::RunState& state,
+                                           int64_t iteration, const std::string& operation,
+                                           const diamond_training::ResolvedDevice& device,
+                                           const ProductionConfig* predecessor) {
+    constexpr auto stage = RunStage::promotion_arena;
+    const auto* candidate =
+        std::get_if<std::string>(&state.payload().at("candidate_checkpoint").value);
+    const auto* champion =
+        std::get_if<std::string>(&state.payload().at("champion_checkpoint").value);
+    if (!candidate || candidate->empty() || !champion || champion->empty())
+        throw CommandArtifactError("promotion arena requires candidate and champion checkpoints");
+    if (!diamond_orchestration::wire_evaluation_pipeline(config).run_arena) {
+        const auto candidate_info =
+            diamond_training::inspect_checkpoint_v2(std::filesystem::path(*candidate));
+        const auto champion_info =
+            diamond_training::inspect_checkpoint_v2(std::filesystem::path(*champion));
+        validate_checkpoint_context(candidate_info, request, config,
+                                    static_cast<uint64_t>(iteration), std::nullopt, predecessor);
+        validate_checkpoint_context(champion_info, request, config, std::nullopt, std::nullopt,
+                                    predecessor);
+        return stage_report(request, iteration, stage, operation,
+                            {
+                                {"candidate_checkpoint", Json{*candidate}},
+                                {"candidate_sha256", Json{candidate_info.model_digest}},
+                                {"champion_checkpoint", Json{*champion}},
+                                {"champion_sha256", Json{champion_info.model_digest}},
+                                {"incomplete_blocks", Json{int64_t{0}}},
+                                {"promoted", Json{true}},
+                                {"promotion_reason", Json{"arena_disabled"}},
+                                {"status", Json{"bypassed"}},
+                            });
+    }
+    auto evaluation_request = request;
+    evaluation_request.candidate_path = *candidate;
+    evaluation_request.champion_path = *champion;
+    evaluation_request.opening_suite_id = config.opening_suite.id;
+    auto result = evaluate(evaluation_request, config, device);
+    result.emplace("arena_path", Json{(root(request) / "arena.json").string()});
+    result.emplace("arena_sha256",
+                   Json{file_sha256(root(request) / "arena.json", "promotion arena report")});
+    result.emplace("status", Json{"completed"});
+    return stage_report(request, iteration, stage, operation, std::move(result));
+}
+
+// Record the arena/registry identities that the promotion decision must subsequently verify.
+StageOutcome execute_rating_benchmark_stage(const CommandRequest& request,
+                                            const ProductionConfig& config,
+                                            const diamond_orchestration::RunState& state,
+                                            int64_t iteration, const std::string& operation) {
+    constexpr auto stage = RunStage::rating_benchmark;
+    if (!diamond_orchestration::wire_evaluation_pipeline(config).record_rating) {
+        return stage_report(request, iteration, stage, operation,
+                            {{"reason", Json{"arena_disabled"}}, {"status", Json{"bypassed"}}});
+    }
+    const auto arena_path = stage_report_path(request, iteration, RunStage::promotion_arena);
+    const auto arena = read_object(arena_path, "promotion arena stage report");
+    const auto registry_path = root(request) / "rating-registry.json";
+    const auto registry = diamond_orchestration::load_rating_registry(registry_path);
+    auto records = std::get<Array>(state.payload().at("rating_records").value);
+    Object record{
+        {"arena_report_sha256", Json{file_sha256(arena_path, "promotion arena stage report")}},
+        {"candidate_sha256", arena.at("candidate_sha256")},
+        {"champion_sha256", arena.at("champion_sha256")},
+        {"iteration", Json{iteration}},
+        {"protocol_id", Json{config.model_name == "Soo" ? "soo-elo-v1" : "min-trueskill-v1"}},
+        {"registry_path", Json{registry_path.string()}},
+        {"registry_sha256", Json{file_sha256(registry_path, "rating registry")}},
+        {"registry_summary", Json{registry.report_json()}},
+    };
+    if (const auto found = arena.find("candidate_runtime_sha256"); found != arena.end())
+        record.emplace("candidate_runtime_sha256", found->second);
+    if (const auto found = arena.find("champion_runtime_sha256"); found != arena.end())
+        record.emplace("champion_runtime_sha256", found->second);
+    records.emplace_back(Json{record});
+    return stage_report(request, iteration, stage, operation,
+                        {
+                            {"rating_record", Json{record}},
+                            {"status", Json{"completed"}},
+                        },
+                        {{"rating_records", Json{std::move(records)}}});
+}
+
+// Verify checkpoint, arena, and rating identities before changing the durable champion.
+StageOutcome execute_promote_or_reject_stage(const CommandRequest& request,
+                                             const ProductionConfig& config,
+                                             const diamond_orchestration::RunState& state,
+                                             int64_t iteration, const std::string& operation,
+                                             const diamond_training::Compatibility& compatibility,
+                                             const diamond_training::ResolvedDevice& device,
+                                             const ProductionConfig* predecessor) {
+    constexpr auto stage = RunStage::promote_or_reject;
+    const auto arena_path = stage_report_path(request, iteration, RunStage::promotion_arena);
+    const auto arena = read_object(arena_path, "promotion arena stage report");
+    const auto candidate_path =
+        std::filesystem::path(std::get<std::string>(arena.at("candidate_checkpoint").value));
+    const auto champion_path =
+        std::filesystem::path(std::get<std::string>(arena.at("champion_checkpoint").value));
+    const auto candidate = diamond_training::inspect_checkpoint_v2(candidate_path);
+    const auto champion = diamond_training::inspect_checkpoint_v2(champion_path);
+    const auto* durable_candidate =
+        std::get_if<std::string>(&state.payload().at("candidate_checkpoint").value);
+    const auto* durable_champion =
+        std::get_if<std::string>(&state.payload().at("champion_checkpoint").value);
+    if (!durable_candidate || !durable_champion ||
+        candidate_path.lexically_normal() !=
+            std::filesystem::path(*durable_candidate).lexically_normal() ||
+        champion_path.lexically_normal() !=
+            std::filesystem::path(*durable_champion).lexically_normal()) {
+        throw CommandArtifactError("promotion checkpoint identity or lineage mismatch");
+    }
+    validate_checkpoint_context(candidate, request, config, static_cast<uint64_t>(iteration),
+                                std::nullopt, predecessor);
+    validate_checkpoint_context(champion, request, config, std::nullopt, std::nullopt, predecessor);
+
+    if (diamond_orchestration::wire_evaluation_pipeline(config).activate_candidate) {
+        auto records = std::get<Array>(state.payload().at("promotion_records").value);
+        const Object record{
+            {"candidate_checkpoint", Json{candidate_path.string()}},
+            {"candidate_sha256", Json{candidate.model_digest}},
+            {"champion_checkpoint_before", Json{champion_path.string()}},
+            {"champion_checkpoint_after", Json{candidate_path.string()}},
+            {"champion_sha256_after", Json{candidate.model_digest}},
+            {"decision", Json{"promote"}},
+            {"identity_schema", Json{"checkpoint-model-v1"}},
+            {"incomplete_blocks", Json{int64_t{0}}},
+            {"iteration", Json{iteration}},
+            {"promotion_reason", Json{"arena_disabled"}},
+        };
+        records.emplace_back(Json{record});
+        const auto champion_key = compatibility.model_name + ":" + compatibility.model_version +
+                                  ":" + candidate.model_digest;
+        return stage_report(request, iteration, stage, operation,
+                            {
+                                {"champion_checkpoint", Json{candidate_path.string()}},
+                                {"champion_model_key", Json{champion_key}},
+                                {"decision", Json{"promote"}},
+                                {"promotion_record", Json{record}},
+                                {"status", Json{"bypassed"}},
+                            },
+                            {{"champion_checkpoint", Json{candidate_path.string()}},
+                             {"champion_model_key", Json{champion_key}},
+                             {"promotion_records", Json{std::move(records)}}});
+    }
+
+    const auto arena_report_sha256 = file_sha256(arena_path, "promotion arena stage report");
+    const auto& ratings = std::get<Array>(state.payload().at("rating_records").value);
+    if (ratings.empty())
+        throw CommandArtifactError("promotion requires a durable rating record");
+    const auto& rating = std::get<Object>(ratings.back().value);
+    if (std::get<std::string>(rating.at("arena_report_sha256").value) != arena_report_sha256) {
+        throw CommandArtifactError("promotion arena report no longer matches its rating record");
+    }
+    const auto arena_result_path =
+        std::filesystem::path(std::get<std::string>(arena.at("arena_path").value));
+    if (file_sha256(arena_result_path, "promotion arena result") !=
+        std::get<std::string>(arena.at("arena_sha256").value)) {
+        throw CommandArtifactError("promotion arena result digest mismatch");
+    }
+
+    const auto arena_candidate_sha256 = std::get<std::string>(arena.at("candidate_sha256").value);
+    const auto arena_champion_sha256 = std::get<std::string>(arena.at("champion_sha256").value);
+    std::string candidate_runtime_sha256;
+    std::string champion_runtime_sha256;
+    std::string identity_schema = "checkpoint-model-and-runtime-v1";
+    const auto candidate_runtime = arena.find("candidate_runtime_sha256");
+    const auto champion_runtime = arena.find("champion_runtime_sha256");
+    if (candidate_runtime != arena.end() && champion_runtime != arena.end()) {
+        if (candidate.model_digest != arena_candidate_sha256 ||
+            champion.model_digest != arena_champion_sha256) {
+            throw CommandArtifactError("promotion checkpoint model digest mismatch");
+        }
+        candidate_runtime_sha256 = std::get<std::string>(candidate_runtime->second.value);
+        champion_runtime_sha256 = std::get<std::string>(champion_runtime->second.value);
+    } else if (candidate_runtime == arena.end() && champion_runtime == arena.end()) {
+        // Early native reports used candidate_sha256/champion_sha256 for the
+        // ModelPool runtime identity. Recompute those identities so an
+        // already checksummed run can resume without weakening validation.
+        auto candidate_model = model(config);
+        auto champion_model = model(config);
+        diamond_pipeline::ModelPool candidate_pool(1, device, actor_precision(config));
+        diamond_pipeline::ModelPool champion_pool(1, device, actor_precision(config));
+        try {
+            (void)diamond_training::load_checkpoint_v2_weights(candidate_path, candidate_model,
+                                                               device);
+            (void)diamond_training::load_checkpoint_v2_weights(champion_path, champion_model,
+                                                               device);
+            validate_board_adjacency(candidate_model->adjacency);
+            validate_board_adjacency(champion_model->adjacency);
+            candidate_runtime_sha256 =
+                candidate_pool.install(compatibility, candidate_model).checkpoint_sha256;
+            champion_runtime_sha256 =
+                champion_pool.install(compatibility, champion_model).checkpoint_sha256;
+        } catch (const std::exception& error) {
+            throw CommandArtifactError(error.what());
+        }
+        if (candidate_runtime_sha256 != arena_candidate_sha256 ||
+            champion_runtime_sha256 != arena_champion_sha256) {
+            throw CommandArtifactError("legacy promotion runtime digest mismatch");
+        }
+        identity_schema = "legacy-runtime-v0";
+    } else {
+        throw CommandArtifactError("promotion arena identity fields are incomplete");
+    }
+    const bool promoted = std::get<bool>(arena.at("promoted").value);
+    const auto incomplete_blocks = std::get<int64_t>(arena.at("incomplete_blocks").value);
+    if (promoted && incomplete_blocks != 0)
+        throw CommandArtifactError("an incomplete paired-opening block cannot promote a candidate");
+    const auto active_path = promoted ? candidate_path : champion_path;
+    const auto& active = promoted ? candidate : champion;
+    auto records = std::get<Array>(state.payload().at("promotion_records").value);
+    const Object record{
+        {"arena_report_sha256", Json{arena_report_sha256}},
+        {"candidate_checkpoint", Json{candidate_path.string()}},
+        {"candidate_runtime_sha256", Json{candidate_runtime_sha256}},
+        {"candidate_sha256", Json{candidate.model_digest}},
+        {"champion_checkpoint_before", Json{champion_path.string()}},
+        {"champion_checkpoint_after", Json{active_path.string()}},
+        {"champion_runtime_sha256_before", Json{champion_runtime_sha256}},
+        {"champion_sha256_after", Json{active.model_digest}},
+        {"decision", Json{promoted ? "promote" : "reject"}},
+        {"identity_schema", Json{identity_schema}},
+        {"incomplete_blocks", Json{incomplete_blocks}},
+        {"iteration", Json{iteration}},
+        {"promotion_reason", arena.at("promotion_reason")},
+    };
+    records.emplace_back(Json{record});
+    const auto champion_key =
+        compatibility.model_name + ":" + compatibility.model_version + ":" + active.model_digest;
+    return stage_report(request, iteration, stage, operation,
+                        {
+                            {"champion_checkpoint", Json{active_path.string()}},
+                            {"champion_model_key", Json{champion_key}},
+                            {"decision", Json{promoted ? "promote" : "reject"}},
+                            {"promotion_record", Json{record}},
+                            {"status", Json{"completed"}},
+                        },
+                        {{"champion_checkpoint", Json{active_path.string()}},
+                         {"champion_model_key", Json{champion_key}},
+                         {"promotion_records", Json{std::move(records)}}});
+}
+
+// Require the durable decision records and active champion before closing the iteration.
+StageOutcome execute_persist_stage(const CommandRequest& request, const ProductionConfig& config,
+                                   const diamond_orchestration::RunState& state, int64_t iteration,
+                                   const std::string& operation) {
+    constexpr auto stage = RunStage::persist;
+    const auto& promotions = std::get<Array>(state.payload().at("promotion_records").value);
+    const auto& ratings = std::get<Array>(state.payload().at("rating_records").value);
+    if (promotions.empty() || (config.arena.enabled && ratings.empty()))
+        throw CommandArtifactError(config.arena.enabled
+                                       ? "persist requires durable rating and promotion records"
+                                       : "persist requires a durable promotion record");
+    const auto* champion =
+        std::get_if<std::string>(&state.payload().at("champion_checkpoint").value);
+    const auto* champion_key =
+        std::get_if<std::string>(&state.payload().at("champion_model_key").value);
+    if (!champion || !champion_key || !std::filesystem::exists(*champion))
+        throw CommandArtifactError("persist requires an active champion checkpoint");
+    Object result{{"champion_checkpoint", Json{*champion}},
+                  {"champion_model_key", Json{*champion_key}},
+                  {"promotion_record", promotions.back()},
+                  {"status", Json{"completed"}}};
+    if (!ratings.empty())
+        result.emplace("rating_record", ratings.back());
+    return stage_report(request, iteration, stage, operation, std::move(result));
+}
+
 StageOutcome execute_stage(const CommandRequest& request, const ProductionConfig& config,
                            const diamond_orchestration::RunState& state, RunStage stage,
                            const std::string& operation,
@@ -841,665 +1571,44 @@ StageOutcome execute_stage(const CommandRequest& request, const ProductionConfig
                            const ProductionConfig* predecessor = nullptr) {
     const auto iteration = iteration_number(state);
     const auto report_path = stage_report_path(request, iteration, stage);
+    // A durable report is the stage's commit point. Reuse it before reseeding
+    // or opening models/replay so retries preserve the existing resume path.
     if (std::filesystem::exists(report_path))
         return load_stage_report(request, iteration, stage, operation);
     g_stage_started = std::chrono::steady_clock::now();
 
     const auto compatibility = wire(config);
     torch::manual_seed(static_cast<int64_t>(config.training.seed));
-    const auto per_iteration = iteration_root(request, iteration);
-    const auto episodes_path = per_iteration / "selfplay.episodes";
-    if (stage == RunStage::initialize) {
-        auto native_model = model(config);
-        diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config), device);
-        const auto source =
-            load_iteration_source(request, config, iteration, trainer, device, predecessor);
-        std::filesystem::path champion;
-        diamond_training::CheckpointInfo saved;
-        if (iteration == 0 && request.initialization ==
-                                  diamond_orchestration::CommandInitialization::native_checkpoint) {
-            champion = request.checkpoint_path;
-            saved = diamond_training::inspect_checkpoint_v2(champion);
-        } else if (iteration > 0) {
-            const auto* active =
-                std::get_if<std::string>(&state.payload().at("champion_checkpoint").value);
-            if (!active || active->empty())
-                throw CommandArtifactError("previous champion checkpoint is missing");
-            champion = *active;
-            saved = diamond_training::inspect_checkpoint_v2(champion);
-        } else {
-            champion = root(request) / "initial-champion-checkpoint";
-            if (std::filesystem::exists(champion / "CURRENT")) {
-                saved = diamond_training::inspect_checkpoint_v2(champion);
-            } else {
-                saved = diamond_training::save_checkpoint_v3(
-                    champion, trainer,
-                    checkpoint_lineage(request, iteration, trainer.training_step(), source),
-                    checkpoint_provenance(config, std::string(64, '0')));
-            }
-        }
-        validate_checkpoint_context(saved, request, config, std::nullopt, std::nullopt,
-                                    predecessor);
-        return stage_report(
-            request, iteration, stage, operation,
-            {
-                {"champion_checkpoint", Json{champion.string()}},
-                {"champion_sha256", Json{saved.model_digest}},
-                {"initialization_mode", Json{initialization_name(request.initialization)}},
-                {"status", Json{"completed"}},
-            },
-            {{"champion_checkpoint", Json{champion.string()}},
-             {"champion_model_key", Json{compatibility.model_name + ":" +
-                                         compatibility.model_version + ":" + saved.model_digest}}});
+    // The coordinator owns transitions. Keep dispatch explicit; each stage owns
+    // its checkpoint/replay checks and writes its own durable artifact/report.
+    switch (stage) {
+    case RunStage::initialize:
+        return execute_initialize_stage(request, config, state, iteration, operation, compatibility,
+                                        device, predecessor);
+    case RunStage::self_play:
+        return execute_self_play_stage(request, config, state, iteration, operation, compatibility,
+                                       device, predecessor);
+    case RunStage::replay_ingest:
+        return execute_replay_ingest_stage(request, iteration, operation, compatibility, resources);
+    case RunStage::train:
+        return execute_train_stage(request, config, state, iteration, operation, compatibility,
+                                   device, resources, predecessor);
+    case RunStage::save_candidate:
+        return execute_save_candidate_stage(request, config, iteration, operation, compatibility,
+                                            device, predecessor);
+    case RunStage::promotion_arena:
+        return execute_promotion_arena_stage(request, config, state, iteration, operation, device,
+                                             predecessor);
+    case RunStage::rating_benchmark:
+        return execute_rating_benchmark_stage(request, config, state, iteration, operation);
+    case RunStage::promote_or_reject:
+        return execute_promote_or_reject_stage(request, config, state, iteration, operation,
+                                               compatibility, device, predecessor);
+    case RunStage::persist:
+        return execute_persist_stage(request, config, state, iteration, operation);
+    default:
+        return stage_report(request, iteration, stage, operation, {{"status", Json{"completed"}}});
     }
-    if (stage == RunStage::self_play) {
-        if (!std::filesystem::exists(episodes_path)) {
-            auto native_model = model(config);
-            diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config), device);
-            (void)load_actor_checkpoint(request, config, state, trainer, device, predecessor);
-            diamond_pipeline::ModelPool models(1, device, actor_precision(config));
-            const auto key = models.install(compatibility, trainer.learner());
-            models.activate(key);
-            const auto selfplay_job = iteration_job(config, state, operation, key);
-            const auto result = diamond_pipeline::run_self_play(selfplay_job, models, {});
-            diamond_pipeline::save_episode_artifact(episodes_path, operation, result.episodes);
-
-            // Engine counters the episode artifact cannot carry, written beside
-            // it so they are as durable as the episodes themselves and survive
-            // resume. Diagnostic only: nothing reads this back, and no gate
-            // depends on it.
-            Object abort_reasons;
-            for (const auto& episode : result.episodes) {
-                if (episode.completed)
-                    continue;
-                auto [found, inserted] =
-                    abort_reasons.try_emplace(episode.aborted_reason, Json{int64_t{0}});
-                (void)inserted;
-                ++std::get<int64_t>(found->second.value);
-            }
-            const auto& m = result.metrics;
-            Object order_counts;
-            for (std::size_t index = 0; index < result.episodes.size(); ++index) {
-                const auto& game = selfplay_job.jobs[index];
-                const auto& match = game.match ? *game.match : selfplay_job.match;
-                std::string order;
-                for (int seat = 0; seat < match.count; ++seat) {
-                    if (seat)
-                        order += "-";
-                    order += std::to_string(match.players[seat].id);
-                }
-                auto [entry, inserted] =
-                    order_counts.try_emplace(order, Json{Object{{"requested", Json{int64_t{0}}},
-                                                                {"completed", Json{int64_t{0}}},
-                                                                {"aborted", Json{int64_t{0}}},
-                                                                {"samples", Json{int64_t{0}}}}});
-                (void)inserted;
-                auto& counts = std::get<Object>(entry->second.value);
-                ++std::get<int64_t>(counts.at("requested").value);
-                const auto& episode = result.episodes[index];
-                ++std::get<int64_t>(counts.at(episode.completed ? "completed" : "aborted").value);
-                std::get<int64_t>(counts.at("samples").value) +=
-                    static_cast<int64_t>(episode.samples.size());
-            }
-            write_json(
-                per_iteration / "selfplay.metrics.json",
-                Json{Object{
-                    {"turn_orders", Json{std::move(order_counts)}},
-                    {"schema_version", Json{int64_t{2}}},
-                    {"operation_id", Json{operation}},
-                    {"iteration", Json{static_cast<int64_t>(iteration)}},
-                    {"search",
-                     Json{Object{{"simulations", Json{config.mcts.simulations}},
-                                 {"simulations_late", Json{config.mcts.simulations_late}},
-                                 {"repeat_window", Json{config.mcts.repeat_window}},
-                                 {"boosted_moves", Json{static_cast<int64_t>(m.boosted_moves)}},
-                                 {"boosted_fraction", Json{m.boosted_fraction}}}}},
-                    {"throughput",
-                     Json{Object{{"moves", Json{static_cast<int64_t>(m.moves)}},
-                                 {"evaluations", Json{static_cast<int64_t>(m.evaluations)}},
-                                 {"batches", Json{static_cast<int64_t>(m.batches)}},
-                                 {"wall_seconds", Json{m.wall_seconds}},
-                                 {"evaluator_seconds", Json{m.evaluator_seconds}},
-                                 {"worker_busy_seconds", Json{m.worker_busy_seconds}},
-                                 {"evaluator_busy_fraction", Json{m.evaluator_busy_fraction}}}}},
-                    {"batching",
-                     Json{Object{{"max_batch_size", Json{config.inference.max_batch_size}},
-                                 {"max_wait_us", Json{config.inference.max_wait_us}},
-                                 {"batch_mean", Json{m.batch_mean}},
-                                 {"batch_p50", Json{static_cast<int64_t>(m.batch_p50)}},
-                                 {"batch_p90", Json{static_cast<int64_t>(m.batch_p90)}},
-                                 {"batch_max", Json{static_cast<int64_t>(m.batch_max)}}}}},
-                    {"search_targets",
-                     Json{Object{{"all", Json{visit_target_json(m.all_targets)}},
-                                 {"completed", Json{visit_target_json(m.completed_targets)}},
-                                 {"aborted", Json{visit_target_json(m.aborted_targets)}}}}},
-                    {"games",
-                     Json{Object{
-                         {"requested", Json{static_cast<int64_t>(result.episodes.size())}},
-                         {"completed", Json{static_cast<int64_t>(result.completed_games)}},
-                         {"aborted", Json{static_cast<int64_t>(result.aborted_games)}},
-                         {"abort_reasons", Json{std::move(abort_reasons)}},
-                         {"completed_moves_p50", Json{static_cast<int64_t>(m.completed_moves_p50)}},
-                         {"completed_moves_p90", Json{static_cast<int64_t>(m.completed_moves_p90)}},
-                         {"completed_moves_p99", Json{static_cast<int64_t>(m.completed_moves_p99)}},
-                         {"completed_moves_max",
-                          Json{static_cast<int64_t>(m.completed_moves_max)}}}}},
-                }});
-
-            // Every aborted game, in full, so the non-terminating tail can be
-            // classified rather than guessed at. Diagnostic sidecar: nothing
-            // reads it back and no gate depends on it.
-            Array aborted_games;
-            for (const auto& aborted : result.aborted_diagnostics) {
-                Array occupancy;
-                for (const uint8_t cell : aborted.state.occupancy)
-                    occupancy.emplace_back(Json{static_cast<int64_t>(cell)});
-                Array camps;
-                for (const auto& camp : aborted.state.camps) {
-                    Array blockers;
-                    for (std::size_t b = 0; b < camp.blocker_cells.size(); ++b) {
-                        blockers.emplace_back(Json{
-                            Object{{"cell", Json{static_cast<int64_t>(camp.blocker_cells[b])}},
-                                   {"owner", Json{static_cast<int64_t>(camp.blocker_owners[b])}},
-                                   {"legal_moves",
-                                    Json{static_cast<int64_t>(camp.blocker_legal_moves[b])}}}});
-                    }
-                    camps.emplace_back(Json{Object{
-                        {"player_id", Json{static_cast<int64_t>(camp.player_id)}},
-                        {"target_camp", Json{static_cast<int64_t>(camp.target_camp)}},
-                        {"own_in_target", Json{static_cast<int64_t>(camp.own_in_target)}},
-                        {"foreign_in_target", Json{static_cast<int64_t>(camp.foreign_in_target)}},
-                        {"empty_in_target", Json{static_cast<int64_t>(camp.empty_in_target)}},
-                        {"plies_since_camp_changed",
-                         Json{static_cast<int64_t>(camp.plies_since_camp_changed)}},
-                        {"blockers", Json{std::move(blockers)}}}});
-                }
-                Array recent_keys;
-                for (const uint64_t key : aborted.state.recent_keys) {
-                    // As text: these exceed the exact range of a JSON double.
-                    recent_keys.emplace_back(Json{std::to_string(key)});
-                }
-                aborted_games.emplace_back(Json{Object{
-                    {"game_id", Json{aborted.game_id}},
-                    {"seed", Json{static_cast<int64_t>(aborted.seed)}},
-                    {"move_count", Json{static_cast<int64_t>(aborted.move_count)}},
-                    {"abort_reason", Json{aborted.abort_reason}},
-                    {"current_player", Json{static_cast<int64_t>(aborted.state.current_player)}},
-                    {"unique_positions",
-                     Json{static_cast<int64_t>(aborted.state.unique_positions)}},
-                    {"max_revisits", Json{static_cast<int64_t>(aborted.state.max_revisits)}},
-                    {"occupancy", Json{std::move(occupancy)}},
-                    {"camps", Json{std::move(camps)}},
-                    {"recent_keys", Json{std::move(recent_keys)}}}});
-            }
-            write_json(per_iteration / "aborted-games.json",
-                       Json{Object{{"schema_version", Json{int64_t{1}}},
-                                   {"operation_id", Json{operation}},
-                                   {"iteration", Json{static_cast<int64_t>(iteration)}},
-                                   {"max_moves", Json{config.self_play.max_moves}},
-                                   {"aborted", Json{std::move(aborted_games)}}}});
-        }
-        const auto episodes =
-            diamond_pipeline::load_episode_artifact(episodes_path, operation, compatibility);
-        std::size_t complete = 0, aborted = 0, samples = 0, total_moves = 0;
-        Object abort_reason_distribution;
-        Array completed_ids;
-        for (const auto& episode : episodes) {
-            complete += episode.completed;
-            aborted += !episode.completed;
-            samples += episode.samples.size();
-            total_moves += static_cast<std::size_t>(episode.move_count);
-            if (episode.completed)
-                completed_ids.emplace_back(Json{episode.game_id});
-            else {
-                const auto reason = episode.aborted_reason.empty() ? std::string{"unspecified"}
-                                                                   : episode.aborted_reason;
-                auto [found, inserted] =
-                    abort_reason_distribution.try_emplace(reason, Json{int64_t{0}});
-                (void)inserted;
-                ++std::get<int64_t>(found->second.value);
-            }
-        }
-        return stage_report(
-            request, iteration, stage, operation,
-            {
-                {"requested_games", Json{static_cast<int64_t>(episodes.size())}},
-                {"completed_games", Json{static_cast<int64_t>(complete)}},
-                {"aborted_games", Json{static_cast<int64_t>(aborted)}},
-                {"abort_reason_distribution", Json{std::move(abort_reason_distribution)}},
-                {"new_samples", Json{static_cast<int64_t>(samples)}},
-                {"total_moves", Json{static_cast<int64_t>(total_moves)}},
-            },
-            {{"completed_game_ids", Json{std::move(completed_ids)}}});
-    }
-    if (stage == RunStage::replay_ingest) {
-        const auto self_play_report = read_object(
-            stage_report_path(request, iteration, RunStage::self_play), "self-play stage report");
-        const auto self_play_operation =
-            std::get<std::string>(self_play_report.at("operation_id").value);
-        const auto episodes = diamond_pipeline::load_episode_artifact(
-            episodes_path, self_play_operation, compatibility);
-        const bool replay_cache_hit = resources.replay_loaded();
-        const auto open_started = std::chrono::steady_clock::now();
-        auto& replay = resources.full_replay();
-        const auto replay_open_seconds =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - open_started).count();
-        const auto ingested = diamond_pipeline::ingest_self_play(replay, episodes);
-        std::size_t complete = 0, aborted = 0;
-        for (const auto& episode : episodes) {
-            complete += episode.completed;
-            aborted += !episode.completed;
-        }
-        const auto replay_manifest = replay.manifest_path().string();
-        const auto replay_digest = replay.manifest_digest();
-        return stage_report(
-            request, iteration, stage, operation,
-            {
-                {"requested_games", Json{static_cast<int64_t>(episodes.size())}},
-                {"completed_games", Json{static_cast<int64_t>(complete)}},
-                {"aborted_games", Json{static_cast<int64_t>(aborted)}},
-                {"accepted_games", Json{static_cast<int64_t>(ingested.accepted_games)}},
-                {"duplicate_games", Json{static_cast<int64_t>(ingested.duplicate_games)}},
-                {"accepted_samples", Json{static_cast<int64_t>(ingested.accepted_samples)}},
-                {"duplicate_samples", Json{static_cast<int64_t>(ingested.duplicate_samples)}},
-                {"replay_size", Json{static_cast<int64_t>(replay.size())}},
-                {"replay_manifest", Json{replay_manifest}},
-                {"replay_manifest_sha256", Json{replay_digest}},
-                {"replay_cache_hit", Json{replay_cache_hit}},
-                {"replay_open_seconds", Json{replay_open_seconds}},
-            },
-            {{"replay_manifest", Json{replay_manifest}}});
-    }
-    if (stage == RunStage::train) {
-        const auto staged = per_iteration / "trained-checkpoint";
-        diamond_pipeline::TrainingResult trained;
-        IterationSource source;
-        auto native_model = model(config);
-        diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config), device);
-        source = load_iteration_source(request, config, iteration, trainer, device, predecessor);
-        // Only the branch that actually trains needs the samples.  A resumed
-        // TRAIN reloads the staged checkpoint and just checks the manifest
-        // digest, so it opens metadata-only. Opening still performs ReplayStore
-        // orphan cleanup; metadata-only is not a read-only filesystem contract.
-        const bool must_train = !std::filesystem::exists(staged / "CURRENT");
-        const bool replay_cache_hit = must_train && resources.replay_loaded();
-        const auto open_started = std::chrono::steady_clock::now();
-        std::unique_ptr<diamond_pipeline::ReplayStore> metadata_replay;
-        diamond_pipeline::ReplayStore* replay = nullptr;
-        if (must_train) {
-            replay = &resources.full_replay();
-        } else {
-            metadata_replay = std::make_unique<diamond_pipeline::ReplayStore>(
-                root(request) / "replay", compatibility,
-                static_cast<std::size_t>(config.replay.capacity), config.replay.seed,
-                diamond_pipeline::ReplayContents::metadata_only);
-            replay = metadata_replay.get();
-        }
-        const auto replay_open_seconds =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - open_started).count();
-        if (must_train) {
-            const auto key = diamond_pipeline::ModelKey{
-                compatibility.model_name, compatibility.model_version,
-                diamond_training::canonical_model_digest(trainer.learner())};
-            trained = diamond_pipeline::train_replay(iteration_job(config, state, operation, key),
-                                                     *replay, trainer, {});
-            try {
-                (void)diamond_training::save_checkpoint_v3(
-                    staged, trainer,
-                    checkpoint_lineage(request, iteration, trainer.training_step(), source),
-                    checkpoint_provenance(config, replay->manifest_digest()));
-            } catch (const diamond_training::CheckpointError& error) {
-                throw CommandArtifactError(error.what());
-            }
-        } else {
-            try {
-                validate_checkpoint_context(diamond_training::inspect_checkpoint_v2(staged),
-                                            request, config, static_cast<uint64_t>(iteration),
-                                            replay->manifest_digest(), predecessor);
-                const auto saved = diamond_training::load_checkpoint_v3(
-                    staged, trainer, device, diamond_training::CheckpointLoadIntent::exact_resume);
-                validate_checkpoint_context(saved, request, config,
-                                            static_cast<uint64_t>(iteration),
-                                            replay->manifest_digest(), predecessor);
-                trained.operation_id = operation;
-                trained.requested_training_steps =
-                    static_cast<std::size_t>(config.training.train_steps_per_iteration);
-                trained.completed_training_steps =
-                    static_cast<std::size_t>(saved.training_step - source.training_step);
-                trained.replay_size = replay->size();
-                trained.training_step = saved.training_step;
-            } catch (const diamond_training::CheckpointError& error) {
-                throw CommandArtifactError(error.what());
-            }
-        }
-        Array batch_sizes;
-        for (const auto value : trained.training_batch_sizes)
-            batch_sizes.emplace_back(Json{static_cast<int64_t>(value)});
-        return stage_report(
-            request, iteration, stage, operation,
-            {
-                {"requested_training_steps",
-                 Json{static_cast<int64_t>(trained.requested_training_steps)}},
-                {"completed_training_steps",
-                 Json{static_cast<int64_t>(trained.completed_training_steps)}},
-                {"training_batch_sizes", Json{std::move(batch_sizes)}},
-                {"training_metrics", Json{training_metrics_json(trained.training_metrics)}},
-                {"replay_size", Json{static_cast<int64_t>(trained.replay_size)}},
-                {"replay_cache_hit", Json{replay_cache_hit}},
-                {"replay_open_seconds", Json{replay_open_seconds}},
-                {"replay_sample_seconds", Json{trained.replay_sample_seconds}},
-                {"replay_sample_max_seconds", Json{trained.replay_sample_max_seconds}},
-                {"training_step", Json{static_cast<int64_t>(trained.training_step)}},
-                {"trained_checkpoint", Json{staged.string()}},
-            },
-            {{"training_step", Json{static_cast<int64_t>(trained.training_step)}}});
-    }
-    if (stage == RunStage::save_candidate) {
-        const auto staged = per_iteration / "trained-checkpoint";
-        auto native_model = model(config);
-        diamond_training::Trainer trainer(native_model, compatibility, trainer_config(config), device);
-        diamond_training::CheckpointInfo saved;
-        try {
-            // Provenance uses the manifest digest, but opening ReplayStore can
-            // still remove orphan chunks even in metadata-only mode.
-            const auto open_started = std::chrono::steady_clock::now();
-            diamond_pipeline::ReplayStore replay(root(request) / "replay", compatibility,
-                                                 static_cast<std::size_t>(config.replay.capacity),
-                                                 config.replay.seed,
-                                                 diamond_pipeline::ReplayContents::metadata_only);
-            validate_checkpoint_context(diamond_training::inspect_checkpoint_v2(staged), request,
-                                        config, static_cast<uint64_t>(iteration),
-                                        replay.manifest_digest(), predecessor);
-            saved = diamond_training::load_checkpoint_v3(
-                staged, trainer, device, diamond_training::CheckpointLoadIntent::exact_resume);
-            validate_checkpoint_context(saved, request, config, static_cast<uint64_t>(iteration),
-                                        replay.manifest_digest(), predecessor);
-        } catch (const diamond_training::CheckpointError& error) {
-            throw CommandArtifactError(error.what());
-        }
-        if (!saved.lineage || !saved.provenance ||
-            saved.lineage->iteration != static_cast<uint64_t>(iteration) ||
-            saved.lineage->model_step != saved.training_step)
-            throw CommandArtifactError("trained candidate checkpoint v3 lineage is invalid");
-        const auto candidate = candidate_checkpoint(request, iteration);
-        try {
-            if (std::filesystem::exists(candidate / "CURRENT")) {
-                const auto active = diamond_training::inspect_checkpoint_v2(candidate);
-                if (active.format_version != 3 || !active.lineage ||
-                    active.lineage->iteration != static_cast<uint64_t>(iteration) ||
-                    active.training_step != saved.training_step) {
-                    saved = diamond_training::save_checkpoint_v3(candidate, trainer, *saved.lineage,
-                                                                 *saved.provenance);
-                } else {
-                    saved = active;
-                }
-            } else {
-                saved = diamond_training::save_checkpoint_v3(candidate, trainer, *saved.lineage,
-                                                             *saved.provenance);
-            }
-        } catch (const diamond_training::CheckpointError& error) {
-            throw CommandArtifactError(error.what());
-        }
-        return stage_report(request, iteration, stage, operation,
-                            {
-                                {"candidate_checkpoint", Json{candidate.string()}},
-                                {"candidate_sha256", Json{saved.model_digest}},
-                                {"training_step", Json{static_cast<int64_t>(saved.training_step)}},
-                                {"lineage_iteration", Json{iteration}},
-                                {"lineage_valid", Json{true}},
-                            },
-                            {{"candidate_checkpoint", Json{candidate.string()}},
-                             {"training_step", Json{static_cast<int64_t>(saved.training_step)}}});
-    }
-    if (stage == RunStage::promotion_arena) {
-        const auto* candidate =
-            std::get_if<std::string>(&state.payload().at("candidate_checkpoint").value);
-        const auto* champion =
-            std::get_if<std::string>(&state.payload().at("champion_checkpoint").value);
-        if (!candidate || candidate->empty() || !champion || champion->empty())
-            throw CommandArtifactError(
-                "promotion arena requires candidate and champion checkpoints");
-        if (!diamond_orchestration::wire_evaluation_pipeline(config).run_arena) {
-            const auto candidate_info =
-                diamond_training::inspect_checkpoint_v2(std::filesystem::path(*candidate));
-            const auto champion_info =
-                diamond_training::inspect_checkpoint_v2(std::filesystem::path(*champion));
-            validate_checkpoint_context(candidate_info, request, config,
-                                        static_cast<uint64_t>(iteration), std::nullopt,
-                                        predecessor);
-            validate_checkpoint_context(champion_info, request, config, std::nullopt,
-                                        std::nullopt, predecessor);
-            return stage_report(request, iteration, stage, operation,
-                                {
-                                    {"candidate_checkpoint", Json{*candidate}},
-                                    {"candidate_sha256", Json{candidate_info.model_digest}},
-                                    {"champion_checkpoint", Json{*champion}},
-                                    {"champion_sha256", Json{champion_info.model_digest}},
-                                    {"incomplete_blocks", Json{int64_t{0}}},
-                                    {"promoted", Json{true}},
-                                    {"promotion_reason", Json{"arena_disabled"}},
-                                    {"status", Json{"bypassed"}},
-                                });
-        }
-        auto evaluation_request = request;
-        evaluation_request.candidate_path = *candidate;
-        evaluation_request.champion_path = *champion;
-        evaluation_request.opening_suite_id = config.opening_suite.id;
-        auto result = evaluate(evaluation_request, config, device);
-        result.emplace("arena_path", Json{(root(request) / "arena.json").string()});
-        result.emplace("arena_sha256",
-                       Json{file_sha256(root(request) / "arena.json", "promotion arena report")});
-        result.emplace("status", Json{"completed"});
-        return stage_report(request, iteration, stage, operation, std::move(result));
-    }
-    if (stage == RunStage::rating_benchmark) {
-        if (!diamond_orchestration::wire_evaluation_pipeline(config).record_rating) {
-            return stage_report(request, iteration, stage, operation,
-                                {{"reason", Json{"arena_disabled"}}, {"status", Json{"bypassed"}}});
-        }
-        const auto arena_path = stage_report_path(request, iteration, RunStage::promotion_arena);
-        const auto arena = read_object(arena_path, "promotion arena stage report");
-        const auto registry_path = root(request) / "rating-registry.json";
-        const auto registry = diamond_orchestration::load_rating_registry(registry_path);
-        auto records = std::get<Array>(state.payload().at("rating_records").value);
-        Object record{
-            {"arena_report_sha256", Json{file_sha256(arena_path, "promotion arena stage report")}},
-            {"candidate_sha256", arena.at("candidate_sha256")},
-            {"champion_sha256", arena.at("champion_sha256")},
-            {"iteration", Json{iteration}},
-            {"protocol_id", Json{config.model_name == "Soo" ? "soo-elo-v1" : "min-trueskill-v1"}},
-            {"registry_path", Json{registry_path.string()}},
-            {"registry_sha256", Json{file_sha256(registry_path, "rating registry")}},
-            {"registry_summary", Json{registry.report_json()}},
-        };
-        if (const auto found = arena.find("candidate_runtime_sha256"); found != arena.end())
-            record.emplace("candidate_runtime_sha256", found->second);
-        if (const auto found = arena.find("champion_runtime_sha256"); found != arena.end())
-            record.emplace("champion_runtime_sha256", found->second);
-        records.emplace_back(Json{record});
-        return stage_report(request, iteration, stage, operation,
-                            {
-                                {"rating_record", Json{record}},
-                                {"status", Json{"completed"}},
-                            },
-                            {{"rating_records", Json{std::move(records)}}});
-    }
-    if (stage == RunStage::promote_or_reject) {
-        const auto arena_path = stage_report_path(request, iteration, RunStage::promotion_arena);
-        const auto arena = read_object(arena_path, "promotion arena stage report");
-        const auto candidate_path =
-            std::filesystem::path(std::get<std::string>(arena.at("candidate_checkpoint").value));
-        const auto champion_path =
-            std::filesystem::path(std::get<std::string>(arena.at("champion_checkpoint").value));
-        const auto candidate = diamond_training::inspect_checkpoint_v2(candidate_path);
-        const auto champion = diamond_training::inspect_checkpoint_v2(champion_path);
-        const auto* durable_candidate =
-            std::get_if<std::string>(&state.payload().at("candidate_checkpoint").value);
-        const auto* durable_champion =
-            std::get_if<std::string>(&state.payload().at("champion_checkpoint").value);
-        if (!durable_candidate || !durable_champion ||
-            candidate_path.lexically_normal() !=
-                std::filesystem::path(*durable_candidate).lexically_normal() ||
-            champion_path.lexically_normal() !=
-                std::filesystem::path(*durable_champion).lexically_normal()) {
-            throw CommandArtifactError("promotion checkpoint identity or lineage mismatch");
-        }
-        validate_checkpoint_context(candidate, request, config, static_cast<uint64_t>(iteration),
-                                    std::nullopt, predecessor);
-        validate_checkpoint_context(champion, request, config, std::nullopt, std::nullopt,
-                                    predecessor);
-
-        if (diamond_orchestration::wire_evaluation_pipeline(config).activate_candidate) {
-            auto records = std::get<Array>(state.payload().at("promotion_records").value);
-            const Object record{
-                {"candidate_checkpoint", Json{candidate_path.string()}},
-                {"candidate_sha256", Json{candidate.model_digest}},
-                {"champion_checkpoint_before", Json{champion_path.string()}},
-                {"champion_checkpoint_after", Json{candidate_path.string()}},
-                {"champion_sha256_after", Json{candidate.model_digest}},
-                {"decision", Json{"promote"}},
-                {"identity_schema", Json{"checkpoint-model-v1"}},
-                {"incomplete_blocks", Json{int64_t{0}}},
-                {"iteration", Json{iteration}},
-                {"promotion_reason", Json{"arena_disabled"}},
-            };
-            records.emplace_back(Json{record});
-            const auto champion_key = compatibility.model_name + ":" + compatibility.model_version +
-                                      ":" + candidate.model_digest;
-            return stage_report(request, iteration, stage, operation,
-                                {
-                                    {"champion_checkpoint", Json{candidate_path.string()}},
-                                    {"champion_model_key", Json{champion_key}},
-                                    {"decision", Json{"promote"}},
-                                    {"promotion_record", Json{record}},
-                                    {"status", Json{"bypassed"}},
-                                },
-                                {{"champion_checkpoint", Json{candidate_path.string()}},
-                                 {"champion_model_key", Json{champion_key}},
-                                 {"promotion_records", Json{std::move(records)}}});
-        }
-
-        const auto arena_report_sha256 = file_sha256(arena_path, "promotion arena stage report");
-        const auto& ratings = std::get<Array>(state.payload().at("rating_records").value);
-        if (ratings.empty())
-            throw CommandArtifactError("promotion requires a durable rating record");
-        const auto& rating = std::get<Object>(ratings.back().value);
-        if (std::get<std::string>(rating.at("arena_report_sha256").value) != arena_report_sha256) {
-            throw CommandArtifactError(
-                "promotion arena report no longer matches its rating record");
-        }
-        const auto arena_result_path =
-            std::filesystem::path(std::get<std::string>(arena.at("arena_path").value));
-        if (file_sha256(arena_result_path, "promotion arena result") !=
-            std::get<std::string>(arena.at("arena_sha256").value)) {
-            throw CommandArtifactError("promotion arena result digest mismatch");
-        }
-
-        const auto arena_candidate_sha256 =
-            std::get<std::string>(arena.at("candidate_sha256").value);
-        const auto arena_champion_sha256 = std::get<std::string>(arena.at("champion_sha256").value);
-        std::string candidate_runtime_sha256;
-        std::string champion_runtime_sha256;
-        std::string identity_schema = "checkpoint-model-and-runtime-v1";
-        const auto candidate_runtime = arena.find("candidate_runtime_sha256");
-        const auto champion_runtime = arena.find("champion_runtime_sha256");
-        if (candidate_runtime != arena.end() && champion_runtime != arena.end()) {
-            if (candidate.model_digest != arena_candidate_sha256 ||
-                champion.model_digest != arena_champion_sha256) {
-                throw CommandArtifactError("promotion checkpoint model digest mismatch");
-            }
-            candidate_runtime_sha256 = std::get<std::string>(candidate_runtime->second.value);
-            champion_runtime_sha256 = std::get<std::string>(champion_runtime->second.value);
-        } else if (candidate_runtime == arena.end() && champion_runtime == arena.end()) {
-            // Early native reports used candidate_sha256/champion_sha256 for the
-            // ModelPool runtime identity. Recompute those identities so an
-            // already checksummed run can resume without weakening validation.
-            auto candidate_model = model(config);
-            auto champion_model = model(config);
-            diamond_pipeline::ModelPool candidate_pool(1, device, actor_precision(config));
-            diamond_pipeline::ModelPool champion_pool(1, device, actor_precision(config));
-            try {
-                (void)diamond_training::load_checkpoint_v2_weights(candidate_path, candidate_model,
-                                                                   device);
-                (void)diamond_training::load_checkpoint_v2_weights(champion_path, champion_model,
-                                                                   device);
-                validate_board_adjacency(candidate_model->adjacency);
-                validate_board_adjacency(champion_model->adjacency);
-                candidate_runtime_sha256 =
-                    candidate_pool.install(compatibility, candidate_model).checkpoint_sha256;
-                champion_runtime_sha256 =
-                    champion_pool.install(compatibility, champion_model).checkpoint_sha256;
-            } catch (const std::exception& error) {
-                throw CommandArtifactError(error.what());
-            }
-            if (candidate_runtime_sha256 != arena_candidate_sha256 ||
-                champion_runtime_sha256 != arena_champion_sha256) {
-                throw CommandArtifactError("legacy promotion runtime digest mismatch");
-            }
-            identity_schema = "legacy-runtime-v0";
-        } else {
-            throw CommandArtifactError("promotion arena identity fields are incomplete");
-        }
-        const bool promoted = std::get<bool>(arena.at("promoted").value);
-        const auto incomplete_blocks = std::get<int64_t>(arena.at("incomplete_blocks").value);
-        if (promoted && incomplete_blocks != 0)
-            throw CommandArtifactError(
-                "an incomplete paired-opening block cannot promote a candidate");
-        const auto active_path = promoted ? candidate_path : champion_path;
-        const auto& active = promoted ? candidate : champion;
-        auto records = std::get<Array>(state.payload().at("promotion_records").value);
-        const Object record{
-            {"arena_report_sha256", Json{arena_report_sha256}},
-            {"candidate_checkpoint", Json{candidate_path.string()}},
-            {"candidate_runtime_sha256", Json{candidate_runtime_sha256}},
-            {"candidate_sha256", Json{candidate.model_digest}},
-            {"champion_checkpoint_before", Json{champion_path.string()}},
-            {"champion_checkpoint_after", Json{active_path.string()}},
-            {"champion_runtime_sha256_before", Json{champion_runtime_sha256}},
-            {"champion_sha256_after", Json{active.model_digest}},
-            {"decision", Json{promoted ? "promote" : "reject"}},
-            {"identity_schema", Json{identity_schema}},
-            {"incomplete_blocks", Json{incomplete_blocks}},
-            {"iteration", Json{iteration}},
-            {"promotion_reason", arena.at("promotion_reason")},
-        };
-        records.emplace_back(Json{record});
-        const auto champion_key = compatibility.model_name + ":" + compatibility.model_version +
-                                  ":" + active.model_digest;
-        return stage_report(request, iteration, stage, operation,
-                            {
-                                {"champion_checkpoint", Json{active_path.string()}},
-                                {"champion_model_key", Json{champion_key}},
-                                {"decision", Json{promoted ? "promote" : "reject"}},
-                                {"promotion_record", Json{record}},
-                                {"status", Json{"completed"}},
-                            },
-                            {{"champion_checkpoint", Json{active_path.string()}},
-                             {"champion_model_key", Json{champion_key}},
-                             {"promotion_records", Json{std::move(records)}}});
-    }
-    if (stage == RunStage::persist) {
-        const auto& promotions = std::get<Array>(state.payload().at("promotion_records").value);
-        const auto& ratings = std::get<Array>(state.payload().at("rating_records").value);
-        if (promotions.empty() || (config.arena.enabled && ratings.empty()))
-            throw CommandArtifactError(config.arena.enabled
-                                           ? "persist requires durable rating and promotion records"
-                                           : "persist requires a durable promotion record");
-        const auto* champion =
-            std::get_if<std::string>(&state.payload().at("champion_checkpoint").value);
-        const auto* champion_key =
-            std::get_if<std::string>(&state.payload().at("champion_model_key").value);
-        if (!champion || !champion_key || !std::filesystem::exists(*champion))
-            throw CommandArtifactError("persist requires an active champion checkpoint");
-        Object result{{"champion_checkpoint", Json{*champion}},
-                      {"champion_model_key", Json{*champion_key}},
-                      {"promotion_record", promotions.back()},
-                      {"status", Json{"completed"}}};
-        if (!ratings.empty())
-            result.emplace("rating_record", ratings.back());
-        return stage_report(request, iteration, stage, operation, std::move(result));
-    }
-    return stage_report(request, iteration, stage, operation, {{"status", Json{"completed"}}});
 }
 
 // Reconstruct total attempted games (completed + aborted) and the highest learner

@@ -754,44 +754,7 @@ CheckpointInfo migrate_checkpoint_v2(const std::filesystem::path& source,
     }
 }
 
-CheckpointInfo save_checkpoint_v2(const std::filesystem::path& root, Trainer& trainer) {
-    trainer.compatibility().validate();
-    std::filesystem::create_directories(root / "generations");
-    static std::atomic_uint64_t sequence{0};
-    const std::string generation = "generation-" + std::to_string(trainer.training_step()) + "-" + std::to_string(++sequence);
-    const auto staged = root / "generations" / ("." + generation + ".staging");
-    const auto committed = root / "generations" / generation;
-    std::error_code ignored; std::filesystem::remove_all(staged, ignored); std::filesystem::create_directories(staged);
-    try {
-        // Native LibTorch archives make this generation self-contained and
-        // deliberately distinct from the legacy Python checkpoint reader.
-        torch::save(trainer.model(), (staged / kState).string());
-        torch::save(trainer.optimizer(), (staged / kOptimizer).string());
-        {
-            std::ofstream step(staged / "training_step", std::ios::binary | std::ios::trunc);
-            step << trainer.training_step();
-            if (!step) throw CheckpointError("cannot write checkpoint training_step");
-        }
-        {
-            std::ofstream manifest(staged / "manifest.json", std::ios::binary | std::ios::trunc);
-            manifest << "{\"format_version\":2,\"generation\":\"" << generation << "\",\"training_step\":" << trainer.training_step() << "}";
-            if (!manifest) throw CheckpointError("cannot write checkpoint manifest");
-        }
-#ifdef _WIN32
-        if (!MoveFileExW(staged.wstring().c_str(), committed.wstring().c_str(),
-                         MOVEFILE_WRITE_THROUGH)) {
-            const DWORD error = GetLastError();
-            throw CheckpointError("cannot promote checkpoint generation " + staged.string() + " -> " + committed.string() + " (Win32=" + std::to_string(error) + ")");
-        }
-#else
-        std::filesystem::rename(staged, committed);
-#endif
-        atomic_write(root / kPointer, generation + "\n");
-        return {committed, trainer.training_step()};
-    } catch (const CheckpointError&) { std::filesystem::remove_all(staged, ignored); throw; }
-      catch (const c10::Error& error) { std::filesystem::remove_all(staged, ignored); throw CheckpointError(std::string("cannot save checkpoint v2: ") + error.what()); }
-      catch (const std::filesystem::filesystem_error& error) { std::filesystem::remove_all(staged, ignored); throw CheckpointError(error.what()); }
-}
+
 
 CheckpointInfo save_checkpoint_v3(const std::filesystem::path& root, Trainer& trainer,
                                   const CheckpointLineage& lineage,

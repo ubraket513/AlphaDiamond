@@ -13,7 +13,6 @@
 #include <numeric>
 #include <stdexcept>
 
-#include "diamond_training/checkpoint.hpp"
 
 namespace diamond_pipeline {
 namespace {
@@ -414,16 +413,14 @@ TrainingResult train_replay(const IterationRequest& request, ReplayStore& replay
 
 // Convenience sequence used by the end-to-end benchmark. Production uses the
 // operations separately so each stage can persist reports and validate resume
-// provenance. This helper's optional v2 checkpoint has no v3 run lineage; it is
-// not a substitute for the production command's exact-continuation contract.
+// provenance. Checkpoint publication is explicit in both callers and uses the
+// current v3 writer; this helper only executes self-play, ingest and learning.
 IterationResult run_iteration(const IterationRequest& request, ModelPool& models,
                               ReplayStore& replay, diamond_training::Trainer& trainer,
                               std::stop_token stop) {
     const auto self_play = run_self_play(request, models, stop);
     const auto ingest = ingest_self_play(replay, self_play.episodes);
     const auto training = train_replay(request, replay, trainer, stop);
-    if (request.checkpoint_root)
-        (void)diamond_training::save_checkpoint_v2(*request.checkpoint_root, trainer);
     return {.operation_id = request.operation_id,
             .completed_games = self_play.completed_games,
             .aborted_games = self_play.aborted_games,

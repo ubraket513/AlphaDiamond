@@ -87,8 +87,8 @@ CheckpointInfo validate_checkpoint_v2(const std::filesystem::path& root);
 // or copying all history. Destination must be new; no raw Python conversion.
 CheckpointInfo migrate_checkpoint_v2(const std::filesystem::path& source,
                                      const std::filesystem::path& destination);
-CheckpointInfo save_checkpoint_v2(const std::filesystem::path& root, Trainer& trainer);
-// Writes the same immutable generation/CURRENT transaction as v2, with a
+// New checkpoints use only v3. Historical v2 readers above remain available.
+// Writes an immutable generation/CURRENT transaction with a
 // strict v3 lineage/provenance manifest. CURRENT replacement is the publication
 // point; failed pointer replacement can leave an unreferenced generation.
 CheckpointInfo save_checkpoint_v3(const std::filesystem::path& root, Trainer& trainer,

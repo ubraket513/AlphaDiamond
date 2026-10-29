@@ -1,85 +1,56 @@
 # Pipeline Simplification and File Commentary Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Use the already authorized local/subagent execution. The latest human instructions below override earlier test-driven or approval-gated workflow suggestions. Do not add tests or CI for this cleanup.
 
-**Goal:** 기존 학습 파이프라인을 단순화하고, 사용자가 파일별로 직접 검토할 수 있는 상세한 소스 설명을 제공한다.
+**Goal:** 기존 코드를 직접 읽기 쉽게 줄이고 상세한 파일별 주석을 작성한다.
 
-**Architecture:** 기존 config, training_wiring, train_main, pipeline, replay, model, trainer 모듈을 유지하며 중복과 무효 경로를 제거한다. 새 실행 계층이나 호환성 프레임워크를 만들지 않는다.
+**Architecture:** 기존 함수와 모듈을 직접 정리한다. 새 실행 계층, manager, wrapper, routing policy, fallback, compatibility framework를 만들지 않는다.
 
-**Tech Stack:** C++/LibTorch, CMake/Ninja, GCC/mold/sccache, CTest, Serena, Graphify.
+**Tech Stack:** 기존 C++/LibTorch, CMake/Ninja, GCC/mold/sccache. Serena/Graphify로 실제 참조 확인.
 
 **Spec:** `docs/superpowers/specs/2026-10-29-pipeline-simplification-design.md`
 
-## Global Constraints
+## 사용자 최종 지시
 
-- 사용자 승인된 실행 방식: 로컬 브랜치, 독립 작업은 subagent 활용, 추가 승인 대기 없음.
-- 여섯 confirmation arm의 정상 완료와 최종 분석 전에는 핵심 소스를 변경하지 않는다. root만 GPU 작업을 시작한다.
-- 현재 실험의 frozen source/binary/config/model identity와 shipped 모델을 변경하지 않는다.
-- 모든 변경 파일에 책임·계약·복잡한 정책을 설명하는 주석을 검토한다. 삭제 파일은 검토표에 삭제 이유와 참조 확인 결과를 남긴다.
-- Dev는 O0/g1/pipe/noLTO, 실제 학습/평가는 최적화 Release. 병렬 빌드와 병렬 테스트 모두 사용한다.
-- 마감 2026-10-29 16:20:02 KST. 그때 남은 코드 작업과 검증을 정확히 보고한다.
+- 사용자가 필요한 테스트와 GitHub CI를 나중에 별도로 처음부터 만든다. 지금은 신규/임시 회귀 테스트도, 대체 CI도 만들지 않는다.
+- 기존 것을 포함한 회귀 테스트 전체와 기존 GitHub CI를 제거한다. 테스트 전용 데이터·도구·등록·실행 참조까지 정리한다.
+- 검증은 남은 제품/벤치마크의 빌드와 실제 CLI·패널 실행으로 한다. 이미 수행한 검증 결과는 기록으로 보존한다.
+- 상세 소스 주석은 유지한다. 책임·입출력·소유권·부작용·숨은 정책을 정확히 설명한다.
+- 현재 여섯 confirmation arm과 최종 분석은 고정 입력으로 끝낸다. 그 후 코드를 변경한다. 체크포인트·실험 결과·사용자 변경은 보존한다.
+- 로컬 브랜치에서 실행하고 추가 승인 대기는 하지 않는다. 기존 마감 16:20:02 KST까지 완료하지 못한 항목은 그대로 보고한다.
 
-## Review Focus
+## 1. 설정 연결과 중복 정리
 
-- 구형 설정의 비기본 queue/timeout 값: 재직렬화와 체크포인트 재개 호환성을 잃지 않는다.
-- 비기본 c_puct: self-play와 arena가 모두 요청 값을 사용한다. 기존 기본 1.5는 유지한다.
-- 보고서가 없음/기존 파일을 열 수 없음: 미실행 단계와 접근 오류를 혼동하지 않는다.
-- 구형 checkpoint/report: 호환 처리 통합이 identity 검증을 약화하지 않는다.
-- Min 검색의 root owner/turn order: 후보와 기준 모델 또는 cyclic/reverse 전문가의 소유권을 바꾸지 않는다.
+- [ ] 기존 config/training_wiring/selfplay 파일에서 c_puct를 실제 검색까지 전달한다. 기본 1.5 동작은 유지한다.
+- [ ] 작동하지 않는 queue/timeout을 새 설정에서 제거한다. 저장된 구형 값과 존재 여부는 체크포인트를 읽는 데 필요한 만큼만 보존한다. 새 migration/fallback을 만들지 않는다.
+- [ ] 이 무효 metadata의 값/존재 여부를 바꾸는 resume transition은 거부한다. 같은 저장 설정으로 재개하는 동작은 보존한다. 이는 기존 allowlist를 좁히는 의도적인 변경이다.
+- [ ] train_main.cpp의 네 군데 동일한 Trainer 설정 변환을 내부 함수 trainer_config(const ProductionConfig&) 하나로 합친다. 공개 헤더의 LibTorch 의존성은 늘리지 않는다.
+- [ ] 각 단계에서 다른 체크포인트 검증 조건을 큰 옵션 객체나 범용 wrapper로 합치지 않는다. 소스 선택과 검증 조건은 호출부에서 바로 보이게 둔다.
+- [ ] 실제 제품 CLI로 설정 반영·초기화·재개를 확인하고 결과를 기록한다. 테스트 프로그램은 만들지 않는다.
 
-## Task 1: 설정에서 실제 검색까지 연결
+## 2. 불필요한 경로 제거와 파일 설명
 
-**Files:** `native/include/diamond_orchestration/config.hpp`, `native/src/config.cpp`, `native/include/diamond_orchestration/training_wiring.hpp`, `native/src/training_wiring.cpp`, `native/include/soo/selfplay.hpp`, `native/src/selfplay.cpp`, 세 개 `configs/alphazero/min-expert-*-local-pilot.json`.
+- [ ] accepted만 반환하는 pipeline_main.cpp 실행 파일과 CMake 등록을 제거한다. 실제 사용하는 pipeline 함수는 유지한다.
+- [ ] 기존 보고서 접근 오류를 없는 보고서로 조용히 넘기지 않도록 직접 수정한다. alternate source/retry/default-object 경로를 만들지 않는다.
+- [ ] 파일별 표의 API와 구현에 책임, 실행 흐름, 단위, 소유권/수명, 동시성, 부작용, 실패와 호환성 이유를 상세히 설명한다.
+- [ ] arena의 실제 반복 정책과 root-owner/expert 선택을 명확히 설명한다. 현재 실험의 정책은 바꾸지 않는다.
+- [ ] 검토자는 주석과 구현이 일치하는지 확인한다. 불필요한 파일 분리나 새 계층을 추가하지 않는다.
 
-**Interfaces:** `ProductionConfig` → 기존 `wire_training_iteration`/`wire_arena_episode` → `EpisodeConfig` → 검색 설정. Trainer 설정 변환은 Task 2의 실행 파일 내부 함수가 담당한다; 설정 헤더에 LibTorch 의존성을 추가하지 않는다.
+## 3. 회귀 테스트와 GitHub CI 제거
 
-- [ ] 기존 `config_test`, `cli_contract_test`, `selfplay_test`의 관련 assertions를 확인하고 비기본 c_puct 전달과 invalid finite/range 입력의 회귀를 추가한다.
-- [ ] 현재 코드에서 해당 회귀가 실패함을 확인한다.
-- [ ] c_puct를 전달하고 쓰이지 않는 queue/timeout은 optional legacy data로만 보존한다. 기존 값이 있으면 정확히 보존하고 새 설정에는 생성하지 않는다.
-- [ ] legacy 값의 roundtrip, 잘못된 타입 거부, 재개 시 값/존재 여부 변경 금지와 새 설정의 생략을 검증한다. 현재 resume allowlist에서 허용하던 이 두 무효 필드의 변경을 거부하는 것은 의도적인 동작 변경이다. 같은 저장 설정으로 재개하는 호환성은 유지한다.
-- [ ] 각 파일에 단위, 실행 소비자, 배치/스레드/게임 수의 차이, 실제 arena 고정 정책과 호환성 계약을 설명한다.
-- [ ] 필요한 타깃을 병렬 빌드한 뒤 관련 CTest를 `-j2` 이상으로 실행하고 결과를 기록한다.
+- [ ] regression-removal-notes.md의 참조 조사를 기준으로 기존/신규 회귀 테스트, 전용 fixture/golden, 테스트 전용 생성기를 삭제한다.
+- [ ] CTest/npm 테스트 등록, CI 테스트 실행 참조와 기존 GitHub CI workflows를 삭제한다. 새 테스트/CI나 대체 검사 프레임워크를 만들지 않는다.
+- [ ] SDK의 합성 모델 fixture 생성·포장은 테스트 전용이므로 제거한다. Desktop 실행에 실제 필요한 다섯 topology table은 보존한다. 회귀 자산을 다른 위치로 옮겨 숨겨 두지 않는다.
+- [ ] 남은 정상 빌드가 삭제된 테스트 자산을 요구하지 않도록 실제 소비자/CMake 참조를 정리한다. 제품 입력을 이름만 보고 삭제하지 않는다.
+- [ ] 현재 사용 문서의 테스트/CI 실행 안내를 정리한다. 과거 실험의 결과와 역사 문서는 소급 수정하지 않는다.
 
-## Task 2: 실행 경로와 중복 설정 정리
+## 4. 빌드·실행 확인과 완료 기록
 
-**Files:** `native/src/train_main.cpp`, `native/src/pipeline_main.cpp`(삭제), `native/CMakeLists.txt`, 참조가 확인된 현재 문서와 CLI 테스트.
-
-**Interfaces:** `train_main.cpp` 내부 `diamond_training::TrainingConfig trainer_config(const ProductionConfig& config)` 함수로 네 군데 설정 변환을 통합한다. `load_iteration_source`/`load_actor_checkpoint`는 입력 계약이 같은 부분만 내부 helper로 합친다. 공개 CLI의 실제 학습 진입점은 유지한다.
-
-- [ ] 기존 `cli_contract_test`의 실제 초기화·migration·resume 동작 검증을 확인한다. 외부에서 관측 가능한 loss/optimizer 계약의 공백이 있을 때만 해당 회귀 사례를 추가한다. 비공개 생성 지점마다 직접 관측 가능하다고 가정하지 않는다.
-- [ ] 보고서 부재와 기존 보고서 접근 실패를 구분하는 회귀를 추가하고 실패를 확인한다. 접근 오류 테스트는 root 실행에서도 재현되는 fixture를 사용한다.
-- [ ] 네 군데 설정 변환을 실행 파일 내부 공통 함수로 교체하고, 중복 검증 순서를 의미 보존 조건 아래 통합한다.
-- [ ] accepted-only 실행 파일의 CMake/테스트/현행 문서 참조를 확인한 뒤 삭제한다. 실행 중인 제품이나 일반 pipeline primitives는 삭제하지 않는다.
-- [ ] 단계별 입력·출력·저장 순서와 legacy 분기의 이유를 자세히 설명하고, 오류를 덮는 분기만 수정한다.
-- [ ] `cli_contract_test`, `coordinator_resume_test`, `final_pipeline_smoke_test`, `native_pipeline_smoke_test`, `production_topology_test`, `runtime_boundary_test` 및 실제 영향 테스트를 병렬 실행한다.
-
-## Task 3: 데이터와 실행 자원의 파일별 설명
-
-**Files:** `native/include/diamond_pipeline/{pipeline,replay_store,model_pool}.hpp`, `native/src/{pipeline,replay_store,model_pool}.cpp`, `native/include/diamond_training/{trainer,checkpoint}.hpp`, `native/src/{trainer,checkpoint}.cpp`. 실제 파일 존재와 사용 관계를 Serena로 확인한다.
-
-**Interfaces:** 공개 API와 저장 형식 변경 없음. 주석은 실제 소유권/부작용/동기화 계약을 설명한다.
-
-- [ ] 파일마다 호출자·피호출자, 수명, 공유/독점 자원, 저장 형식과 오류 경계를 조사한다.
-- [ ] replay open의 cleanup 부작용, checkpoint commit 순서와 identity, model pool의 install/activate와 평가 소유권, Trainer의 optimizer 복원과 CUDA 완료 시점/telemetry 제한을 설명한다.
-- [ ] `pipeline::run_iteration`과 production coordinator의 실제 역할 차이를 명시한다. 사용 중인 테스트/벤치마크 경로를 추측으로 삭제하지 않는다.
-- [ ] 독립 리뷰로 모든 설명을 소스와 대조한다. 주석만 변경했으면 동일 동작을 위한 새 테스트를 만들지 않는다.
-
-## Task 4: 평가 선택 경로 설명과 통합 검토
-
-**Files:** `native/include/soo/arena_router.hpp`, `native/include/soo/min_experts.hpp`, `native/src/min_experts.cpp`, `native/benchmarks/min_expert_arena.cpp`, `native/src/schedule.cpp`, 관련 수정 테스트, 이 문서의 파일별 검토표.
-
-**Interfaces:** frozen 평가가 끝난 후에도 root ownership, turn-order 선택, opening schedule 생성 알고리즘과 검증 기준은 유지한다.
-
-- [ ] 모델 routing이 실패 시 대체 실행이 아닌 소유권 선택임을 입력/출력과 예로 설명한다.
-- [ ] seed/index에서 실제 opening이 생성되는 방식과 paired evaluation의 재사용 조건을 설명한다.
-- [ ] 이 문서의 파일별 검토표에 역할, 제거/통합/주석 변경, 유지한 이유, 테스트 증거와 남은 일을 기록한다. 각 파일은 완료 전까지 미완료 상태로 둔다.
-- [ ] 독립 whole-diff 리뷰, 필요한 병렬 CTest, `git diff --check`를 통과한다.
-- [ ] `graphify update .` 후 semantic node/edge 보존과 dangling edge를 검사한다. 문서 의미 관계는 별도 확인한다.
-- [ ] 변경한 파일만 묶어 커밋하고 사용자의 기존 변경/실험 산출물은 보존한다.
-
-## 범위 밖
-
-새 추상화 계층, 저장 형식 재작성, 전문가 통합 모델, 새 routing policy, 전면 디렉터리 재배치, dependency 교체, 자동 fallback은 이번 정리에 포함하지 않는다. unrelated 파일까지 읽지 않고 일괄 주석을 생성하여 검토 완료로 표시하지 않는다.
+- [ ] GCC/mold/sccache/Ninja로 제품과 필요한 벤치마크를 재구성·병렬 빌드한다. Dev는 O0/g1/pipe/noLTO, 실제 계산은 최적화 Release다.
+- [ ] 패널 production build와 실제 CLI의 필요한 실행만 확인한다. 테스트 suite는 다시 만들거나 실행하지 않는다.
+- [ ] git diff --check와 독립 소스 검토로 파일별 완료 상태를 기록한다.
+- [ ] graphify update .를 실행하고 삭제된 테스트 관계가 정리됐는지, 제품의 semantic 관계와 topology 입력이 보존됐는지 확인한다.
+- [ ] 코드 정리·주석·테스트/CI 삭제·직접 실행 결과를 보고한다. 미완료 파일은 완료로 표시하지 않는다.
 
 ## 파일별 검토표
 
@@ -111,19 +82,6 @@
 | `native/src/min_experts.cpp` | turn-order와 geometry에 따른 cyclic/reverse 선택 | 유지 | 평가 완료 후 |
 | `native/benchmarks/min_expert_arena.cpp` | 고정 비교의 identity·실행·출력 경계 | 유지 | 평가 완료 후 |
 | `native/src/schedule.cpp` | 실제 opening 생성, paired reuse와 freshness 조건 | 유지 | 평가 완료 후 |
-| 수정한 테스트 파일 각각 | 재현 입력, 검증 계약, 실패 시 드러나는 회귀 | 해당 작업에서 기록 | 해당 작업에서 기록 |
+| 기존 회귀 테스트·GitHub CI | 소스/전용 데이터/등록/실행 참조 제거 | 삭제 준비 | 삭제 이유 기록 |
 
 주요 수정 후 이 표를 실제 커밋·테스트 결과로 갱신한다. 세부 설명의 독립 검토가 끝나지 않은 파일은 완료로 표시하지 않는다.
-
-## Task 5: 최종 검증 후 기존·신규 회귀 테스트 전체 제거
-
-**사용자 확정 범위:** 기존 것을 포함한 회귀 테스트 전체. 추가 승인 불필요. 이 Task는 앞의 정리·검증·리뷰가 끝난 후 실행한다.
-
-**Files:** 실제 참조 조사 결과를 `regression-removal-notes.md`에 열거한다. `native/tests/`, 저장소 `tests/`의 회귀 전용 fixture/golden, panel `*.test.*`, 관련 CMake/package/CI 등록과 전용 생성 도구가 조사 대상이다. 공유 제품/벤치마크 자산은 이름만 보고 삭제하지 않는다.
-
-- [ ] 기존 및 신규 회귀 테스트를 최종 코드에서 병렬 실행하고 명령·결과·시점·커밋을 기록한다.
-- [ ] Serena 참조와 Graphify 관계로 테스트 전용 파일 및 공유 소비자를 확인해 정확한 삭제 목록을 확정한다.
-- [ ] 회귀 테스트 소스와 전용 자산, CTest/npm 등록, CI의 해당 실행 참조를 함께 제거한다. 테스트를 새 위치로 숨겨 남기거나 다른 이름으로 대체하지 않는다.
-- [ ] 테스트 삭제 후 남은 제품/벤치마크 타깃을 CMake 재구성·병렬 빌드하고, 패널 production build 및 실제 CLI의 최소 실행을 검증한다. 삭제된 테스트를 다시 만들지 않는다.
-- [ ] 현재 사용 문서의 실행 명령을 정리하고 Graphify를 갱신한다. 삭제된 테스트에 대한 과거 실험 결과/역사 문서는 역사로 보존한다.
-- [ ] 파일별 검토표와 최종 보고서에 검증 결과와 실제 삭제 범위를 기록한다. 앞선 '테스트 보존' 문구는 검증 전까지의 순서 조건으로 해석한다.

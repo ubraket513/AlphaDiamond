@@ -34,17 +34,15 @@ Topology& mutable_topology();
 
 // Fill the topology from the five exported table files (topology_neighbour.i8,
 // topology_{camp_positions,pairwise_distance,physical_to_canonical,
-// canonical_to_physical}.i32) written by tools/export_deployment.py and
-// tools/build_golden.py.  Returns false and leaves the topology unconfigured
-// when any file is missing or the wrong size.  This is the only way a build
-// without Python gets its tables: nothing in native/ transcribes them.
+// canonical_to_physical}.i32). Returns false and leaves the topology unconfigured
+// when any file is missing or the wrong size. Deployment artifacts can carry
+// these tables; generate_topology() provides the geometry-derived alternative.
 bool load_topology_from_dir(const std::string& root);
 
 // Derive every table from the board's geometry: the two overlapping triangles,
 // the camp inequalities, the (z, x) ordering that fixes position ids, the
 // neighbour lattice, breadth-first distances and the canonical rotation. This
 // is what makes the core self-sufficient in geometry -- no Python, no files.
-// `topology_test` requires the result to equal the frozen exported tables.
 Topology generate_topology();
 
 // Install the generated tables, unless something already configured them.

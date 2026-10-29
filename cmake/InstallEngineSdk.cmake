@@ -35,13 +35,13 @@ set(_ad_package_dir "${CMAKE_INSTALL_LIBDIR}/cmake/AlphaDiamondEngine")
 set(_ad_data_dir "${CMAKE_INSTALL_DATADIR}/AlphaDiamondEngine")
 include("${CMAKE_CURRENT_LIST_DIR}/AlphaDiamondEngineBuildProvenance.cmake")
 file(GLOB_RECURSE _ad_provenance_inputs CONFIGURE_DEPENDS
-    "${PROJECT_SOURCE_DIR}/native/include/*.hpp"
-    "${PROJECT_SOURCE_DIR}/native/include/*.h"
-    "${PROJECT_SOURCE_DIR}/native/src/*.hpp" "${PROJECT_SOURCE_DIR}/native/src/*.h"
+    "${PROJECT_SOURCE_DIR}/include/*.hpp"
+    "${PROJECT_SOURCE_DIR}/include/*.h"
+    "${PROJECT_SOURCE_DIR}/src/*.hpp" "${PROJECT_SOURCE_DIR}/src/*.h"
     "${PROJECT_SOURCE_DIR}/cmake/*.cmake" "${PROJECT_SOURCE_DIR}/cmake/*.cmake.in"
     "${PROJECT_SOURCE_DIR}/data/topology/*")
 list(APPEND _ad_provenance_inputs "${PROJECT_SOURCE_DIR}/CMakeLists.txt"
-    "${PROJECT_SOURCE_DIR}/native/CMakeLists.txt")
+    "${PROJECT_SOURCE_DIR}/src/CMakeLists.txt")
 set(_ad_provenance_targets ${_ad_sdk_targets})
 if(TARGET alphadiamond-rating-sync)
     list(APPEND _ad_provenance_targets alphadiamond-rating-sync)
@@ -68,7 +68,7 @@ if(ALPHADIAMOND_ENGINE_HAS_MODEL)
 endif()
 foreach(_header IN LISTS _ad_public_headers)
     get_filename_component(_directory "${_header}" DIRECTORY)
-    install(FILES "${PROJECT_SOURCE_DIR}/native/include/${_header}"
+    install(FILES "${PROJECT_SOURCE_DIR}/include/${_header}"
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${_directory}" COMPONENT Runtime)
 endforeach()
 

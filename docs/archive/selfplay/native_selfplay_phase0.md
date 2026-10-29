@@ -4,8 +4,8 @@
 > The migration this document belongs to is finished: the Python engine, the
 > Python MCTS, the Python board and the corpus oracle are deleted, and the C++
 > core is the only implementation of rules, encoding, search, self-play and
-> geometry. See [decisions.md](../architecture/decisions.md) (decision 3) and
-> [retiring_the_python_engine.md](../architecture/retiring_the_python_engine.md).
+> geometry. See [decisions.md](../../architecture/decisions.md) (decision 3) and
+> [retiring_the_python_engine.md](../../architecture/retiring_the_python_engine.md).
 >
 > Kept because the measurements and the pitfalls are still true and still cost
 > something to rediscover. Read it as a record, not as instructions.
@@ -19,11 +19,11 @@ judged against. It is a design record and is **not** rewritten as work lands.
 
 **Status: all six gates closed, and then retired.** The parity plan below did
 its job and the Python side of it no longer exists; see
-[retiring_the_python_engine.md](../architecture/retiring_the_python_engine.md)
+[retiring_the_python_engine.md](../../architecture/retiring_the_python_engine.md)
 for what replaced each gate. Progress log:
 [native_selfplay_phase1_progress.md](native_selfplay_phase1_progress.md).
 
-Follows [rtx5060_bottleneck_findings.md](../performance-profiling/rtx5060_bottleneck_findings.md).
+Follows [rtx5060_bottleneck_findings.md](../performance/rtx5060_bottleneck_findings.md).
 
 ---
 

@@ -1,5 +1,9 @@
 # The promotion arena: what it cost, what was fixed, what is still open
 
+This analysis preserves historical commands, paths and measurements. For current
+source locations and build commands, use the [code guide](../development/code-guide.md)
+and [build cycle](../development/build-cycle.md).
+
 > **Continuation of [min_bootstrap.md](min_bootstrap.md).** That document's §6
 > listed the arena stage as known-red and its §7 made the B0 baseline the next
 > step. B0 cannot run without the arena, because every iteration runs it. This

@@ -10,14 +10,17 @@ npm start
 ```
 
 Open <http://127.0.0.1:5178>. The default binary is
-`build/native-training-release/native/alphadiamond-train` in the Engine checkout.
+`build/training-release/bin/alphadiamond-train` in the Engine checkout.
 Set `ALPHADIAMOND_TRAIN_BIN=/absolute/path/to/alphadiamond-train` or `PORT` when
 starting the server to select another binary or port. Keep the panel local.
 
-The preset list reads `configs/alphazero/current/`: the three Min expert
-local pilots and the Soo bootstrap, production and six-hour configurations.
+The preset list reads all seven files in `configs/current/`: the three Min expert
+local pilots, the Min `min-512x12-3h.json` scratch configuration, and the Soo
+bootstrap, production and six-hour configurations. The larger Min uses width
+512, 12 residual blocks and a three-hour iteration-boundary budget; an external
+process cap is required for a strict wall-clock limit.
 Earlier Min configurations and the CLI-only expert arena configuration remain
-in `configs/alphazero/experiments/`; they are excluded from the training picker.
+in `configs/experiments/`; they are excluded from the training picker.
 The move preserves every configuration's contents. Dated experiment reports
 retain their original paths and recorded identities.
 
@@ -63,8 +66,8 @@ output streams into `console.log` inside its run directory:
 RUN_DIR="$PWD/artifacts/example/runs/min/experiment-1"
 mkdir -p "$RUN_DIR"
 TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 \
-  build/native-training-release/native/alphadiamond-train train \
-  --run-dir "$RUN_DIR" --config configs/alphazero/current/min-expert-cyclic-local-pilot.json \
+  build/training-release/bin/alphadiamond-train train \
+  --run-dir "$RUN_DIR" --config configs/current/min-expert-cyclic-local-pilot.json \
   --warm-start /absolute/path/to/deployment-export >"$RUN_DIR/console.log" 2>&1
 ```
 
@@ -91,3 +94,6 @@ For development, keep `npm start` running and run `npm run dev` in a second
 terminal; open <http://127.0.0.1:5173>. The Vite server proxies `/api` to port
 5178. Use `npm run build` and inspect the running panel directly for development
 validation. The previous bridge and chart regression suites have been removed.
+
+See the [code guide](../docs/development/code-guide.md) for native entrypoints and
+the [documentation index](../docs/README.md) for current guides and historical records.

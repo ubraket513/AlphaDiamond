@@ -8,23 +8,23 @@
 option(DIAMOND_BUILD_BENCHMARKS "Build explicit native benchmark executables" OFF)
 
 set(SOO_CORE_SOURCES
-    src/board.cpp
-    src/encoder.cpp
-    src/min_experts.cpp
-    src/prior.cpp
-    src/rules.cpp
-    src/topology_gen.cpp
-    src/topology_io.cpp
+    board.cpp
+    encoder.cpp
+    min_experts.cpp
+    prior.cpp
+    rules.cpp
+    topology_gen.cpp
+    topology_io.cpp
 )
 
 set(SOO_SEARCH_SOURCES
-    src/batcher.cpp
-    src/evaluator.cpp
-    src/mcts.cpp
-    src/mcts3p.cpp
-    src/profile.cpp
-    src/search_target_metrics.cpp
-    src/selfplay.cpp
+    batcher.cpp
+    evaluator.cpp
+    mcts.cpp
+    mcts3p.cpp
+    profile.cpp
+    search_target_metrics.cpp
+    selfplay.cpp
 )
 
 add_library(soo_core STATIC ${SOO_CORE_SOURCES})
@@ -32,7 +32,7 @@ add_library(alphadiamond::soo_core ALIAS soo_core)
 
 target_include_directories(soo_core
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
@@ -53,7 +53,7 @@ target_link_libraries(soo_search
 
 target_include_directories(soo_search
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
@@ -64,17 +64,17 @@ target_compile_options(soo_search PRIVATE
 )
 
 # Shared runtime facilities keep their public headers and C++ namespaces.
-add_library(diamond_support STATIC src/json.cpp)
+add_library(diamond_support STATIC json.cpp)
 add_library(alphadiamond::diamond_support ALIAS diamond_support)
-add_library(diamond_artifact STATIC src/deployment_artifact.cpp)
+add_library(diamond_artifact STATIC deployment_artifact.cpp)
 add_library(alphadiamond::diamond_artifact ALIAS diamond_artifact)
-add_library(diamond_rating STATIC src/rating.cpp src/rating_store.cpp)
+add_library(diamond_rating STATIC rating.cpp rating_store.cpp)
 add_library(alphadiamond::diamond_rating ALIAS diamond_rating)
 target_link_libraries(diamond_artifact PUBLIC alphadiamond::soo_core alphadiamond::diamond_support)
 target_link_libraries(diamond_rating PUBLIC alphadiamond::diamond_support)
 foreach(runtime_target diamond_support diamond_artifact diamond_rating)
     target_include_directories(${runtime_target} PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
     target_compile_features(${runtime_target} PUBLIC cxx_std_20)
     target_compile_options(${runtime_target} PRIVATE
@@ -82,7 +82,7 @@ foreach(runtime_target diamond_support diamond_artifact diamond_rating)
         $<$<CXX_COMPILER_ID:MSVC>:/W4>)
 endforeach()
 
-add_executable(alphadiamond-rating-sync src/rating_sync_main.cpp)
+add_executable(alphadiamond-rating-sync rating_sync_main.cpp)
 target_link_libraries(alphadiamond-rating-sync PRIVATE alphadiamond::diamond_rating)
 target_compile_features(alphadiamond-rating-sync PRIVATE cxx_std_20)
 # Runtime SDK installation below owns this executable's single install rule.
@@ -92,14 +92,14 @@ if(DIAMOND_BUILD_MODEL)
     include(${PROJECT_SOURCE_DIR}/cmake/AlphaDiamondEngineTorch.cmake)
     separate_arguments(DIAMOND_TORCH_CXX_FLAGS NATIVE_COMMAND "${TORCH_CXX_FLAGS}")
     add_library(diamond_model STATIC
-        src/soo_model.cpp
-        src/soo_evaluator.cpp
+        soo_model.cpp
+        soo_evaluator.cpp
     )
     add_library(alphadiamond::diamond_model ALIAS diamond_model)
     target_link_libraries(diamond_model PUBLIC alphadiamond::soo_core alphadiamond::diamond_artifact Torch::Torch)
     target_include_directories(diamond_model
         PUBLIC
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     )
     target_compile_features(diamond_model PUBLIC cxx_std_20)
@@ -110,7 +110,7 @@ if(DIAMOND_BUILD_MODEL)
     endif()
 
     if(DIAMOND_BUILD_BENCHMARKS)
-        add_executable(soo_libtorch_probe src/soo_libtorch_probe.cpp)
+        add_executable(soo_libtorch_probe "${PROJECT_SOURCE_DIR}/benchmarks/soo_libtorch_probe.cpp")
         target_link_libraries(soo_libtorch_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search ${TORCH_LIBRARIES})
         target_compile_features(soo_libtorch_probe PRIVATE cxx_std_20)
         target_include_directories(soo_libtorch_probe PRIVATE ${TORCH_INCLUDE_DIRS})
@@ -119,7 +119,7 @@ if(DIAMOND_BUILD_MODEL)
             target_compile_options(soo_libtorch_probe PRIVATE /bigobj)
         endif()
 
-        add_executable(soo_evaluator_probe src/soo_evaluator_probe.cpp)
+        add_executable(soo_evaluator_probe "${PROJECT_SOURCE_DIR}/benchmarks/soo_evaluator_probe.cpp")
         target_link_libraries(soo_evaluator_probe PRIVATE alphadiamond::diamond_model)
         target_compile_features(soo_evaluator_probe PRIVATE cxx_std_20)
         target_compile_definitions(soo_evaluator_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
@@ -127,7 +127,7 @@ if(DIAMOND_BUILD_MODEL)
             target_compile_options(soo_evaluator_probe PRIVATE /bigobj)
         endif()
 
-        add_executable(soo_mcts_probe src/soo_mcts_probe.cpp)
+        add_executable(soo_mcts_probe "${PROJECT_SOURCE_DIR}/benchmarks/soo_mcts_probe.cpp")
         target_link_libraries(soo_mcts_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search)
         target_compile_features(soo_mcts_probe PRIVATE cxx_std_20)
         target_compile_definitions(soo_mcts_probe PRIVATE _DISABLE_EXTENDED_ALIGNED_STORAGE)
@@ -141,15 +141,15 @@ endif()
 if(DIAMOND_BUILD_TRAINING)
     # Portable replay/schema code is needed by training, not Runtime SDK builds.
     add_library(diamond_pipeline STATIC
-        src/policy_diagnostics.cpp
-        src/replay_segment.cpp
-        src/replay_store.cpp
-        src/training_sample.cpp
+        policy_diagnostics.cpp
+        replay_segment.cpp
+        replay_store.cpp
+        training_sample.cpp
     )
     add_library(alphadiamond::diamond_pipeline ALIAS diamond_pipeline)
     target_link_libraries(diamond_pipeline PUBLIC alphadiamond::soo_core alphadiamond::diamond_support)
     target_include_directories(diamond_pipeline PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     )
     target_compile_features(diamond_pipeline PUBLIC cxx_std_20)
@@ -159,18 +159,18 @@ if(DIAMOND_BUILD_TRAINING)
     )
 
     add_library(diamond_training STATIC
-        src/checkpoint.cpp
-        src/checkpoint_export.cpp
-        src/device.cpp
-        src/parameter_diagnostics.cpp
-        src/trainer.cpp
+        checkpoint.cpp
+        checkpoint_export.cpp
+        device.cpp
+        parameter_diagnostics.cpp
+        trainer.cpp
     )
     add_library(alphadiamond::diamond_training ALIAS diamond_training)
     # Compatibility/sample schema has one compiled owner: diamond_pipeline.
     target_link_libraries(diamond_training PUBLIC alphadiamond::diamond_model alphadiamond::diamond_pipeline ${TORCH_LIBRARIES})
     target_include_directories(diamond_training
         PUBLIC
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
             ${TORCH_INCLUDE_DIRS}
     )
     target_compile_features(diamond_training PUBLIC cxx_std_20)
@@ -182,19 +182,19 @@ if(DIAMOND_BUILD_TRAINING)
         target_compile_options(diamond_training PRIVATE /bigobj)
     endif()
 
-    add_library(diamond_release STATIC src/promotion.cpp)
+    add_library(diamond_release STATIC promotion.cpp)
     add_library(alphadiamond::diamond_release ALIAS diamond_release)
     target_link_libraries(diamond_release PUBLIC alphadiamond::diamond_training)
     target_include_directories(diamond_release PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     )
     target_compile_features(diamond_release PUBLIC cxx_std_20)
 
-    add_executable(alphadiamond-checkpoint src/checkpoint_main.cpp)
+    add_executable(alphadiamond-checkpoint checkpoint_main.cpp)
     target_link_libraries(alphadiamond-checkpoint PRIVATE alphadiamond::diamond_training)
     target_compile_features(alphadiamond-checkpoint PRIVATE cxx_std_20)
 
-    add_executable(alphadiamond-release src/release_main.cpp)
+    add_executable(alphadiamond-release release_main.cpp)
     target_link_libraries(alphadiamond-release PRIVATE alphadiamond::diamond_release)
     target_compile_features(alphadiamond-release PRIVATE cxx_std_20)
 
@@ -204,8 +204,8 @@ if(DIAMOND_BUILD_TRAINING)
     # The direct native self-play -> replay -> training path is deliberately
     # separate from the schema-only replay library: it owns LibTorch models.
     add_library(diamond_native_pipeline STATIC
-        src/model_pool.cpp
-        src/pipeline.cpp
+        model_pool.cpp
+        pipeline.cpp
     )
     add_library(alphadiamond::diamond_native_pipeline ALIAS diamond_native_pipeline)
     target_link_libraries(diamond_native_pipeline PUBLIC
@@ -215,7 +215,7 @@ if(DIAMOND_BUILD_TRAINING)
         ${TORCH_LIBRARIES}
     )
     target_include_directories(diamond_native_pipeline PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         ${TORCH_INCLUDE_DIRS}
     )
     target_compile_features(diamond_native_pipeline PUBLIC cxx_std_20)
@@ -225,34 +225,34 @@ if(DIAMOND_BUILD_TRAINING)
     endif()
 
     add_library(diamond_orchestration STATIC
-        src/config.cpp
-        src/coordinator.cpp
-        src/report.cpp
-        src/run_state.cpp
-        src/schedule.cpp
-        src/training_resources.cpp
-        src/training_wiring.cpp
+        config.cpp
+        coordinator.cpp
+        report.cpp
+        run_state.cpp
+        schedule.cpp
+        training_resources.cpp
+        training_wiring.cpp
     )
     add_library(alphadiamond::diamond_orchestration ALIAS diamond_orchestration)
     target_link_libraries(diamond_orchestration PUBLIC alphadiamond::diamond_pipeline alphadiamond::diamond_rating)
     target_include_directories(diamond_orchestration PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     )
     target_compile_features(diamond_orchestration PUBLIC cxx_std_20)
 
     if(DIAMOND_BUILD_BENCHMARKS)
-        add_executable(training_step_benchmark benchmarks/training_step_benchmark.cpp)
+        add_executable(training_step_benchmark "${PROJECT_SOURCE_DIR}/benchmarks/training_step_benchmark.cpp")
         target_link_libraries(training_step_benchmark PRIVATE
             alphadiamond::diamond_training alphadiamond::diamond_orchestration
             alphadiamond::diamond_native_pipeline)
 
-        add_executable(checkpoint_benchmark benchmarks/checkpoint_benchmark.cpp)
+        add_executable(checkpoint_benchmark "${PROJECT_SOURCE_DIR}/benchmarks/checkpoint_benchmark.cpp")
         target_link_libraries(checkpoint_benchmark PRIVATE alphadiamond::diamond_training)
 
-        add_executable(replay_benchmark benchmarks/replay_benchmark.cpp)
+        add_executable(replay_benchmark "${PROJECT_SOURCE_DIR}/benchmarks/replay_benchmark.cpp")
         target_link_libraries(replay_benchmark PRIVATE alphadiamond::diamond_pipeline)
 
-        add_executable(selfplay_benchmark benchmarks/selfplay_benchmark.cpp)
+        add_executable(selfplay_benchmark "${PROJECT_SOURCE_DIR}/benchmarks/selfplay_benchmark.cpp")
         target_link_libraries(selfplay_benchmark PRIVATE
             alphadiamond::diamond_native_pipeline
             alphadiamond::diamond_orchestration)
@@ -260,22 +260,22 @@ if(DIAMOND_BUILD_TRAINING)
         # These experiments own their helpers; ordinary training does not compile
         # diagnostic learning loops or vacancy distillation into its library.
         add_executable(min_learning_diagnostic
-            benchmarks/min_learning_diagnostic.cpp
-            benchmarks/learning_diagnostic.cpp)
+            "${PROJECT_SOURCE_DIR}/benchmarks/min_learning_diagnostic.cpp"
+            "${PROJECT_SOURCE_DIR}/benchmarks/learning_diagnostic.cpp")
         target_link_libraries(min_learning_diagnostic PRIVATE
             alphadiamond::diamond_native_pipeline alphadiamond::diamond_orchestration)
 
         add_executable(min_vacancy_realizability
-            benchmarks/min_vacancy_realizability.cpp
-            benchmarks/vacancy_distillation.cpp)
+            "${PROJECT_SOURCE_DIR}/benchmarks/min_vacancy_realizability.cpp"
+            "${PROJECT_SOURCE_DIR}/benchmarks/vacancy_distillation.cpp")
         target_link_libraries(min_vacancy_realizability PRIVATE
             alphadiamond::diamond_native_pipeline alphadiamond::diamond_orchestration)
 
-        add_executable(min_expert_arena benchmarks/min_expert_arena.cpp)
+        add_executable(min_expert_arena "${PROJECT_SOURCE_DIR}/benchmarks/min_expert_arena.cpp")
         target_link_libraries(min_expert_arena PRIVATE
             alphadiamond::diamond_native_pipeline alphadiamond::diamond_orchestration)
 
-        add_executable(end_to_end_benchmark benchmarks/end_to_end_benchmark.cpp)
+        add_executable(end_to_end_benchmark "${PROJECT_SOURCE_DIR}/benchmarks/end_to_end_benchmark.cpp")
         target_link_libraries(end_to_end_benchmark PRIVATE
             alphadiamond::diamond_native_pipeline)
 
@@ -287,7 +287,7 @@ if(DIAMOND_BUILD_TRAINING)
         endforeach()
     endif()
 
-    add_executable(alphadiamond-train src/train_main.cpp)
+    add_executable(alphadiamond-train train_main.cpp)
     find_package(Git QUIET)
     set(DIAMOND_SOURCE_GIT_COMMIT "unavailable")
     set(DIAMOND_SOURCE_DIRTY 1)
@@ -335,7 +335,7 @@ if(DIAMOND_BUILD_TRAINING)
         # Which prior carries Min out of a cold start: Soo's policy through a 3P
         # adapter, the vacancy heuristic, or nothing.  Self-play only -- it never
         # touches the arena or a run directory.
-        add_executable(alphadiamond-min-probe src/min_bootstrap_probe.cpp)
+        add_executable(alphadiamond-min-probe "${PROJECT_SOURCE_DIR}/benchmarks/min_bootstrap_probe.cpp")
         target_link_libraries(alphadiamond-min-probe
             PRIVATE alphadiamond::diamond_model alphadiamond::soo_search
                     alphadiamond::diamond_training alphadiamond::diamond_native_pipeline

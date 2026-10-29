@@ -7,10 +7,10 @@ controller confirmation flow, model browsing, replay UI and packaging.
 
 | Component | Owner and location |
 |---|---|
-| Core and search | Engine: `native/include/soo/`, `native/src/` |
-| Training and pipeline | Engine: `native/include/diamond_training/`, `native/include/diamond_pipeline/` |
-| Orchestration | Engine: `native/include/diamond_orchestration/` |
-| Model and release | Engine: `native/include/diamond_model/`, `native/include/diamond_release/` |
+| Core and search | Engine: `include/soo/`, `src/` |
+| Training and pipeline | Engine: `include/diamond_training/`, `include/diamond_pipeline/` |
+| Orchestration | Engine: `include/diamond_orchestration/` |
+| Model and release | Engine: `include/diamond_model/`, `include/diamond_release/` |
 | Application | AlphaDiamondDesktop: `app/`, consuming an installed Runtime SDK |
 
 Runtime SDK exports core, search, support, artifact, rating and model libraries
@@ -26,8 +26,8 @@ CMake owns targets and flags. Make is a resource-aware command facade.
 | Command | Product | Additional dependency |
 |---|---|---|
 | `make build` | Native core/search | Native toolchain |
-| `make build PRESET=native-training-linux` | Training/checkpoint/release executables on Linux | LibTorch |
-| `make build PRESET=native-asan` | Core compilation with ASan/UBSan | Sanitizer toolchain |
+| `make build PRESET=training-linux` | Training/checkpoint/release executables on Linux | LibTorch |
+| `make build PRESET=asan` | Core compilation with ASan/UBSan | Sanitizer toolchain |
 
 Regression suites and existing GitHub CI workflows have been removed at the
 user's request. Future tests and CI are a separate design task. Validate changes

@@ -28,9 +28,9 @@ replay start fresh; the checkpoint records the source artifact and migration
 reason. Exact resume continues only within the new compatibility namespace.
 
 ```sh
-OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 build/native-training/native/alphadiamond-train train \
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 build/training/bin/alphadiamond-train train \
   --run-dir artifacts/goal-aware-20261013/runs/min/pilot \
-  --config configs/alphazero/experiments/min-goals-v2-local-pilot.json \
+  --config configs/experiments/min-goals-v2-local-pilot.json \
   --warm-start models/min/2.0.1
 ```
 

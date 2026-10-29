@@ -17,7 +17,7 @@ dist/
 !/graphify-out/graph.html
 !/graphify-out/manifest.json
 
-# Native self-play extension: built in place, never committed.
+# Compiled libraries and offline helper caches are generated, never source.
 *.so
 *.pyd
 .pytest_cache/
@@ -28,28 +28,26 @@ dist/
 
 # Training run output: checkpoints, replay and ledgers stay out of Git.
 # The step-80 checkpoint below remains as recorded historical Gate-D evidence.
-/runtime/runs/**
-!/runtime/runs/soo/cpu8h-soo-20260819/
-!/runtime/runs/soo/cpu8h-soo-20260819/**
+/archive/python-runtime/runs/**
+!/archive/python-runtime/runs/soo/
+!/archive/python-runtime/runs/soo/cpu8h-soo-20260819/
+!/archive/python-runtime/runs/soo/cpu8h-soo-20260819/**
 
 # GPU benchmark runs: keep the ledgers/configs as evidence, leave the
 # checkpoints and replay chunks out of Git (regenerate from latest.pt.cpu-backup).
-az-bench/**/*.pt
-az-bench/**/replay/
-az-bench/**/checkpoints/
+archive/benchmark-runs/**/*.pt
+archive/benchmark-runs/**/replay/
+archive/benchmark-runs/**/checkpoints/
 
-# Bucket synchronisation root: contents are mutable object storage, not source.
-/TrainAlphaDiamond/**
-!/TrainAlphaDiamond/README.md
-!/TrainAlphaDiamond/manifests/
-!/TrainAlphaDiamond/manifests/**
+# Optional bucket downloads live under ignored artifacts/downloads/.
+# Archived schema/manifests are documentation, not a mutable storage root.
 
 # Model weights are never source. Tracked exceptions are listed explicitly.
 *.pt
 *.pth
 *.ckpt
 *.safetensors
-!/runtime/runs/soo/cpu8h-soo-20260819/latest.pt
+!/archive/python-runtime/runs/soo/cpu8h-soo-20260819/latest.pt
 
 # Agent tooling caches, not project sources
 .agents/

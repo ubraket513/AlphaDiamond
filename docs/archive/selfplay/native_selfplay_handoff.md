@@ -16,7 +16,7 @@ questions are about training dynamics rather than about the backend.
 > stands.
 
 If you are picking this up cold, read this file, then §6 of
-[soo_scratch_training.md](../model-training/soo_scratch_training.md) — that section contains the
+[soo_scratch_training.md](../../model-training/soo_scratch_training.md) — that section contains the
 result that matters most and is the least obvious.
 
 ---
@@ -41,7 +41,7 @@ decided by the fraction of policy targets produced by a search strong enough to
 improve on the network's own prior.** 128 simulations is enough, 64 is not, and
 neither censoring nor actor-refresh cadence is the operative variable — both were
 tested directly and neither explains it. §3.0.1 below, and §6 of
-[soo_scratch_training.md](../model-training/soo_scratch_training.md).
+[soo_scratch_training.md](../../model-training/soo_scratch_training.md).
 
 ### Two numbers that were being conflated, and are now separate
 
@@ -111,7 +111,7 @@ Read in this order:
 | [native_selfplay_phase0.md](native_selfplay_phase0.md) | **The contract.** Measurements, proposed shapes, the four gates, the risk list. A design record — *not* rewritten as work lands. |
 | [native_selfplay_phase1_progress.md](native_selfplay_phase1_progress.md) | **What actually happened.** Per-gate results, every number measured, every bug found and why it was possible. |
 | this file | Where to resume, how to run things, what must not break. |
-| [rtx5060_bottleneck_findings.md](../performance-profiling/rtx5060_bottleneck_findings.md) | The GPU-host measurements Phase 0 rests on. |
+| [rtx5060_bottleneck_findings.md](../performance/rtx5060_bottleneck_findings.md) | The GPU-host measurements Phase 0 rests on. |
 
 ---
 

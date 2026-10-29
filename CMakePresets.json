@@ -7,9 +7,10 @@
   },
   "configurePresets": [
     {
-      "name": "native-core",
-      "displayName": "Native core, no Python",
-      "description": "Portable native core build: no interpreter, no pybind, no Qt.",
+      "name": "core",
+      "displayName": "Core",
+      "description": "Core engine and search libraries.",
+      "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -20,38 +21,38 @@
       }
     },
     {
-      "name": "native-release",
-      "inherits": "native-core",
-      "displayName": "Native release",
-      "binaryDir": "${sourceDir}/build/native-release",
+      "name": "release",
+      "inherits": "core",
+      "displayName": "Core release",
+      "binaryDir": "${sourceDir}/build/release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
-      "name": "native-runtime",
-      "inherits": "native-core",
-      "displayName": "Native LibTorch runtime without training",
-      "binaryDir": "${sourceDir}/build/native-runtime",
+      "name": "runtime",
+      "inherits": "core",
+      "displayName": "LibTorch runtime",
+      "binaryDir": "${sourceDir}/build/runtime",
       "cacheVariables": {
         "DIAMOND_BUILD_MODEL": "ON",
         "DIAMOND_BUILD_TRAINING": "OFF"
       }
     },
     {
-      "name": "native-runtime-linux",
+      "name": "runtime-linux",
       "inherits": [
-        "native-linux-toolchain",
-        "native-runtime"
+        "linux-toolchain",
+        "runtime"
       ],
-      "displayName": "Native development runtime with GCC 15, Ninja, sccache and mold",
+      "displayName": "Linux runtime with GCC 15, sccache and mold",
       "binaryDir": "${sourceDir}/build/${presetName}"
     },
     {
-      "name": "native-training",
-      "inherits": "native-core",
-      "displayName": "Native LibTorch training",
-      "binaryDir": "${sourceDir}/build/native-training",
+      "name": "training",
+      "inherits": "core",
+      "displayName": "LibTorch training",
+      "binaryDir": "${sourceDir}/build/training",
       "cacheVariables": {
         "DIAMOND_BUILD_MODEL": "ON",
         "DIAMOND_BUILD_TRAINING": "ON",
@@ -59,10 +60,10 @@
       }
     },
     {
-      "name": "native-asan",
-      "inherits": "native-core",
-      "displayName": "Native core, ASan/UBSan",
-      "binaryDir": "${sourceDir}/build/native-asan",
+      "name": "asan",
+      "inherits": "core",
+      "displayName": "Core with ASan/UBSan",
+      "binaryDir": "${sourceDir}/build/asan",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
@@ -75,16 +76,16 @@
       }
     },
     {
-      "name": "native-training-release",
-      "inherits": "native-training",
-      "displayName": "Optimized final native training",
-      "binaryDir": "${sourceDir}/build/native-training-release",
+      "name": "training-release",
+      "inherits": "training",
+      "displayName": "Optimized training",
+      "binaryDir": "${sourceDir}/build/training-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
-      "name": "native-linux-toolchain",
+      "name": "linux-toolchain",
       "hidden": true,
       "generator": "Ninja",
       "condition": {
@@ -101,74 +102,74 @@
       }
     },
     {
-      "name": "native-core-linux",
+      "name": "core-linux",
       "inherits": [
-        "native-linux-toolchain",
-        "native-core"
+        "linux-toolchain",
+        "core"
       ],
       "binaryDir": "${sourceDir}/build/${presetName}"
     },
     {
-      "name": "native-training-linux",
+      "name": "training-linux",
       "inherits": [
-        "native-linux-toolchain",
-        "native-training"
+        "linux-toolchain",
+        "training"
       ],
       "binaryDir": "${sourceDir}/build/${presetName}"
     }
   ],
   "buildPresets": [
     {
-      "name": "native-runtime",
-      "configurePreset": "native-runtime",
+      "name": "runtime",
+      "configurePreset": "runtime",
       "configuration": "Debug",
       "jobs": 8
     },
     {
-      "name": "native-runtime-linux",
-      "configurePreset": "native-runtime-linux",
+      "name": "runtime-linux",
+      "configurePreset": "runtime-linux",
       "configuration": "Debug",
       "jobs": 8
     },
     {
-      "name": "native-core",
-      "configurePreset": "native-core",
+      "name": "core",
+      "configurePreset": "core",
       "configuration": "Debug",
       "jobs": 8
     },
     {
-      "name": "native-release",
-      "configurePreset": "native-release",
+      "name": "release",
+      "configurePreset": "release",
       "configuration": "Release",
       "jobs": 8
     },
     {
-      "name": "native-training",
-      "configurePreset": "native-training",
+      "name": "training",
+      "configurePreset": "training",
       "configuration": "Debug",
       "jobs": 8
     },
     {
-      "name": "native-asan",
-      "configurePreset": "native-asan",
+      "name": "asan",
+      "configurePreset": "asan",
       "configuration": "Debug",
       "jobs": 8
     },
     {
-      "name": "native-training-release",
-      "configurePreset": "native-training-release",
+      "name": "training-release",
+      "configurePreset": "training-release",
       "configuration": "Release",
       "jobs": 8
     },
     {
-      "name": "native-core-linux",
-      "configurePreset": "native-core-linux",
+      "name": "core-linux",
+      "configurePreset": "core-linux",
       "configuration": "Debug",
       "jobs": 8
     },
     {
-      "name": "native-training-linux",
-      "configurePreset": "native-training-linux",
+      "name": "training-linux",
+      "configurePreset": "training-linux",
       "configuration": "Debug",
       "jobs": 8
     }

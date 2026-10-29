@@ -3,8 +3,8 @@
 Historical validation record. Since the 2026-10-29 repository split, the Qt
 application, launchers and package workflow live in AlphaDiamondDesktop. Paths
 and commands below describe the original validation environment. For current
-Engine commands use [README](../../README.md); for SDK ownership and upgrades
-use [repository split](../architecture/repository_split.md).
+Engine commands use [README](../../../README.md); for SDK ownership and upgrades
+use [repository split](../../architecture/repository_split.md).
 
 Status: GUI renewal gates Q0–Q6 complete, 2026-08-23.
 

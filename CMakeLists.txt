@@ -30,7 +30,11 @@ endif()
 include(GNUInstallDirs)
 find_package(Threads REQUIRED)
 
-add_subdirectory(native)
+# Keep executable paths stable across single- and multi-configuration generators.
+# The generator expression prevents an extra Debug/Release directory.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/bin>")
+
+add_subdirectory(src)
 
 # Packaging. Models ship *beside* the executable rather than compiled into it,
 # so a release can carry a different default model, and a model can be replaced,
@@ -39,7 +43,7 @@ add_subdirectory(native)
 #   alphadiamond-release stage dist/models \
 #       --artifact artifacts/soo-spike --default soo
 #
-# then `cmake --build --preset native-release --target package`.
+# then `cmake --build --preset release --target package`.
 set(DIAMOND_MODELS_DIR "${CMAKE_SOURCE_DIR}/dist/models"
     CACHE PATH "models/ directory to bundle into the package")
 if(EXISTS "${DIAMOND_MODELS_DIR}/index.json")

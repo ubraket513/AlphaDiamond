@@ -1,5 +1,9 @@
 # Engine/Training–Desktop 저장소 분리 분석
 
+This analysis preserves historical commands, paths and measurements. For current
+source locations and build commands, use the [code guide](../development/code-guide.md)
+and [build cycle](../development/build-cycle.md).
+
 작성일: 2026-10-29 (Asia/Seoul). 목적: 학습 실험과 Desktop 앱 개발의 독립 진행.
 
 분석 기준은 HEAD `6ed52bf66783a96606a76c541d97e0ed098e1e24`에 현재 작업 트리 변경을 포함한 상태다.
@@ -147,7 +151,7 @@ Windows Debug/Release와 MSVC CRT, Linux의 LibTorch ABI를 lock과 configure �
 6. 학습 실험 커밋만 바꿔도 Desktop lock은 바뀌지 않는다. SDK 업그레이드는 별도 앱 변경으로 검증한다.
 7. 두 저장소의 CI·패키징·graphify가 각자의 루트만 전제로 동작한다.
 
-상세 작업 순서와 검증은 [분리 실행 계획](../superpowers/plans/2026-10-29-repository-split.md)을 따른다.
+상세 작업 순서와 검증은 [분리 실행 계획](../archive/plans/2026-10-29-repository-split.md)을 따른다.
 
 ## 참고
 

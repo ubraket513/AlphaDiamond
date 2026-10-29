@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-    echo "usage: tools/native_training.sh cmake [args...]" >&2
+    echo "usage: tools/cmake.sh cmake [args...]" >&2
     exit 2
 }
 

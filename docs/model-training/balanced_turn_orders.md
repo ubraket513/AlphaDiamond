@@ -19,7 +19,7 @@ Check these counters before interpreting a training run as balanced in practice.
 
 ## Local smoke run
 
-`configs/alphazero/experiments/min-balanced-orders-cpu-smoke.json` uses the verified step 20064
+`configs/experiments/min-balanced-orders-cpu-smoke.json` uses the verified step 20064
 deployment artifact as a weight-only warm start: fresh optimizer and fresh replay,
 six games, 32 simulations, eight learner updates, and one iteration. It tests the
 pipeline and local cost; it is not a strength experiment or a releasable model.
@@ -30,9 +30,9 @@ run directory. Arena is disabled for this smoke test.
 $env:PATH=(Resolve-Path dist/diamond-qt-soo).Path+';'+$env:PATH
 $env:OMP_NUM_THREADS='2'
 $env:MKL_NUM_THREADS='2'
-& build/native-package/native/alphadiamond-train.exe train `
+& build/training/bin/alphadiamond-train.exe train `
   --run-dir artifacts/balanced-orders/runs/min/cpu-smoke-20064 `
-  --config configs/alphazero/experiments/min-balanced-orders-cpu-smoke.json `
+  --config configs/experiments/min-balanced-orders-cpu-smoke.json `
   --warm-start artifacts/min-step20064-verified/models/min/2.0.0-min-test.20064
 ```
 

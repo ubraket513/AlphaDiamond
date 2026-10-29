@@ -33,7 +33,7 @@ bash tools/run_min_balanced_datacenter.sh smoke
 The launcher checks the CUDA library, records the GPU and source commit, derives
 the GPU architecture list (override `TORCH_CUDA_ARCH_LIST` if necessary), downloads
 the verified step 20064 artifact, checks its pinned SHA-256, builds the trainer,
-runs the self-play/config tests, and starts one bounded iteration. Use a host or
+and starts one bounded iteration. Use a host or
 container with the intended GPU exposed; each run uses `cuda:0`, not distributed
 training. The script does not install packages or change drivers.
 
@@ -60,7 +60,7 @@ bash tools/run_min_balanced_datacenter.sh control
 
 Each command prints its run directory. The launcher refuses an existing run ID;
 use a unique `RUN_ID` or the default timestamp. To resume an interrupted run, use
-`build/min-balanced-datacenter/native/alphadiamond-train resume --run-dir RUN_DIR`.
+`build/min-balanced-datacenter/bin/alphadiamond-train resume --run-dir RUN_DIR`.
 Preserve its config and replay; do not turn a fixed-order run into a balanced run
 by editing its saved configuration.
 
@@ -74,7 +74,7 @@ For each pilot/control run, compare its candidate with its frozen starting model
 
 ```bash
 run=/workspace/min-balanced-results/runs/min/REPLACE_WITH_PRINTED_RUN_ID
-build/min-balanced-datacenter/native/alphadiamond-train evaluate \
+build/min-balanced-datacenter/bin/alphadiamond-train evaluate \
   --run-dir "$run" \
   --candidate "$run/iterations/0/candidate-checkpoint" \
   --champion "$run/initial-champion-checkpoint" \

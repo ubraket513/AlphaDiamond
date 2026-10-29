@@ -1,25 +1,29 @@
-# TrainAlphaDiamond
+# Historical storage guide and manifests
 
-Local synchronisation root for the Hugging Face storage bucket
-`hf://buckets/ubraket513/AlphaDiamond`.
+This folder contains the former `TrainAlphaDiamond/` README and two historical
+manifests. That root folder had no local bucket contents in this checkout and
+was not a separate codebase. The remote bucket remains
+`hf://buckets/ubraket513/AlphaDiamond`. Optional local downloads can use
+`artifacts/downloads/`; no new storage framework or synchronized root is required.
 
-**Nothing under this directory is tracked by Git except this README and
-`manifests/`.** The bucket is mutable, non-versioned object storage: it holds
-checkpoints, replay/self-play data, logs and intermediate training data. Git
-holds source, documentation and the manifest schema.
+The bucket is mutable, non-versioned object storage for checkpoints, replay,
+logs and intermediate training data. Git holds source, documentation and the
+historical manifests. Current runs and downloaded payloads stay outside this
+documentation folder. See the [current code guide](../../development/code-guide.md).
 
-## Layout
+## Contents
 
 ```text
-TrainAlphaDiamond/
-  README.md                    tracked
-  manifests/                   tracked  (schema + release index)
-  checkpoints/                 ignored  <family>/<run-id>/iteration-<n>/
-  datasets/                    ignored  selfplay/ replay/ fixtures/
-  releases/                    ignored  soo/ min/
-  logs/                        ignored
-  staging/                     ignored
+docs/archive/storage/
+  README.md
+  manifests/
+    checkpoint.schema.json     historical Python .pt sidecar schema
+    ci-fixtures.json           historical Gate-D checkpoint identity
 ```
+
+The old `TrainAlphaDiamond/checkpoints/`, `datasets/`, `releases/`, `logs/` and
+`staging/` names described possible local bucket sync destinations. Those
+payload directories were not present when the documentation was moved.
 
 ## Sync
 
@@ -40,14 +44,14 @@ does not delete remote files, and does not upload replay or logs. Use
 `--iteration <n>` to select one iteration. Existing remote files are skipped;
 skipping a file does not verify its contents.
 
-To download a run's checkpoints into this local storage root, preview and then
+To download a run's checkpoints into an optional local download directory, preview and then
 run the same sync without `--dry-run`:
 
 ```bash
 hf sync hf://buckets/ubraket513/AlphaDiamond/checkpoints/soo/my-run \
-  TrainAlphaDiamond/checkpoints/soo/my-run --ignore-existing --dry-run
+  artifacts/downloads/checkpoints/soo/my-run --ignore-existing --dry-run
 hf sync hf://buckets/ubraket513/AlphaDiamond/checkpoints/soo/my-run \
-  TrainAlphaDiamond/checkpoints/soo/my-run --ignore-existing
+  artifacts/downloads/checkpoints/soo/my-run --ignore-existing
 ```
 
 These commands preserve existing destination files. Validate downloaded native
@@ -71,7 +75,7 @@ Release tooling consumes a native checkpoint root or deployment artifact and
 verifies its recorded SHA-256 identities before changing release state.
 
 The current native generation manifest is read and validated by
-[`native/src/checkpoint.cpp`](../native/src/checkpoint.cpp); use
+[`native/src/checkpoint.cpp`](../../../src/checkpoint.cpp); use
 `alphadiamond-checkpoint validate <checkpoint-root>` to check it.
 [`manifests/checkpoint.schema.json`](manifests/checkpoint.schema.json) describes
 the historical Python `.pt` sidecar only. It is archival documentation, not the
@@ -80,15 +84,15 @@ schema or validator for a native checkpoint-v3 generation.
 ## Promotion
 
 ```bash
-build/native-training/native/alphadiamond-release init \
+build/training/bin/alphadiamond-release init \
   <native-checkpoint-root> --family soo
-build/native-training/native/alphadiamond-release promote \
+build/training/bin/alphadiamond-release promote \
   <native-checkpoint-root> --to candidate
-build/native-training/native/alphadiamond-checkpoint export \
+build/training/bin/alphadiamond-checkpoint export \
   <native-checkpoint-root> --out <new-deployment-artifact> --version <version>
-build/native-training/native/alphadiamond-release validate \
+build/training/bin/alphadiamond-release validate \
   <new-deployment-artifact>
-build/native-training/native/alphadiamond-release promote \
+build/training/bin/alphadiamond-release promote \
   <native-checkpoint-root> --to promoted \
   --artifact <new-deployment-artifact>
 ```

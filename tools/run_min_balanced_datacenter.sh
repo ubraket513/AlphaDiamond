@@ -54,7 +54,7 @@ cmake -S "$repo" -B "$build" -G Ninja \
   -DDIAMOND_BUILD_MODEL=ON -DDIAMOND_BUILD_TRAINING=ON
 cmake --build "$build" --target alphadiamond-train --parallel "${BUILD_JOBS:-$(tools/build_resources.sh build)}"
 
-config="$repo/configs/alphazero/experiments/min-balanced-orders-cuda-$mode.json"
+config="$repo/configs/experiments/min-balanced-orders-cuda-$mode.json"
 run_id=${RUN_ID:-min-orders-$mode-$(date -u +%Y%m%dT%H%M%SZ)}
 [[ "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo 'Invalid RUN_ID.' >&2; exit 2; }
 run="$output/runs/min/$run_id"
@@ -66,7 +66,7 @@ mkdir -p "$run"
   git status --short
   nvidia-smi
 } > "$run/host.txt"
-"$build/native/alphadiamond-train" train --run-dir "$run" --config "$config" \
+"$build/bin/alphadiamond-train" train --run-dir "$run" --config "$config" \
   --warm-start "$artifact" | tee "$run/launch.json"
 printf '\nRun: %s\nInspect iterations/0/selfplay.metrics.json for per-order completion and retained samples.\n' "$run"
 printf 'Do not interpret the CLI processed-game total as the number of non-aborted games.\n'

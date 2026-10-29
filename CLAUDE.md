@@ -1,120 +1,67 @@
-# alphadiamond
+# AlphaDiamond Engine and Training
 
-A 3-player Diamond (Chinese-checkers-family) engine, a Qt console, and an
-AlphaZero training stack. The two-player configuration is called **Soo**; the
-three-player one is **Min**.
+Start with [README.md](README.md) for supported commands and
+[the code guide](docs/development/code-guide.md) for the implementation reading order.
+The Qt/QML application is in sibling `AlphaDiamondDesktop` and consumes an
+installed, pinned Runtime SDK.
 
-**This is a C++ project.** There is no Python engine, trainer, bridge, or test
-suite. Offline analysis summarizers remain as research tooling. Rules, encoding,
-search, self-play, training,
-checkpointing, arena and release are all native. Anything you read elsewhere
-about a Python oracle, a `_diamond_native` pybind extension, `src/diamond/`, a
-`selfplay_backend` setting or a `make test-python` / `make test-parity` /
-`pytest` step describes a state this repository has left. See
-[docs/architecture/decisions.md](docs/architecture/decisions.md) and
-[docs/architecture/retiring_the_python_engine.md](docs/architecture/retiring_the_python_engine.md)
-for how and why.
+## Source map
 
-## Rules that are expensive to rediscover
+- `src/`: C++ implementations and CLI entry points. `train_main.cpp` directly
+  connects durable stages to self-play, replay, learner and checkpoint modules.
+- `include/`: matching C++ headers. The SDK exports only the explicit subset in
+  `cmake/InstallEngineSdk.cmake`; training/replay headers are not Runtime APIs.
+- `benchmarks/`: explicitly selected diagnostics and probes, outside ordinary
+  training and Runtime builds.
+- `training-panel/`: Svelte UI and a small Node bridge that launches the CLI and
+  reads its files. It does not own a second training pipeline.
+- `configs/current/`: presets for new runs. `configs/experiments/` preserves old
+  experiment recipes. Existing runs use their stored resolved/active config.
+- `models/`, `data/topology/`: shipped models and authoritative Runtime data.
+- `artifacts/`: ignored local runs, checkpoints, replay, downloads and evidence.
+- `archive/`, `docs/archive/`: past outputs/designs. Their old commands and paths
+  describe the historical environment, not current supported entry points.
 
-- **Runtime topology remains authoritative SDK data.** The five binary tables in
-  `data/topology/` are embedded by Desktop. The regression corpus and
-  test suites have been removed; preserve historical experiment evidence.
-- **Game geometry has exactly one authority.** Seats come from
-  `soo::standard_soo_match()` and `soo::standard_min_match()` in
-  `native/src/board.cpp`, never from triples written at a call site. Five
-  hand-written copies drifted once: the trainer played a different game from the
-  Qt application, and Soo self-play completed 77 % of games instead of 98 % for
-  as long as it lasted. The former geometry regression and its findings are recorded in
-  [docs/model-training/baseline_768_completion_regression.md](docs/model-training/baseline_768_completion_regression.md).
-- **Do not micro-optimise before measuring.** A simple native representation and
-  direct numerical/behavioral verification come first.
-- **Measure at a scale that can answer the question.** Self-play completion
-  varies enough run to run that sixteen games cannot distinguish two
-  configurations; 768 games is the harness the findings in `docs/model-training/`
-  use, and it costs about three minutes on one RTX 5090.
+## Build and verify
 
-## Layout
+CMake owns targets/compiler flags; Make sizes parallel compiler workers from
+available CPU, memory and cgroup limits. Linux development uses GCC 15, Ninja,
+sccache and mold with `-O0 -g1 -pipe`, no LTO. Use explicit Release builds for
+actual training and evaluation. Supply a compatible LibTorch prefix for models.
 
-| path | what |
-|---|---|
-| `native/include/soo/`, `native/src/` | the core: board, rules, encoder, MCTS, self-play, training, checkpoint, arena |
-| sibling `AlphaDiamondDesktop/app/` | the Qt application |
-| `native/benchmarks/` | benchmarks, kept out of production code |
-| `data/topology/` | canonical runtime topology tables |
-| `configs/alphazero/` | training configurations |
-| `models/` | shipped deployment artifacts (format v3) |
-| `docs/` | design records and measured findings |
-
-## Build and direct validation
-
-CMake owns product targets and flags. Regression suites and GitHub CI have been
-removed at the user's request; use actual builds and direct CLI/product checks.
-
-```bash
+```sh
 make build
-# LibTorch training on Linux; select native-training on other platforms.
-make build PRESET=native-training-linux
+CMAKE_PREFIX_PATH=/path/to/libtorch make build PRESET=training-linux
+cmake --preset training-release -DCMAKE_PREFIX_PATH=/path/to/libtorch
+cmake --build --preset training-release --parallel "$(tools/build_resources.sh build)"
 ```
 
-Point CMake at a compatible standalone LibTorch installation when required:
+Executables are under `build/<preset>/bin/`. `tools/cmake.sh` initializes the
+Visual Studio developer environment on Windows and invokes CMake directly on
+other platforms. Benchmarks/probes require `-DDIAMOND_BUILD_BENCHMARKS=ON`.
+Regression suites and CI were explicitly removed by the user; do not recreate
+those as part of cleanup. Verify current work with parallel builds and direct
+CLI/product execution, stating what was and was not exercised.
 
-```bash
-tools/native_training.sh cmake --preset native-training -G Ninja \
-    -DCMAKE_PREFIX_PATH=<libtorch-root>
-tools/native_training.sh cmake --build --preset native-training \
-    --parallel "$(tools/build_resources.sh build)"
-```
+## Preserve the actual contracts
 
-`tools/native_training.sh` initializes the Visual Studio environment for CMake
-on Windows and passes through on Linux/macOS. Desktop is built separately.
+- `src/board.cpp` is the authority for game geometry and standard match setup.
+  Keep the five `data/topology/` tables used by Desktop and SDK provenance.
+- Actor/learner models own different tensor storage. ModelPool owns evaluation
+  snapshots; the caller loads and validates checkpoints before installation.
+- Checkpoint-v3 generations and their lineage/config/replay identities are
+  immutable evidence. Legacy metadata presence matters; loading must not silently
+  select scratch initialization or change a stored configuration.
+- Production game RNG derives from `run_seed` and job identities. Historical
+  `mcts.seed`/`self_play.seed` fields are metadata, not alternate production RNGs.
+- Live trainers can use copied executables/configs in `artifacts/`. Inspect actual
+  processes and their paths before moving outputs, stopping compute or launching
+  another GPU job. Never restart a user-stopped job without authorization.
+- Publishing changes an external service. Existing model index/download URLs and
+  Desktop SDK locks do not follow this checkout's folder names.
 
-## Commands
-
-```bash
-alphadiamond-train train  --run-dir <dir> --config <config.json> \
-                          (--scratch | --checkpoint <dir> | --warm-start <artifact>)
-alphadiamond-train resume --run-dir <dir>
-alphadiamond-train report --run-dir <dir>
-alphadiamond-checkpoint   inspect|validate|migrate <checkpoint-root>
-alphadiamond-release      ...
-```
-
-A run directory is durable and idempotent: every stage is ledgered by operation
-id, `resume` replays exactly the work that was not completed, and re-running a
-finished stage is a no-op. `--run-dir` must sit under a `soo/` or `min/` parent.
-
-Each iteration also writes two diagnostic sidecars that nothing reads back and
-no gate depends on: `selfplay.metrics.json` (search budget actually in force,
-boosted-move count, throughput, batch distribution, abort reasons,
-completed-game move percentiles) and `aborted-games.json` (the final position of
-every aborted game, with target-camp occupancy and blocker mobility).
-
-## Shipping a model
-
-```bash
-cmake --build --preset native-release --target package --parallel 8
-```
-
-Artifact format v3 declares the model family and architecture and is validated
-against the weights on both sides; see
-[docs/architecture/model_artifact_v3.md](docs/architecture/model_artifact_v3.md).
-A training checkpoint carries optimizer, scheduler and RNG state, is not a
-deployment artifact, and is never bundled.
-
-Native transactional v3 checkpoints can be exported with:
-
-```bash
-alphadiamond-checkpoint export <checkpoint-v3-root> --out <new-artifact> --version <test-version>
-```
-
-The exporter preserves the checkpoint, rejects noncanonical topology, and verifies
-exact CPU inference parity before succeeding. Raw archival `.pt` checkpoints and
-v2 checkpoints without architecture provenance are not supported by this exporter.
-
-## Training data
-
-Checkpoints, replay and logs live in the Hugging Face bucket, synchronised
-through the ignored `TrainAlphaDiamond/` root; only its README and manifests are
-tracked. See [TrainAlphaDiamond/README.md](TrainAlphaDiamond/README.md). Nothing
-generated — build directories, checkpoints, run output — belongs in Git.
+Use Serena for symbols/references and Graphify for cross-file relationships as
+specified by AGENTS.md. Refresh Graphify after supported source changes, including
+curated document relationships when files move. Keep implementations direct and
+avoid adding wrappers, registries, fallback execution paths or new dependencies
+for routine project organization.

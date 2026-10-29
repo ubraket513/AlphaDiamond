@@ -4,8 +4,8 @@
 > The migration this document belongs to is finished: the Python engine, the
 > Python MCTS, the Python board and the corpus oracle are deleted, and the C++
 > core is the only implementation of rules, encoding, search, self-play and
-> geometry. See [decisions.md](../architecture/decisions.md) (decision 3) and
-> [retiring_the_python_engine.md](../architecture/retiring_the_python_engine.md).
+> geometry. See [decisions.md](../../architecture/decisions.md) (decision 3) and
+> [retiring_the_python_engine.md](../../architecture/retiring_the_python_engine.md).
 >
 > Kept because the measurements and the pitfalls are still true and still cost
 > something to rediscover. Read it as a record, not as instructions.

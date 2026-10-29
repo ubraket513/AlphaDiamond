@@ -1,5 +1,9 @@
 # Starting Min — what is settled, and what is not
 
+This analysis preserves historical commands, paths and measurements. For current
+source locations and build commands, use the [code guide](../development/code-guide.md)
+and [build cycle](../development/build-cycle.md).
+
 > **Handoff document.** Work stopped here to continue on another cluster. §7
 > is the state to resume from; §6 is what the next machine has to set up before
 > anything builds.

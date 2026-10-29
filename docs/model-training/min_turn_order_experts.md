@@ -17,9 +17,9 @@ Each expert owns all weights, optimizer state, and replay. Start both with
 AdamW and replay. Exact resume uses the expert's own run directory.
 
 ```sh
-OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 build/native-training/native/alphadiamond-train train \
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 build/training/bin/alphadiamond-train train \
   --run-dir artifacts/min-experts-20261014/runs/min/cyclic \
-  --config configs/alphazero/current/min-expert-cyclic-local-pilot.json \
+  --config configs/current/min-expert-cyclic-local-pilot.json \
   --warm-start artifacts/min-experts-20261014/baseline/shared-step128
 ```
 
@@ -42,12 +42,12 @@ the actual root player; simulated leaf actors only determine feature/value
 perspective.
 
 ```sh
-OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 build/native-training/native/min_expert_arena \
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 build/training/bin/min_expert_arena \
   --cyclic-checkpoint artifacts/min-experts-20261014/runs/min/cyclic/iterations/1/candidate-checkpoint \
   --reverse-checkpoint artifacts/min-experts-20261014/runs/min/reverse/iterations/1/candidate-checkpoint \
   --shared-checkpoint artifacts/goal-aware-20261013/runs/min/pilot/iterations/0/candidate-checkpoint \
   --shared-control-checkpoint artifacts/min-experts-20261014/runs/min/shared-control/iterations/3/candidate-checkpoint \
-  --config configs/alphazero/experiments/min-expert-arena-local.json \
+  --config configs/experiments/min-expert-arena-local.json \
   --out artifacts/min-experts-20261014/comparison
 ```
 

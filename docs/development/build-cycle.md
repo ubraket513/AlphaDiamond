@@ -16,20 +16,20 @@ builds and direct CLI/product checks until the user designs new tests and CI.
 
 ```sh
 make build
-make build PRESET=native-training-linux
+make build PRESET=training-linux
 
 # Direct preset invocations always supply the detected counts explicitly.
 BUILD_JOBS=$(tools/build_resources.sh build)
-cmake --preset native-runtime-linux
-cmake --build --preset native-runtime-linux --parallel "$BUILD_JOBS"
+cmake --preset runtime-linux
+cmake --build --preset runtime-linux --parallel "$BUILD_JOBS"
 ```
 
-On Linux, default Make core/training routes select `native-core-linux` and
-`native-training-linux`. The explicit `native-runtime-linux` runtime preset selects `/usr/bin/g++-15`, `sccache`, Ninja
+On Linux, default Make core/training routes select `core-linux` and
+`training-linux`. The explicit `runtime-linux` runtime preset selects `/usr/bin/g++-15`, `sccache`, Ninja
 and `-fuse-ld=mold`. Install these tools before configuring; mold must be on
-the compiler's executable search path. `native-core`, `native-runtime`,
-`native-training` also default to Debug
-and remain usable on other supported platforms. `native-asan` remains Debug.
+the compiler's executable search path. `core`, `runtime`,
+`training` also default to Debug
+and remain usable on other supported platforms. `asan` remains Debug.
 Use a fresh build directory when changing compiler or generator.
 
 `compile_commands.json` records the actual flags for direct inspection. Debug
@@ -53,11 +53,11 @@ Select optimized builds explicitly for final training or runtime/SDK output:
 
 ```sh
 BUILD_JOBS=$(tools/build_resources.sh build)
-cmake --preset native-training-release
-cmake --build --preset native-training-release --parallel "$BUILD_JOBS"
+cmake --preset training-release
+cmake --build --preset training-release --parallel "$BUILD_JOBS"
 ```
 
-`native-release` also retains Release output. On Linux, add `-G Ninja`,
+`release` also retains Release output. On Linux, add `-G Ninja`,
 `-DCMAKE_CXX_COMPILER=/usr/bin/g++-15`,
 `-DCMAKE_CXX_COMPILER_LAUNCHER="$HOME/.local/bin/sccache"` and
 `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold` to the first configure of these
@@ -66,7 +66,7 @@ Release remains free of LTO unless explicitly enabled.
 
 ## Build selections
 
-Use `native-core-linux`, `native-runtime-linux` or `native-training-linux` for
+Use `core-linux`, `runtime-linux` or `training-linux` for
 Linux development. The old `native-ci`, `native-ci-linux` and `native-gcc-mold`
 preset names were replaced by these product names; existing build directories
 can be reconfigured explicitly with `-B`. No compatibility alias is retained.
@@ -77,6 +77,18 @@ and probes require the existing `DIAMOND_BUILD_BENCHMARKS=ON` option; ordinary
 training presets leave it off. Use a diagnostics build explicitly, for example:
 
 ```sh
-cmake --preset native-training-linux -B build/diagnostics -DDIAMOND_BUILD_BENCHMARKS=ON
+cmake --preset training-linux -B build/diagnostics -DDIAMOND_BUILD_BENCHMARKS=ON
 cmake --build build/diagnostics --parallel "$(tools/build_resources.sh build)"
 ```
+
+## Source and executable locations
+
+C++ implementations and target definitions live in `src/`, public interfaces in
+`include/`, and optional diagnostic entrypoints in `benchmarks/`. Preset names no
+longer use the former `native-` prefix. `tools/cmake.sh` supplies the portable
+toolchain wrapper. Each normal preset writes executables to
+`build/<preset>/bin/`; an explicit `-B build/NAME` writes to `build/NAME/bin/`.
+For example, the training Release CLI is
+`build/training-release/bin/alphadiamond-train`. Existing running jobs keep their
+original copied executable and resolved configuration. See the
+[code guide](code-guide.md) for entrypoint responsibilities.

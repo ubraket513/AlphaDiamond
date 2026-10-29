@@ -1,19 +1,11 @@
-// Generating the board tables, rather than being handed them.
+// Construct the board geometry directly in C++: overlapping triangles, camp
+// boundaries, stable (z, x) position IDs, neighbours, distances and canonical
+// rotations. Engine callers can initialize a match without an interpreter or
+// a generator script. topology_io.cpp provides the separate binary-table reader.
 //
-// Every table here was previously injected from Python
-// (src/diamond/contract/board.py, exported by
-// src/diamond/alphazero/native/topology.py), which made the geometry the one
-// part of the game the C++ core could not produce for itself: a build with no
-// Python could load the tables but never derive them, so "the C++ core is the
-// authority" had a hole in it exactly the size of the board.
-//
-// This is a port, not a transcription. Nothing below is a table of constants;
-// it is the same construction the Python board performs -- the two overlapping
-// triangles, the camp inequalities with their clip, the (z, x) ordering that
-// fixes position ids, the neighbour lattice, breadth-first distances and the
-// canonical rotation. `topology_test` requires the result to equal the frozen
-// exported tables byte for byte, which is what makes the two implementations
-// one contract rather than two opinions.
+// The data/topology tables originated in the retired Python implementation.
+// Their position/action numbering remains the Runtime SDK contract consumed by
+// Desktop and existing model artifacts; a source-folder move does not change it.
 #include <array>
 #include <cstdint>
 #include <deque>

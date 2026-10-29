@@ -1,6 +1,6 @@
-// Loading the exported topology tables from disk.  The tables themselves are
-// generated from the Python board (src/diamond/alphazero/native/topology.py);
-// this file only reads the exported bytes, so it is not a second authority.
+// Read the canonical binary topology tables shipped in data/topology and the
+// Runtime SDK. This is the file-input path; topology_gen.cpp constructs the
+// same geometry in C++. Neither path requires the retired Python generator.
 #include <cstddef>
 #include <cstdint>
 #include <fstream>

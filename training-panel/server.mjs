@@ -193,7 +193,7 @@ async function launch(root, binary, body) {
   } finally { await output.close(); }
 }
 
-export function createPanelServer({ root = repository, binary = process.env.ALPHADIAMOND_TRAIN_BIN ?? join(root, 'build/native-training-release/native/alphadiamond-train') } = {}) {
+export function createPanelServer({ root = repository, binary = process.env.ALPHADIAMOND_TRAIN_BIN ?? join(root, 'build/training-release/bin/alphadiamond-train') } = {}) {
   binary = resolve(root, binary);
   const dist = join(root, 'training-panel/dist');
   return createServer(async (request, response) => {
@@ -230,7 +230,7 @@ export function createPanelServer({ root = repository, binary = process.env.ALPH
           send(200, await nativeJobDetail(job, fromIteration));
         }
       } else if (request.method === 'GET' && pathname === '/api/configs') {
-        const directory = join(root, 'configs/alphazero/current');
+        const directory = join(root, 'configs/current');
         const names = (await readdir(directory)).filter(name => name.endsWith('.json')).sort();
         send(200, { configs: await Promise.all(names.map(async name => ({ name,
           path: join(directory, name), config: await optionalFile(join(directory, name), true) }))) });

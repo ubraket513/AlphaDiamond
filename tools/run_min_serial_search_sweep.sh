@@ -5,7 +5,7 @@ set -euo pipefail
 # commands; normal execution writes one completed JSON result per selected arm.
 # It is not part of the production training CLI or an automated test suite.
 source "${MIN_A0_ENV:-/workspace/alphadiamond-experiments/min-v1.0.1/env.sh}"
-BIN=${MIN_A0_SELFPLAY_BIN:-/workspace/alphadiamond-min-a0/build/native-training/native/selfplay_benchmark}
+BIN=${MIN_A0_SELFPLAY_BIN:-/workspace/alphadiamond-min-a0/build/training/bin/selfplay_benchmark}
 OUT=${MIN_A0_SWEEP_OUT:-$MIN_A0_EXP/results/serial-search}
 PRELOAD=/usr/lib/x86_64-linux-gnu/libstdc++.so.6
 scale=${MIN_A0_SWEEP_SCALE:-smoke}

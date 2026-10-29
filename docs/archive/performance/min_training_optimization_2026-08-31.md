@@ -23,7 +23,7 @@ These were treated as quality/stability constraints rather than throughput knobs
 | Min scratch value head | exactly zero | removes arbitrary seat preference and improved the move/repetition tail |
 | bootstrap prior | `canonical-target-vacancy-distance-v2` | the Soo policy-head transfer probe was rejected; the native Min prior completed reliably |
 
-The active six-hour config is [min-production-6h.json](../../configs/alphazero/min-production-6h.json). Its production operating point is 1,024 games, 512 logical lanes, 16 search threads, batch cap 256, 100 µs maximum wait, and a 1,024-entry request queue on CUDA FP32.
+The active six-hour config is [min-production-6h.json](../../../configs/experiments/min-production-6h.json). Its production operating point is 1,024 games, 512 logical lanes, 16 search threads, batch cap 256, 100 µs maximum wait, and a 1,024-entry request queue on CUDA FP32.
 
 ## Adopted optimisations
 
@@ -37,7 +37,7 @@ Recent steady-state self-play measurements were 203.8–249.0 seconds for about 
 
 `arena.enabled=false` bypasses promotion play and rating calculation for this B0 run, promotes each newly trained candidate directly, and persists a durable promotion record. This preserves checkpoint progression while removing a stage that previously cost minutes and did not answer the B0 training question.
 
-The batched arena scheduler and seeded repetition escape remain implemented and tested for runs that enable the arena. They are documented separately in [min_arena_throughput.md](../model-training/min_arena_throughput.md).
+The batched arena scheduler and seeded repetition escape remain implemented and tested for runs that enable the arena. They are documented separately in [min_arena_throughput.md](../../model-training/min_arena_throughput.md).
 
 ### One replay object per trainer process
 
@@ -136,7 +136,7 @@ The approved release target is GitHub release `Min v1.0.1` at completed iteratio
 - accepted feature work is merged into `main` without rewriting history;
 - release archives are independently hashed and extraction-tested.
 
-The detailed integration and publication sequence is in [2026-08-31-min-v1.0.1-release.md](../superpowers/plans/2026-08-31-min-v1.0.1-release.md).
+The detailed integration and publication sequence is in [2026-08-31-min-v1.0.1-release.md](../plans/2026-08-31-min-v1.0.1-release.md).
 
 ## Validation coverage
 

@@ -1270,9 +1270,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793253632.715889,
-    "seen": 1793253760.4414964,
-    "ast_hash": "e8650cc982ef0d2a618c5166faed2f33",
+    "mtime": 1793265394.0863254,
+    "seen": 1793265430.0769713,
+    "ast_hash": "c54a86b03292cedc232d12061943ec54",
     "semantic_hash": ""
   },
   "TrainAlphaDiamond/README.md": {
@@ -1816,9 +1816,9 @@
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-10-29-pipeline-simplification.md": {
-    "mtime": 1793253405.9105964,
-    "seen": 1793253760.4415329,
-    "ast_hash": "3064419a6ddadec0cdf4a562ebbf4d18",
+    "mtime": 1793253858.8232734,
+    "seen": 1793265430.0770063,
+    "ast_hash": "548f4a4a94ff5b6ed010d8c9eb9c402d",
     "semantic_hash": ""
   },
   "docs/superpowers/specs/2026-10-29-pipeline-simplification-design.md": {
@@ -1951,6 +1951,12 @@
     "mtime": 1793252677.192603,
     "seen": 1793252823.5417438,
     "ast_hash": "2533a5968d4e94af9902f6a041c2c73b",
+    "semantic_hash": ""
+  },
+  "configs/alphazero/current/min-512x12-3h.json": {
+    "mtime": 1793265262.9878664,
+    "seen": 1793265430.0768726,
+    "ast_hash": "9332ebab24db3edf6574268069e1a32d",
     "semantic_hash": ""
   },
   "training-panel/package-lock.json": {

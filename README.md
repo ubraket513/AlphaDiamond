@@ -68,6 +68,11 @@ resume. `alphadiamond-checkpoint` validates and exports checkpoints;
 
 Current training presets live in `configs/alphazero/current/`: three Min expert
 local pilots and Soo bootstrap, production and six-hour configurations.
+`min-512x12-3h.json` starts a larger Min from scratch: width 512, 12 residual
+blocks and a three-hour iteration-boundary budget. It balances all six turn
+orders and mixes the existing vacancy prior at weight 0.5 while collecting new
+data. A strict three-hour limit also requires a process/service runtime cap;
+the native budget finishes an iteration before checking whether to start more.
 `configs/alphazero/experiments/` preserves earlier Min presets and the expert
 arena configuration for explicit CLI use. Historical experiments and dated
 reports retain their settings, original paths and recorded hashes.

@@ -336,6 +336,7 @@ SelfPlayResult run_self_play(const IterationRequest& request, ModelPool& models,
     result.metrics.batches = metrics.batches;
     result.metrics.moves = metrics.moves;
     result.metrics.boosted_moves = metrics.boosted_moves;
+    result.metrics.repetition_moves = metrics.repetition_moves;
     if (metrics.moves > 0) {
         result.metrics.boosted_fraction =
             static_cast<double>(metrics.boosted_moves) / static_cast<double>(metrics.moves);

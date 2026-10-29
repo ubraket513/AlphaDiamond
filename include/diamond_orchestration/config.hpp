@@ -79,6 +79,9 @@ struct SelfPlayConfig final {
     int64_t max_moves = 2000;
     int64_t temperature_moves = 20;
     double temperature = 1.0;
+    // Override move sampling only when a dynamics position repeats within
+    // mcts.repeat_window plies. Zero preserves the normal temperature schedule.
+    double repetition_temperature = 0.0;
     // Historical JSON "seed" is compatibility metadata, not a second training
     // RNG. Production derives game seeds from run_seed and job identifiers.
     // The standalone benchmark now uses run_seed, or an explicit --seed.

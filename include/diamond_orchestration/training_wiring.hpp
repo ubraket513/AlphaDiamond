@@ -48,8 +48,9 @@ soo::EpisodeConfig wire_arena_episode(const ProductionConfig& config, std::size_
 
 // Validate an explicit checkpoint-boundary transition. The implementation's
 // allowlist covers precision, worker/batching counts, training step count and
-// policy-loss domain, bootstrap phase, self-play order group and arena enablement. Other fields,
-// including architecture, replay identity, MCTS semantics and legacy queue/
+// policy-loss domain, repetition sampling/budget, bootstrap phase, self-play
+// order group and arena enablement. Other fields, including architecture,
+// replay identity, base MCTS parameters and legacy queue/
 // timeout metadata (presence and values), remain immutable. Returns changed
 // field names in stable audit order; rejects no-op transitions. Increasing a
 // bootstrap weight also requires the caller's named failed gate for rollback.

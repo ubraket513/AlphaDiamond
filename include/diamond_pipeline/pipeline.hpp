@@ -65,6 +65,8 @@ struct SelfPlayMetrics {
     uint64_t batches = 0;
     uint64_t moves = 0;
     uint64_t boosted_moves = 0;
+    // Repeated-position sampling overrides, separate from deeper-search moves.
+    uint64_t repetition_moves = 0;
     double boosted_fraction = 0.0;
     double wall_seconds = 0.0;
     double evaluator_seconds = 0.0;
@@ -81,9 +83,9 @@ struct SelfPlayMetrics {
     // alone. Aborted games are excluded because they are all exactly max_moves
     // and would only dilute the percentile.
     // Non-terminating tail diagnosis: how many aborted games ended with at
-    // least one foreign piece in some seat's target camp, which makes that camp
-    // unfillable and the game unwinnable for its owner. Compared against the
-    // same count over completed games, which is the control.
+    // least one foreign piece in some seat's target camp. It must move before
+    // that camp can be filled; this snapshot alone does not prove permanent
+    // deadlock. Completed games provide the corresponding control count.
     uint64_t aborted_with_blocked_camp = 0;
     uint64_t completed_with_blocked_camp = 0;
     uint64_t aborted_blocked_cells_total = 0;

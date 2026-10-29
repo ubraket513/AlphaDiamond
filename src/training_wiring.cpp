@@ -44,6 +44,7 @@ TrainingIterationWiring wire_training_iteration(const ProductionConfig& config) 
                 .simulations_late =
                     native_int(config.mcts.simulations_late, "mcts.simulations_late"),
                 .repeat_window = native_int(config.mcts.repeat_window, "mcts.repeat_window"),
+                .repetition_temperature = config.self_play.repetition_temperature,
                 .bootstrap_prior = config.self_play.bootstrap_prior != kBootstrapPriorNone,
                 .bootstrap_prior_weight = config.self_play.bootstrap_prior_weight,
                 .encoding = soo::encoding_version_from_name(config.encoder_version),
@@ -88,6 +89,10 @@ validate_training_config_transition(const ProductionConfig& from, const Producti
          "training.train_steps_per_iteration");
     note(from.training.policy_loss_domain != to.training.policy_loss_domain,
          "training.policy_loss_domain");
+    note(from.mcts.repeat_window != to.mcts.repeat_window, "mcts.repeat_window");
+    note(from.mcts.simulations_late != to.mcts.simulations_late, "mcts.simulations_late");
+    note(from.self_play.repetition_temperature != to.self_play.repetition_temperature,
+         "self_play.repetition_temperature");
     note(from.self_play.bootstrap_prior != to.self_play.bootstrap_prior,
          "self_play.bootstrap_prior");
     note(from.self_play.bootstrap_prior_weight != to.self_play.bootstrap_prior_weight,
@@ -113,6 +118,9 @@ validate_training_config_transition(const ProductionConfig& from, const Producti
     immutable_projection.training.train_steps_per_iteration =
         from.training.train_steps_per_iteration;
     immutable_projection.training.policy_loss_domain = from.training.policy_loss_domain;
+    immutable_projection.mcts.repeat_window = from.mcts.repeat_window;
+    immutable_projection.mcts.simulations_late = from.mcts.simulations_late;
+    immutable_projection.self_play.repetition_temperature = from.self_play.repetition_temperature;
     immutable_projection.self_play.bootstrap_prior = from.self_play.bootstrap_prior;
     immutable_projection.self_play.bootstrap_prior_weight = from.self_play.bootstrap_prior_weight;
     immutable_projection.self_play.turn_order_group = from.self_play.turn_order_group;

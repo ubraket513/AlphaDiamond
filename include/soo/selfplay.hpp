@@ -248,7 +248,8 @@ struct EpisodeConfig {
 
     // On a repeated position only, replace the normal move-temperature schedule
     // with this value. Zero retains that schedule without disabling an adaptive
-    // search budget. Arena uses 1.0 here; ordinary training leaves it at zero.
+    // search budget. Arena uses 1.0 here; training defaults to zero and can
+    // explicitly enable it through self_play.repetition_temperature.
     // Sampling is seeded by game and move, not by worker scheduling order.
     double repetition_temperature = 0.0;
 

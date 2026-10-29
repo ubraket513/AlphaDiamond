@@ -1,3 +1,6 @@
+// Standalone generation/diagnosis using the same actors as training. It never
+// updates a model or ingests replay. Stored job seeds reproduce a training batch;
+// those diagnostic games must not be presented as held-out evaluation evidence.
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -10,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <optional>
 #include <random>
 #include <set>
@@ -56,6 +60,7 @@ struct Options {
     std::size_t simulations = 4;
     std::optional<std::size_t> simulations_late;
     std::optional<std::size_t> repeat_window;
+    std::optional<double> repetition_temperature;
     std::size_t max_moves = 8;
     std::optional<double> max_game_seconds;
     std::string bootstrap_prior = "config";
@@ -73,6 +78,9 @@ struct Options {
     std::size_t games = 0;
     std::optional<std::size_t> torch_threads;
     uint64_t seed = 17;
+    // Exact persisted job seeds allow a failed production batch to be replayed
+    // without replacing its RNG stream with the synthetic benchmark seed scheme.
+    std::vector<uint64_t> game_seeds;
     // Production exploration. Without it lanes play near-identical games and
     // the request stream is not the shape the batcher sees in a real run.
     double temperature = 1.0;
@@ -119,9 +127,9 @@ Options parse_options(int argc, char** argv) {
                    "[--precision fp32|fp16|bf16] "
                    "[--lanes N] [--threads N] [--torch-threads N] [--max-batch N] [--max-wait-us "
                    "N] "
-                   "[--simulations N] [--max-moves N] [--games N] [--seed N] "
+                   "[--simulations N] [--max-moves N] [--games N] [--seed N | --game-seeds FILE] "
                    "[--bootstrap-prior config|vacancy|none] [--simulations-late N] "
-                   "[--repeat-window N] [--max-game-seconds F] "
+                   "[--repeat-window N] [--repetition-temperature F] [--max-game-seconds F] "
                    "[--diagnostic-roots N] [--diagnostic-batch N] "
                    "[--temperature F] [--temperature-moves N] "
                    "[--dirichlet-epsilon F] [--warmups N] [--repetitions N] "
@@ -161,6 +169,8 @@ Options parse_options(int argc, char** argv) {
             options.simulations_late = parse_count(value, option, true);
         else if (option == "--repeat-window")
             options.repeat_window = parse_count(value, option, true);
+        else if (option == "--repetition-temperature")
+            options.repetition_temperature = parse_number(value, option);
         else if (option == "--max-moves")
             options.max_moves = parse_count(value, option);
         else if (option == "--max-game-seconds")
@@ -179,7 +189,14 @@ Options parse_options(int argc, char** argv) {
             options.games = parse_count(value, option);
         else if (option == "--seed")
             options.seed = parse_count(value, option, true);
-        else if (option == "--temperature")
+        else if (option == "--game-seeds") {
+            std::ifstream input{std::filesystem::path(value)};
+            if (!input) throw std::invalid_argument("cannot open --game-seeds file");
+            uint64_t seed = 0;
+            while (input >> seed) options.game_seeds.push_back(seed);
+            if (!input.eof() || options.game_seeds.empty())
+                throw std::invalid_argument("--game-seeds requires a nonempty integer list");
+        } else if (option == "--temperature")
             options.temperature = parse_number(value, option);
         else if (option == "--temperature-moves")
             options.temperature_moves = parse_count(value, option, true);
@@ -197,11 +214,15 @@ Options parse_options(int argc, char** argv) {
         throw std::invalid_argument("--checkpoint and --config must be provided together");
     if (options.checkpoint && options.artifact_explicit)
         throw std::invalid_argument("--artifact and --checkpoint are mutually exclusive");
+    if (!options.game_seeds.empty() && options.explicit_options.contains("--seed"))
+        throw std::invalid_argument("--seed and --game-seeds are mutually exclusive");
     if (options.bootstrap_prior != "config" && options.bootstrap_prior != "vacancy" &&
         options.bootstrap_prior != "none")
         throw std::invalid_argument("--bootstrap-prior must be config, vacancy, or none");
     if (options.max_game_seconds && *options.max_game_seconds < 0.0)
         throw std::invalid_argument("--max-game-seconds must be non-negative");
+    if (options.repetition_temperature && *options.repetition_temperature < 0.0)
+        throw std::invalid_argument("--repetition-temperature must be non-negative");
     if (!(options.temperature >= 0.0) || !(options.dirichlet_epsilon >= 0.0) ||
         options.dirichlet_epsilon > 1.0) {
         throw std::invalid_argument(
@@ -254,6 +275,7 @@ struct Totals {
     uint64_t batches = 0;
     uint64_t moves = 0;
     uint64_t boosted_moves = 0;
+    uint64_t repetition_moves = 0;
     double wall_seconds = 0.0;
     double evaluator_seconds = 0.0;
     double collation_seconds = 0.0;
@@ -272,6 +294,8 @@ struct Totals {
     double max_revisits_total = 0.0;
     uint64_t cycling_games = 0;
     std::array<uint64_t, 4> first_finisher_counts{}; // indexed by player id
+    // Requested/completed/aborted by actual job order, including override matches.
+    std::map<std::string, std::array<uint64_t, 3>> turn_orders;
 };
 
 int dominant_cycle_period(const std::vector<uint64_t>& tail, int longest = 32) {
@@ -322,6 +346,8 @@ soo::EpisodeConfig episode_config(const Options& options, soo::EpisodeConfig con
         config.simulations_late = static_cast<int>(options.simulations_late.value_or(0));
     if (should_override("--repeat-window"))
         config.repeat_window = static_cast<int>(options.repeat_window.value_or(0));
+    if (should_override("--repetition-temperature"))
+        config.repetition_temperature = options.repetition_temperature.value_or(0.0);
     // Training applies the deadline outside wire_training_iteration. The
     // resolved option already contains its configured value or explicit override.
     config.max_game_duration =
@@ -341,8 +367,10 @@ soo::EpisodeConfig episode_config(const Options& options, soo::EpisodeConfig con
     if (options.games != 0 && options.games <= static_cast<std::size_t>(config.lanes))
         throw std::invalid_argument(
             "games must exceed lanes, otherwise the job queue never engages");
-    if (config.repeat_window > 0 && config.simulations_late == 0)
-        throw std::invalid_argument("--repeat-window requires non-zero --simulations-late");
+    if (config.repeat_window > 0 && config.simulations_late == 0 &&
+        config.repetition_temperature == 0.0)
+        throw std::invalid_argument(
+            "--repeat-window requires a search budget or repetition temperature");
     return config;
 }
 
@@ -351,10 +379,13 @@ Totals run_once(const Options& options, const soo::Match& match, const soo::Stat
     const std::size_t job_count = options.games != 0 ? options.games : config.lanes;
     std::vector<soo::EpisodeJob> jobs;
     jobs.reserve(job_count);
+    if (!options.game_seeds.empty() && options.game_seeds.size() != job_count)
+        throw std::invalid_argument("--game-seeds count must equal the requested game count");
     // Benchmark seeds stay reproducible independently of persisted training
     // iteration/retry state; the configured base seed is still honored.
     for (std::size_t game = 0; game < job_count; ++game)
-        jobs.push_back({initial, options.seed + game * 12});
+        jobs.push_back({initial, options.game_seeds.empty() ? options.seed + game * 12
+                                                          : options.game_seeds[game]});
     if (options.balance_turn_orders) {
         const auto group =
             options.turn_order_group == "all"
@@ -374,6 +405,7 @@ Totals run_once(const Options& options, const soo::Match& match, const soo::Stat
     totals.batches = metrics.batches;
     totals.moves = metrics.moves;
     totals.boosted_moves = metrics.boosted_moves;
+    totals.repetition_moves = metrics.repetition_moves;
     totals.wall_seconds = metrics.wall_seconds;
     totals.evaluator_seconds = metrics.evaluator_seconds;
     totals.collation_seconds = stage.collation_seconds;
@@ -384,7 +416,17 @@ Totals run_once(const Options& options, const soo::Match& match, const soo::Stat
     totals.scatter_seconds = stage.scatter_seconds;
     totals.worker_busy_seconds = metrics.worker_busy_seconds;
     totals.batch_sizes = std::move(metrics.batch_sizes);
-    for (const soo::Episode& episode : episodes) {
+    for (std::size_t index = 0; index < episodes.size(); ++index) {
+        const auto& episode = episodes[index];
+        const auto& game_match = jobs[index].match ? *jobs[index].match : match;
+        std::string order;
+        for (int seat = 0; seat < game_match.count; ++seat) {
+            if (seat) order += '-';
+            order += std::to_string(game_match.players[seat].id);
+        }
+        auto& counts = totals.turn_orders[order];
+        ++counts[0];
+        ++counts[episode.completed ? 1 : 2];
         totals.completed += episode.completed ? 1 : 0;
         if (episode.completed && !episode.finish_order.empty() &&
             episode.finish_order.front() < totals.first_finisher_counts.size())
@@ -431,6 +473,7 @@ void accumulate(Totals& destination, Totals source) {
     destination.batches += source.batches;
     destination.moves += source.moves;
     destination.boosted_moves += source.boosted_moves;
+    destination.repetition_moves += source.repetition_moves;
     destination.wall_seconds += source.wall_seconds;
     destination.evaluator_seconds += source.evaluator_seconds;
     destination.collation_seconds += source.collation_seconds;
@@ -453,6 +496,9 @@ void accumulate(Totals& destination, Totals source) {
     destination.repeat_within_8_fraction_total += source.repeat_within_8_fraction_total;
     destination.max_revisits_total += source.max_revisits_total;
     destination.cycling_games += source.cycling_games;
+    for (const auto& [order, counts] : source.turn_orders)
+        for (std::size_t index = 0; index < counts.size(); ++index)
+            destination.turn_orders[order][index] += counts[index];
     for (std::size_t player = 1; player < destination.first_finisher_counts.size(); ++player)
         destination.first_finisher_counts[player] += source.first_finisher_counts[player];
 }
@@ -674,13 +720,18 @@ int main(int argc, char** argv) {
             << ",\"c_puct\":" << selfplay.c_puct
             << ",\"dirichlet_alpha\":" << selfplay.dirichlet_alpha
             << ",\"dirichlet_epsilon\":" << selfplay.dirichlet_epsilon
-            << ",\"seed\":" << options.seed << ",\"seed_scheme\":\"base-plus-game-times-12\""
+            << ",\"seed\":"
+            << (options.game_seeds.empty() ? std::to_string(options.seed) : "null")
+            << ",\"seed_scheme\":\""
+            << (options.game_seeds.empty() ? "base-plus-game-times-12" : "stored-game-seeds") << '"'
             << ",\"lanes\":" << selfplay.lanes << ",\"threads\":" << selfplay.threads
             << ",\"max_batch\":" << selfplay.max_batch
             << ",\"max_wait_us\":" << selfplay.max_wait_us
             << ",\"simulations\":" << selfplay.simulations
             << ",\"simulations_late\":" << selfplay.simulations_late
-            << ",\"repeat_window\":" << selfplay.repeat_window << ",\"max_game_seconds\":"
+            << ",\"repeat_window\":" << selfplay.repeat_window
+            << ",\"repetition_temperature\":" << selfplay.repetition_temperature
+            << ",\"max_game_seconds\":"
             << (selfplay.max_game_duration
                     ? std::chrono::duration<double>(*selfplay.max_game_duration).count()
                     : 0.0)
@@ -699,8 +750,17 @@ int main(int argc, char** argv) {
             << ",\"samples_seconds\":[";
         for (std::size_t index = 0; index < seconds.size(); ++index)
             std::cout << (index ? "," : "") << seconds[index];
+        std::cout << "],\"turn_orders\":{";
+        bool first_order = true;
+        for (const auto& [order, counts] : totals.turn_orders) {
+            std::cout << (first_order ? "" : ",") << '"' << order
+                      << "\":{\"requested\":" << counts[0]
+                      << ",\"completed\":" << counts[1]
+                      << ",\"aborted\":" << counts[2] << '}';
+            first_order = false;
+        }
         std::cout
-            << "],\"summary_seconds\":{\"min\":" << sorted_seconds.front()
+            << "},\"summary_seconds\":{\"min\":" << sorted_seconds.front()
             << ",\"median\":" << sorted_seconds[sorted_seconds.size() / 2]
             << ",\"max\":" << sorted_seconds.back()
             << ",\"range\":" << sorted_seconds.back() - sorted_seconds.front()
@@ -750,6 +810,7 @@ int main(int argc, char** argv) {
             << ",\"moves_p90\":" << percentile(totals.move_counts, 0.90)
             << ",\"moves_p99\":" << percentile(totals.move_counts, 0.99)
             << ",\"evaluations\":" << totals.evaluations
+            << ",\"repetition_moves\":" << totals.repetition_moves
             << ",\"boosted_moves\":" << totals.boosted_moves << ",\"boosted_fraction\":"
             << ratio(static_cast<double>(totals.boosted_moves), static_cast<double>(totals.moves))
             << ",\"batches\":" << totals.batches << ",\"evaluations_per_second\":"

@@ -976,6 +976,8 @@ StageOutcome execute_self_play_stage(const CommandRequest& request, const Produc
                  Json{Object{{"simulations", Json{config.mcts.simulations}},
                              {"simulations_late", Json{config.mcts.simulations_late}},
                              {"repeat_window", Json{config.mcts.repeat_window}},
+                             {"repetition_temperature", Json{config.self_play.repetition_temperature}},
+                             {"repetition_moves", Json{static_cast<int64_t>(m.repetition_moves)}},
                              {"boosted_moves", Json{static_cast<int64_t>(m.boosted_moves)}},
                              {"boosted_fraction", Json{m.boosted_fraction}}}}},
                 {"throughput",

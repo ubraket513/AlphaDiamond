@@ -306,6 +306,9 @@ void SelfPlayConfig::validate() const {
         throw ConfigError("self_play.temperature_moves must be non-negative");
     if (!std::isfinite(temperature) || temperature < 0)
         throw ConfigError("self_play.temperature must be a non-negative finite number");
+    if (!std::isfinite(repetition_temperature) || repetition_temperature < 0)
+        throw ConfigError(
+            "self_play.repetition_temperature must be a non-negative finite number");
     if (!bootstrap_prior_is_valid(bootstrap_prior))
         throw ConfigError("self_play.bootstrap_prior must be a supported bootstrap prior");
     if (!std::isfinite(bootstrap_prior_weight) || bootstrap_prior_weight < 0.0 ||
@@ -334,6 +337,9 @@ Json SelfPlayConfig::to_json() const {
         output.emplace("balance_turn_orders", Json{true});
     if (turn_order_group != "all")
         output.emplace("turn_order_group", Json{turn_order_group});
+    // Existing configurations keep their exact canonical hash with the feature off.
+    if (repetition_temperature != 0.0)
+        output.emplace("repetition_temperature", Json{repetition_temperature});
     return Json{std::move(output)};
 }
 
@@ -342,7 +348,8 @@ SelfPlayConfig SelfPlayConfig::from_json(const Json& value) {
     require_keys(input,
                  {"bootstrap_prior", "max_game_seconds", "max_moves", "temperature",
                   "temperature_moves"},
-                 {"seed", "bootstrap_prior_weight", "balance_turn_orders", "turn_order_group"},
+                 {"seed", "bootstrap_prior_weight", "balance_turn_orders", "turn_order_group",
+                  "repetition_temperature"},
                  "self_play");
     SelfPlayConfig result{
         .max_moves = integer(field(input, "max_moves", "self_play"), "self_play.max_moves"),
@@ -365,6 +372,9 @@ SelfPlayConfig SelfPlayConfig::from_json(const Json& value) {
     if (input.contains("turn_order_group"))
         result.turn_order_group =
             string(input.at("turn_order_group"), "self_play.turn_order_group");
+    if (input.contains("repetition_temperature"))
+        result.repetition_temperature =
+            number(input.at("repetition_temperature"), "self_play.repetition_temperature");
     result.validate();
     return result;
 }
@@ -685,6 +695,8 @@ void ProductionConfig::validate() const {
     runtime.validate();
     mcts.validate();
     self_play.validate();
+    if (self_play.repetition_temperature > 0.0 && mcts.repeat_window == 0)
+        throw ConfigError("self_play.repetition_temperature requires mcts.repeat_window");
     workers.validate();
     if (self_play.turn_order_group != "all" && model_name != "Min")
         throw ConfigError("self_play.turn_order_group requires Min");

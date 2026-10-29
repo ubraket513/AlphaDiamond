@@ -53,6 +53,12 @@ diamond_model::DiamondModel snapshot_model(const diamond_model::DiamondModel& so
                                            const Compatibility& compatibility, torch::Device target,
                                            ModelRole role);
 
+// Expands a same-family legacy model with zero-initialized goal input columns.
+// Every existing parameter and buffer is copied; source storage is untouched.
+diamond_model::DiamondModel migrate_goal_inputs(const diamond_model::DiamondModel& source,
+                                                const Compatibility& target,
+                                                const ResolvedDevice& device);
+
 // Zeroes the final value layer, leaving every other parameter untouched.
 //
 // A freshly initialised Min network answers every leaf with an arbitrary
@@ -124,5 +130,9 @@ class Trainer {
     torch::optim::AdamW optimizer_;
     uint64_t training_step_ = 0;
 };
+
+// Copies the migration into a fresh learner's existing tensors, preserving its
+// optimizer bindings. Requires step zero and no accumulated optimizer state.
+void migrate_goal_inputs(const diamond_model::DiamondModel& source, Trainer& target);
 
 } // namespace diamond_training

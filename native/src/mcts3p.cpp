@@ -1,27 +1,13 @@
 #include "soo/mcts3p.hpp"
 
-#include <cmath>
 #include <stdexcept>
 
+#include "mcts_common.hpp"
 #include "soo/encoder.hpp"
 #include "soo/mcts.hpp"
 #include "soo/rules.hpp"
 
 namespace soo {
-namespace {
-
-// puct.exploration_bonus, in Python's operation order so the doubles agree bit
-// for bit -- the same function the 2P search uses, repeated here rather than
-// shared because both are transcriptions of one Python expression and a shared
-// helper would hide which one drifted.
-inline double exploration_bonus(double prior, uint32_t parent_visits, uint32_t edge_visits,
-                                double c_puct) {
-    const double parent = static_cast<double>(parent_visits < 1 ? 1u : parent_visits);
-    return c_puct * prior * std::sqrt(parent) / (1.0 + static_cast<double>(edge_visits));
-}
-
-}  // namespace
-
 SearchSession3P::SearchSession3P(const Match& match, const MCTSConfig& config)
     : match_(match), config_(config), rng_(config.seed) {
     if (config.simulations <= 0) throw std::invalid_argument("simulations must be positive");
@@ -65,7 +51,7 @@ void SearchSession3P::begin(const State& state, double temperature) {
 
 void SearchSession3P::prepare_expansion(uint32_t node_index) {
     pending_state_ = nodes_[node_index].state;
-    pending_encoded_ = soo::encode(pending_state_, match_);
+    pending_encoded_ = soo::encode(pending_state_, match_, config_.encoding);
     pending_actions_.clear();
     canonical_legal_action_ids(pending_state_, match_, pending_actions_);
 }
@@ -166,8 +152,9 @@ uint32_t SearchSession3P::select(uint32_t node_index) const {
     for (uint16_t offset = 0; offset < node.edge_count; ++offset) {
         const uint32_t index = node.edge_begin + offset;
         const VectorEdge& edge = edges_[index];
-        const double score = edge.q(node.seat) + exploration_bonus(edge.prior, parent_visits,
-                                                                   edge.visits, config_.c_puct);
+        const double score =
+            edge.q(node.seat) +
+            detail::exploration_bonus(edge.prior, parent_visits, edge.visits, config_.c_puct);
         if (offset == 0 || score > best_score ||
             (score == best_score && edge.action < best_action)) {
             best = index;
@@ -195,31 +182,8 @@ void SearchSession3P::finalize() {
         result_.policy.push_back(static_cast<double>(visits) / static_cast<double>(total));
     }
 
-    // puct.select_from_visits, identical to the 2P path.
-    if (temperature_ > 0.0) {
-        weights_.clear();
-        weights_.reserve(result_.visit_counts.size());
-        double weight_total = 0.0;
-        for (const uint32_t visits : result_.visit_counts) {
-            const double weight = std::pow(static_cast<double>(visits), 1.0 / temperature_);
-            weights_.push_back(weight);
-            weight_total += weight;
-        }
-        if (!(weight_total > 0.0)) {
-            for (double& weight : weights_) weight = 1.0;
-        }
-        result_.selected_action = result_.root_actions[rng_.weighted_index(weights_)];
-    } else {
-        size_t best = 0;
-        for (size_t i = 1; i < result_.root_actions.size(); ++i) {
-            if (result_.visit_counts[i] > result_.visit_counts[best] ||
-                (result_.visit_counts[i] == result_.visit_counts[best] &&
-                 result_.root_actions[i] < result_.root_actions[best])) {
-                best = i;
-            }
-        }
-        result_.selected_action = result_.root_actions[best];
-    }
+    result_.selected_action = detail::select_from_visits(result_.root_actions, result_.visit_counts,
+                                                         temperature_, rng_, weights_);
     result_.nodes_created = static_cast<uint32_t>(nodes_.size());
     result_.simulations_run = static_cast<uint32_t>(simulation_);
     phase_ = Phase::Done;

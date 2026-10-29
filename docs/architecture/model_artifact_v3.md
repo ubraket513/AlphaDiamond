@@ -6,9 +6,9 @@ be described without changing the validator. v3 declares the family and the
 architecture, and the loader checks the weights against the declaration --
 which is what made adding Min a model port rather than a format redesign.
 
-Written by `tools/export_deployment.py --family soo|min`; validated by
-`diamond_model::validate_deployment_artifact` and
-`diamond.alphazero.deployment.validate_metadata`.
+Produced by `alphadiamond-checkpoint export` and validated by
+`diamond_model::validate_deployment_artifact`. Historical Python exporters and
+validators were retired; their artifact contracts remain supported.
 
 ## Training checkpoint is not a deployment artifact
 
@@ -94,16 +94,27 @@ corrupting a tensor in one is still caught.
 
 ## Min
 
+The `game_contract.encoder` field also selects the observation layout. The
+legacy `diamond-camp-relative-v1` uses occupancy and finished planes;
+`diamond-camp-relative-goals-v2` appends one target-camp membership plane per
+canonical player. Both use the same actor-relative spatial rotation and player
+channel order. Goal-aware Soo therefore has 6 input features and goal-aware Min
+has 9. The validator checks family, encoder and tensor dimensions together;
+format-v3 packaging does not change. See
+[goal-aware training](../model-training/goal-aware-training.md) for migration.
+
 `DiamondModel` (the former `SooModelImpl`, generalised) takes the input-feature
 count and value-head width from the artifact, so one implementation serves both
-families: Soo is 4 features and a scalar value, Min is 6 features and one value
+families: legacy Soo is 4 features and a scalar value, legacy Min is 6 features and one value
 per seat. `model_parity_test` runs the artifact's own deterministic corpus
 through the native model for each family and compares against the outputs
 PyTorch produced at export time; both currently match exactly.
 
-Still open: promotion policy -- preserve every checkpoint in the bucket,
-convert release candidates during promotion, publish only accepted artifacts,
-bundle one default per family.
+Engine owns checkpoint export, promotion and the published model index.
+Desktop consumes accepted runtime artifacts against its pinned SDK. New encoder
+or architecture experiments require explicit SDK support and a tested lock
+upgrade before app adoption; repository separation adds no metadata fields.
+See [SDK upgrades and rollback](repository_split.md).
 
 ## Native checkpoint export
 

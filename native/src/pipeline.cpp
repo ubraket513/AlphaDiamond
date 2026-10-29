@@ -218,6 +218,8 @@ SelfPlayResult run_self_play(const IterationRequest& request, ModelPool& models,
                              std::stop_token stop) {
     if (request.operation_id.empty()) throw PipelineError("iteration operation_id is required");
     request.compatibility.validate();
+    if (soo::encoding_version_name(request.selfplay.encoding) != request.compatibility.encoder_version)
+        throw PipelineError("self-play encoder does not match replay/model compatibility");
     models.require_ready(stop, std::chrono::steady_clock::now() + std::chrono::hours(24));
     models.require_compatible(request.compatibility);
     if (!(models.active_key() == request.model_key))

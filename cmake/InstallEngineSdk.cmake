@@ -1,0 +1,143 @@
+include_guard(GLOBAL)
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+set(ALPHADIAMOND_ENGINE_VERSION 0.1.0)
+set(_ad_sdk_targets soo_core soo_search diamond_support diamond_artifact diamond_rating)
+set(ALPHADIAMOND_ENGINE_HAS_MODEL OFF)
+if(TARGET diamond_model)
+    list(APPEND _ad_sdk_targets diamond_model)
+    set(ALPHADIAMOND_ENGINE_HAS_MODEL ON)
+endif()
+if(ALPHADIAMOND_ENGINE_HAS_MODEL AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    include("${CMAKE_CURRENT_LIST_DIR}/AlphaDiamondEngineAbi.cmake")
+    alphadiamond_engine_apply_abi(TARGETS ${_ad_sdk_targets})
+endif()
+foreach(_target IN LISTS _ad_sdk_targets)
+    if(MSVC)
+        include(CheckCXXCompilerFlag)
+        check_cxx_compiler_flag("/std:c++latest" _ad_has_latest)
+        if(NOT _ad_has_latest)
+            message(FATAL_ERROR "AlphaDiamondEngine requires MSVC /std:c++latest")
+        endif()
+        target_compile_features(${_target} PUBLIC cxx_std_23)
+        target_compile_options(${_target} PUBLIC /std:c++latest)
+        set_target_properties(${_target} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+    elseif("cxx_std_26" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+        target_compile_features(${_target} PUBLIC cxx_std_26)
+        set_target_properties(${_target} PROPERTIES CXX_STANDARD 26 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    elseif(ALPHADIAMOND_ENGINE_HAS_MODEL)
+        message(FATAL_ERROR "AlphaDiamondEngine Runtime SDK requires CMake >= 3.30 and a C++26 compiler")
+    endif()
+endforeach()
+
+set(_ad_package_dir "${CMAKE_INSTALL_LIBDIR}/cmake/AlphaDiamondEngine")
+set(_ad_data_dir "${CMAKE_INSTALL_DATADIR}/AlphaDiamondEngine")
+include("${CMAKE_CURRENT_LIST_DIR}/AlphaDiamondEngineBuildProvenance.cmake")
+file(GLOB_RECURSE _ad_provenance_inputs CONFIGURE_DEPENDS
+    "${PROJECT_SOURCE_DIR}/native/include/*.hpp"
+    "${PROJECT_SOURCE_DIR}/native/include/*.h"
+    "${PROJECT_SOURCE_DIR}/native/src/*.hpp" "${PROJECT_SOURCE_DIR}/native/src/*.h"
+    "${PROJECT_SOURCE_DIR}/cmake/*.cmake" "${PROJECT_SOURCE_DIR}/cmake/*.cmake.in"
+    "${PROJECT_SOURCE_DIR}/tests/golden/topology/*")
+list(APPEND _ad_provenance_inputs "${PROJECT_SOURCE_DIR}/CMakeLists.txt"
+    "${PROJECT_SOURCE_DIR}/native/CMakeLists.txt")
+set(_ad_provenance_targets ${_ad_sdk_targets})
+set(_ad_provenance_data)
+if(TARGET alphadiamond-rating-sync)
+    list(APPEND _ad_provenance_targets alphadiamond-rating-sync)
+endif()
+if(ALPHADIAMOND_ENGINE_HAS_MODEL)
+    list(APPEND _ad_provenance_inputs "${PROJECT_SOURCE_DIR}/native/tests/sdk_consumer/generate_fixtures.cpp")
+    set(_ad_provenance_data "${PROJECT_BINARY_DIR}/sdk-fixtures")
+endif()
+alphadiamond_engine_track_provenance(TARGETS ${_ad_provenance_targets}
+    INPUTS ${_ad_provenance_inputs} DATA_DIRS ${_ad_provenance_data})
+install(TARGETS ${_ad_sdk_targets} EXPORT AlphaDiamondEngineTargets
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT Runtime
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT Runtime
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT Runtime)
+install(EXPORT AlphaDiamondEngineTargets NAMESPACE alphadiamond::
+    FILE AlphaDiamondEngineTargets.cmake DESTINATION "${_ad_package_dir}" COMPONENT Runtime)
+
+# An explicit public surface: no replay/trainer/coordinator/checkpoint headers.
+set(_ad_public_headers
+    soo/action.hpp soo/arena_router.hpp soo/batcher.hpp soo/board.hpp soo/encoder.hpp
+    soo/episode_search.hpp soo/evaluator.hpp soo/mcts.hpp soo/mcts3p.hpp
+    soo/min_experts.hpp soo/prior.hpp soo/profile.hpp soo/random.hpp soo/rules.hpp
+    soo/search_target_metrics.hpp soo/selfplay.hpp soo/state.hpp soo/tree.hpp
+    diamond_support/json.hpp diamond_model/deployment_artifact.hpp diamond_model/model_index.hpp
+    diamond_orchestration/rating.hpp diamond_orchestration/rating_store.hpp)
+if(ALPHADIAMOND_ENGINE_HAS_MODEL)
+    list(APPEND _ad_public_headers diamond_model/soo_model.hpp diamond_model/soo_evaluator.hpp)
+endif()
+foreach(_header IN LISTS _ad_public_headers)
+    get_filename_component(_directory "${_header}" DIRECTORY)
+    install(FILES "${PROJECT_SOURCE_DIR}/native/include/${_header}"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${_directory}" COMPONENT Runtime)
+endforeach()
+
+configure_package_config_file("${CMAKE_CURRENT_LIST_DIR}/AlphaDiamondEngineConfig.cmake.in"
+    "${PROJECT_BINARY_DIR}/AlphaDiamondEngineConfig.cmake"
+    INSTALL_DESTINATION "${_ad_package_dir}")
+write_basic_package_version_file("${PROJECT_BINARY_DIR}/AlphaDiamondEngineConfigVersion.cmake"
+    VERSION "${ALPHADIAMOND_ENGINE_VERSION}" COMPATIBILITY ExactVersion)
+install(FILES "${PROJECT_BINARY_DIR}/AlphaDiamondEngineConfig.cmake"
+    "${PROJECT_BINARY_DIR}/AlphaDiamondEngineConfigVersion.cmake"
+    "${CMAKE_CURRENT_LIST_DIR}/AlphaDiamondEngineTorch.cmake"
+    DESTINATION "${_ad_package_dir}" COMPONENT Runtime)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/tests/golden/topology/"
+    DESTINATION "${_ad_data_dir}/topology" COMPONENT Runtime)
+
+if(TARGET alphadiamond-rating-sync)
+    install(TARGETS alphadiamond-rating-sync
+        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT Runtime)
+endif()
+if(ALPHADIAMOND_ENGINE_HAS_MODEL)
+    add_executable(alphadiamond-sdk-fixtures
+        "${PROJECT_SOURCE_DIR}/native/tests/sdk_consumer/generate_fixtures.cpp")
+    target_link_libraries(alphadiamond-sdk-fixtures PRIVATE alphadiamond::diamond_artifact)
+    set(_ad_fixtures "${PROJECT_BINARY_DIR}/sdk-fixtures")
+    add_custom_command(OUTPUT "${_ad_fixtures}/PROVENANCE.txt"
+        COMMAND alphadiamond-sdk-fixtures "${PROJECT_SOURCE_DIR}/tests/golden/topology" "${_ad_fixtures}"
+        DEPENDS alphadiamond-sdk-fixtures VERBATIM)
+    add_custom_target(engine_sdk_data ALL DEPENDS "${_ad_fixtures}/PROVENANCE.txt")
+    add_dependencies(engine_sdk_provenance engine_sdk_data)
+    install(DIRECTORY "${_ad_fixtures}/" DESTINATION "${_ad_data_dir}/fixtures" COMPONENT Runtime)
+endif()
+
+set(ALPHADIAMOND_ENGINE_CRT "${CMAKE_MSVC_RUNTIME_LIBRARY}")
+if(MSVC AND NOT ALPHADIAMOND_ENGINE_CRT)
+    set(ALPHADIAMOND_ENGINE_CRT "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+elseif(NOT MSVC)
+    set(ALPHADIAMOND_ENGINE_CRT "native")
+endif()
+configure_file("${CMAKE_CURRENT_LIST_DIR}/AlphaDiamondEngineManifest.cmake.in"
+    "${PROJECT_BINARY_DIR}/AlphaDiamondEngineManifest.cmake" @ONLY)
+install(SCRIPT "${PROJECT_BINARY_DIR}/AlphaDiamondEngineManifest.cmake" COMPONENT Runtime)
+
+if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS AND ALPHADIAMOND_ENGINE_HAS_MODEL)
+    foreach(_regression abi provenance)
+        add_test(NAME engine_sdk_${_regression} COMMAND "${CMAKE_COMMAND}"
+            "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}" "-DTEST_ROOT=${PROJECT_BINARY_DIR}/sdk-regression"
+            "-DCOMPILER=${CMAKE_CXX_COMPILER}" "-DCOMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}"
+            "-DGENERATOR=${CMAKE_GENERATOR}" "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+            "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}" "-DGENERATOR_INSTANCE=${CMAKE_GENERATOR_INSTANCE}"
+            "-DCONFIG=$<CONFIG>" "-DCXX_FLAGS=${CMAKE_CXX_FLAGS}"
+            "-DDEBUG_CXX_FLAGS=${CMAKE_CXX_FLAGS_DEBUG}" "-DRELEASE_CXX_FLAGS=${CMAKE_CXX_FLAGS_RELEASE}"
+            "-DRELWITHDEBINFO_CXX_FLAGS=${CMAKE_CXX_FLAGS_RELWITHDEBINFO}" "-DMINSIZEREL_CXX_FLAGS=${CMAKE_CXX_FLAGS_MINSIZEREL}"
+            "-DEXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
+            -P "${PROJECT_SOURCE_DIR}/native/tests/sdk_${_regression}_test.cmake")
+        set_tests_properties(engine_sdk_${_regression} PROPERTIES LABELS "sdk;integration"
+            PROCESSORS 8 TIMEOUT 120)
+    endforeach()
+    add_test(NAME engine_sdk_install COMMAND "${CMAKE_COMMAND}"
+        "-DBUILD_DIR=${PROJECT_BINARY_DIR}" "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "-DCONFIG=$<CONFIG>" "-DCOMPILER=${CMAKE_CXX_COMPILER}"
+        "-DCXX_FLAGS=${CMAKE_CXX_FLAGS}" "-DEXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
+        "-DCOMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}"
+        "-DTorch_DIR=${Torch_DIR}" "-DGENERATOR=${CMAKE_GENERATOR}"
+        -P "${PROJECT_SOURCE_DIR}/native/tests/sdk_install_test.cmake")
+    set_tests_properties(engine_sdk_install PROPERTIES LABELS "sdk;integration"
+        ENVIRONMENT "OMP_NUM_THREADS=2;MKL_NUM_THREADS=2" PROCESSORS 8 TIMEOUT 300)
+endif()

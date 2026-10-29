@@ -1,7 +1,9 @@
 # Decisions
 
-Short, dated, and binding. Each one changes what the project promises, so it is
-recorded here rather than inferred from the code.
+Dated migration decisions, preserved with their original rationale. The frozen
+corpus contract still applies. Decision 1's Python control plane and the bridge
+references below were superseded by the native-only migration; see
+[products.md](products.md) for current ownership and commands.
 
 ---
 
@@ -127,3 +129,13 @@ dataclass in a type hint, and the two retired at completely different times.
 
 See [`retiring_the_python_engine.md`](retiring_the_python_engine.md) for the
 order it happened in and the evidence collected before each deletion.
+
+
+## 4. Engine and Desktop release independently
+
+*2026-10-29.* Engine owns the single rules/search/model implementation, training,
+model publishing and Runtime SDK releases. AlphaDiamondDesktop owns the app and
+consumes an exact installed SDK version, archive digest and ABI/configuration
+lock. UI-only changes need no SDK release, while trainer changes leave the app
+lock intact. See [repository split](repository_split.md) for provenance, upgrade
+validation and SDK/model rollback. Earlier `native/qt` paths above are historical.

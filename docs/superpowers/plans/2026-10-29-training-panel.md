@@ -1,0 +1,79 @@
+# Training Panel and Min Autopilot Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** Deliver a small working local training panel while training and evaluating stronger Min candidates.
+
+**Architecture:** Svelte consumes one thin Node HTTP bridge. The bridge discovers native processes and reads their existing output files. Min uses the existing native training and arena tools independently of the browser.
+
+**Tech Stack:** Svelte 5, Vite, Node built-in HTTP/test/fs/process APIs, native SVG, existing C++/LibTorch training.
+
+**Spec:** `docs/superpowers/specs/2026-10-29-training-panel.md`
+
+## Global Constraints
+
+- Work on local branches only; preserve original changes and artifacts.
+- Minimal dependencies and code; no failed history, termination reasons, agent notifications, registry, fallback or retry framework.
+- Immediate process termination on Stop; Agent-launched CLI jobs visible without registration.
+- User autonomy expires 2026-10-29 16:20:02 KST; heartbeat continues only within this window.
+- Use Serena, Graphify, Context7; refresh graph after changes.
+- GCC, mold, sccache, Ninja; memory-safe parallel builds and tests; development O0/g1/pipe, no LTO; optimized Release for production training.
+- No shipped-model replacement or external publishing.
+
+## Review Focus
+
+- Native jobs launched outside the panel remain discoverable after browser/server restart.
+- Missing in-progress stage output is normal; completed metrics use native field names and cadence.
+- Stop targets only the selected training and is immediate, including when it shares a supervisor process group.
+- All configuration values remain editable without duplicating the native schema.
+- Strength claims use arena evidence against the exact shipped baseline, with incomplete games and uncertainty visible.
+
+### Task 1: Native CLI bridge
+
+**Files:** Create `training-panel/server.mjs`, `training-panel/server.test.mjs`.
+**Interfaces:** Implement the exact HTTP contract in the spec. The root agent owns package/Vite/frontend files. Training agent owns experiment files; coordinate log and metric shapes without modifying native source.
+
+- [x] Read relevant CLI/source relationships using Graphify and Serena; inspect references before shared-interface changes.
+- [x] Write failing focused Node tests for independently launched process discovery, stage metrics, CLI launch arguments/output and immediate stop.
+- [x] Implement the minimal bridge with built-in Node APIs and static serving of `dist/`.
+- [x] Run Node tests with independent tests parallelized; report evidence and commit only owned files.
+
+### Task 2: Svelte panel
+
+**Files:** Create `training-panel/package.json`, lockfile, `vite.config.js`, `index.html`, `src/main.js`, `src/App.svelte`, `src/app.css`, focused chart helper/test if necessary, and README.
+**Interfaces:** Consume Task 1 API without changing its contract. Use existing configuration JSON and actual native metrics.
+
+- [x] Query current Svelte/Vite APIs with Context7; apply the agreed minimal layout and settings/log/chart requirements.
+- [x] Implement active-run selection, settings/start form, loss/throughput charts, logs and native metadata inspection.
+- [x] Build, run focused data transformation tests where meaningful, and verify actual UI in a browser using a separate fixture process.
+- [x] Document one-command use and Agent CLI integration; commit owned files.
+
+### Task 3: Min training and strength evaluation
+
+**Files:** Dedicated ignored `artifacts/min-strength-20261029/` configs, logs, checkpoints and evaluation output; report in the plan ledger.
+
+- [x] Build optimized CUDA training binaries with the required toolchain and resource budget.
+- [x] Freeze exact old specialist pair and shipped migrated baseline identities. Launch new specialist continuations into dedicated runs, with no automatic continuation after user Stop.
+- [x] Estimate throughput and reserve time for fixed before/after paired arenas and independent held-out evaluation if justified.
+- [x] Validate durable checkpoints; report actual training budgets and arena results/uncertainty without claiming strength from loss.
+
+### Task 4: Integration and review
+
+**Files:** Update root README and Graphify output; reports in `.superpowers/sdd/2026-10-29-training-panel/`.
+
+- [x] Run backend tests, frontend build, browser contract checks and local migration verification.
+- [x] Obtain independent spec/code review of the whole panel; fix concrete findings and reverify affected checks.
+- [x] Refresh Graphify and record commits, local run URL, active training and deadline/heartbeat state.
+- [x] On confirmed objective completion or at the deadline, retain evidence, stop session-owned remaining compute if any, report actual results and pause heartbeat.
+
+### Task 5: Show the native expert-arena phase
+
+**Files:** Modify `training-panel/server.mjs`, `server.test.mjs`, `src/App.svelte`, narrowly scoped CSS and README.
+**Interfaces:** Extend the existing status/Stop contract with the evaluation job shape in the spec; preserve training behavior.
+
+- [x] Add failing disposable-process tests for external arena discovery, native summary refresh/metadata, regular stdout log capture and immediate selected Stop without touching a shared supervisor.
+- [x] Implement the minimal evaluation branch and UI progress display, reusing process discovery, native file reading, tabs and Stop.
+- [x] Run the complete panel tests/build and inspect the actual active arena in a browser; obtain scoped independent review.
+- [x] Refresh supported code and semantic graph relationships; record commits/evidence in the ledger.
+
+Final validation: the preselected final12-iteration pair passed the predeclared fresh864-game absolute-strength gate against the exact shipped migrated reference (861 completed,3 aborted,0 pending). This establishes absolute strength on that protocol; the paired screen does not establish positive gain from this continuation. Checkpoints and candidate-only exports remain in the experiment directory, shipped models remain unchanged, and the local panel stays available. Detailed hashes, intervals, independent reviews and heartbeat closure are recorded in the execution ledger.

@@ -21,6 +21,7 @@ struct DeploymentArtifact {
     int64_t residual_blocks = 0;
     int64_t input_features = 0;     // per hole
     int64_t value_size = 0;         // value-head outputs
+    std::string encoder_version;   // exact game_contract.encoder
 };
 
 // Computes the existing format-v3 runtime manifest digest from topology and weights.

@@ -75,6 +75,7 @@ struct SelfPlayConfig final {
     double bootstrap_prior_weight = 1.0;
     std::optional<double> max_game_seconds;
     bool balance_turn_orders = false;
+    std::string turn_order_group = "all";
 
     void validate() const;
     diamond_support::JsonValue to_json() const;
@@ -199,6 +200,8 @@ struct ProductionConfig final {
     OpeningSuiteConfig opening_suite;
     PromotionStatisticsConfig promotion_statistics;
     uint64_t run_seed = 0;
+    // Absent in historical resolved configs; preserve their serialized identity.
+    std::string encoder_version = "diamond-camp-relative-v1";
 
     void validate() const;
     diamond_support::JsonValue to_json() const;

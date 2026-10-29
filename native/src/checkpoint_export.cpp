@@ -27,7 +27,8 @@ template<class Table> void write_i32(const std::filesystem::path& path, const Ta
     for (const auto& row : table) for (const auto value : row) values.push_back(value);
     write(path, values.data(), values.size() * sizeof(int32_t));
 }
-void parity(diamond_model::DiamondModel& source, diamond_model::DiamondModel& deployed, bool min) {
+void parity(diamond_model::DiamondModel& source, diamond_model::DiamondModel& deployed, bool min,
+            soo::EncodingVersion encoding) {
     torch::NoGradGuard guard;
     source->eval();
     deployed->eval();
@@ -38,7 +39,7 @@ void parity(diamond_model::DiamondModel& source, diamond_model::DiamondModel& de
         for (auto hole : soo::topology().camp_positions[match.players[seat].camp])
             state.occupancy[hole] = match.players[seat].id;
     for (int ply = 0; ply < 12; ++ply) {
-        auto encoded = soo::encode(state, match);
+        auto encoded = soo::encode(state, match, encoding);
         auto features = torch::from_blob(encoded.node_features.data(),
             {1, 73, source->input_features()}).clone();
         const auto [policy, value] = source->forward(features);
@@ -69,13 +70,16 @@ diamond_model::DeploymentArtifact export_checkpoint(const std::filesystem::path&
     auto dimension = [&](const char* name) { return std::get<int64_t>(architecture.at(name).value); };
     const auto width = dimension("width"), blocks = dimension("residual_blocks");
     const auto features = dimension("input_features"), values = dimension("value_size");
-    const bool min = features == 6 && values == 3;
-    if (!min && !(features == 4 && values == 1)) throw CheckpointError("unsupported deployment model family");
     const auto compatibility = std::get<Object>(provenance.at("compatibility").value);
-    if (std::get<std::string>(compatibility.at("model_name").value) != (min ? "Min" : "Soo"))
-        throw CheckpointError("checkpoint family and architecture disagree");
-    const auto expected = min ? Compatibility::min(version, {blocks, width})
-                              : Compatibility::soo(version, {blocks, width});
+    const auto family = std::get<std::string>(compatibility.at("model_name").value);
+    const bool min = family == "Min";
+    if (!min && family != "Soo") throw CheckpointError("unsupported deployment model family");
+    const auto encoding = soo::encoding_version_from_name(
+        std::get<std::string>(compatibility.at("encoder_version").value));
+    const auto expected = min ? Compatibility::min(version, {blocks, width}, encoding)
+                              : Compatibility::soo(version, {blocks, width}, encoding);
+    if (features != expected.input_features() || values != (min ? 3 : 1))
+        throw CheckpointError("checkpoint family, encoder, and architecture disagree");
     for (const auto& [name, value] : std::map<std::string, std::string>{
         {"board_topology_version", expected.board_topology_version},
         {"encoder_version", expected.encoder_version},
@@ -137,7 +141,7 @@ diamond_model::DeploymentArtifact export_checkpoint(const std::filesystem::path&
         const auto metadata = diamond_support::canonical_json(Json{Object{
             {"architecture", Json{Object{{"residual_blocks", Json{blocks}}, {"width", Json{width}}, {"type", Json{std::string("directional_residual")}}}}},
             {"corpus_seed", Json{int64_t{0}}}, {"dtype", Json{std::string("float32")}}, {"format_version", Json{int64_t{3}}},
-            {"game_contract", Json{Object{{"action_space", Json{std::string("diamond73-srcdst-v1")}}, {"encoder", Json{std::string("diamond-camp-relative-v1")}}, {"topology", Json{std::string("diamond73-v1")}}}}},
+            {"game_contract", Json{Object{{"action_space", Json{std::string("diamond73-srcdst-v1")}}, {"encoder", Json{expected.encoder_version}}, {"topology", Json{std::string("diamond73-v1")}}}}},
             {"model_family", Json{std::string(min ? "min" : "soo")}}, {"model_version", Json{version}},
             {"model_sha256", Json{canonical_model_digest(model)}},
             {"runtime_sha256", Json{diamond_model::deployment_runtime_sha256(destination, width, blocks, features, values)}},
@@ -148,7 +152,7 @@ diamond_model::DeploymentArtifact export_checkpoint(const std::filesystem::path&
         auto artifact = diamond_model::validate_deployment_artifact(destination);
         auto deployed = diamond_model::DiamondModel(width, blocks, features, values);
         deployed->load_weights(artifact.weights);
-        parity(model, deployed, min);
+        parity(model, deployed, min, encoding);
         return artifact;
     } catch (...) {
         std::filesystem::remove_all(destination);

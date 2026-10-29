@@ -30,7 +30,11 @@ done
 [ -d "$outbox/events" ] || { echo "rating sync: missing outbox events: $outbox/events" >&2; exit 1; }
 case "$retries" in ''|*[!0-9]*|0) echo "rating sync: --retries must be positive" >&2; exit 2;; esac
 
-hf auth whoami >/dev/null || { echo "rating sync: Hugging Face authentication failed" >&2; exit 1; }
+command -v hf >/dev/null 2>&1 || {
+    echo "rating sync: pending events preserved; hf transport is unavailable" >&2
+    exit 1
+}
+hf auth whoami >/dev/null || { echo "rating sync: pending events preserved; Hugging Face authentication failed" >&2; exit 1; }
 
 work_parent=${TMPDIR:-/tmp}
 work=$(mktemp -d "$work_parent/alphadiamond-ratings.XXXXXX") || exit 1

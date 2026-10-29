@@ -89,7 +89,7 @@ std::string match_id(const char* type, const std::array<std::string, Count>& par
                             {"participant_ids", string_array(participants)},
                             {"seat_assignment", int_array(seats)},
                             {"turn_order", int_array(order)}}};
-    return "sha256:" + diamond_support::sha256(diamond_support::canonical_json(value));
+    return digest(value);
 }
 
 template <size_t Count>

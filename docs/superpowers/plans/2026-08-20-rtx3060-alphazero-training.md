@@ -4,7 +4,7 @@
 > It is kept as the record of what was decided and why. The unchecked
 > boxes below are historical, not a work queue; the tree has moved on and
 > some of the modules named here no longer exist. See
-> [migration_progress.md](../../architecture/migration_progress.md) for the
+> [products.md](../../architecture/products.md) for the
 > current state.
 
 **Goal:** Run Soo AlphaZero self-play and training efficiently on an RTX 3060 while using available CPU parallelism, preserving learning semantics and CPU compatibility, and making pathological games abort individually instead of terminating an iteration.

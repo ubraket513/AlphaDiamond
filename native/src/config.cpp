@@ -303,6 +303,10 @@ void SelfPlayConfig::validate() const {
         throw ConfigError("self_play.bootstrap_prior_weight must be finite and in [0, 1]");
     if (max_game_seconds && (!std::isfinite(*max_game_seconds) || *max_game_seconds <= 0))
         throw ConfigError("self_play.max_game_seconds must be a positive finite number or null");
+    if (turn_order_group != "all" && turn_order_group != "cyclic" && turn_order_group != "reverse")
+        throw ConfigError("self_play.turn_order_group must be all, cyclic, or reverse");
+    if (turn_order_group != "all" && !balance_turn_orders)
+        throw ConfigError("specialist self-play requires balance_turn_orders");
 }
 
 Json SelfPlayConfig::to_json() const {
@@ -317,6 +321,8 @@ Json SelfPlayConfig::to_json() const {
     // Preserve canonical configuration hashes for existing fixed-order runs.
     if (balance_turn_orders)
         output.emplace("balance_turn_orders", Json{true});
+    if (turn_order_group != "all")
+        output.emplace("turn_order_group", Json{turn_order_group});
     return Json{std::move(output)};
 }
 
@@ -325,7 +331,8 @@ SelfPlayConfig SelfPlayConfig::from_json(const Json& value) {
     require_keys(input,
                  {"bootstrap_prior", "max_game_seconds", "max_moves", "seed", "temperature",
                   "temperature_moves"},
-                 {"bootstrap_prior_weight", "balance_turn_orders"}, "self_play");
+                 {"bootstrap_prior_weight", "balance_turn_orders", "turn_order_group"},
+                 "self_play");
     SelfPlayConfig result{
         .max_moves = integer(field(input, "max_moves", "self_play"), "self_play.max_moves"),
         .temperature_moves =
@@ -343,6 +350,9 @@ SelfPlayConfig SelfPlayConfig::from_json(const Json& value) {
     if (input.contains("balance_turn_orders"))
         result.balance_turn_orders =
             boolean(input.at("balance_turn_orders"), "self_play.balance_turn_orders");
+    if (input.contains("turn_order_group"))
+        result.turn_order_group =
+            string(input.at("turn_order_group"), "self_play.turn_order_group");
     result.validate();
     return result;
 }
@@ -639,13 +649,20 @@ void ProductionConfig::validate() const {
         throw ConfigError("model_name must be Soo or Min");
     if (!non_blank(model_version))
         throw ConfigError("model_version must be a non-empty string");
+    if (encoder_version != "diamond-camp-relative-v1" &&
+        encoder_version != "diamond-camp-relative-goals-v2")
+        throw ConfigError("unsupported encoder_version");
     network.validate();
     runtime.validate();
     mcts.validate();
     self_play.validate();
     workers.validate();
+    if (self_play.turn_order_group != "all" && model_name != "Min")
+        throw ConfigError("self_play.turn_order_group requires Min");
+    const int64_t turn_order_cycle =
+        model_name == "Soo" ? 2 : (self_play.turn_order_group == "all" ? 6 : 3);
     if (self_play.balance_turn_orders &&
-        workers.games_per_iteration % (model_name == "Min" ? 6 : 2) != 0)
+        workers.games_per_iteration % turn_order_cycle != 0)
         throw ConfigError("balanced self-play requires games_per_iteration divisible by the number "
                           "of turn orders");
     inference.validate();
@@ -666,7 +683,7 @@ void ProductionConfig::validate() const {
 
 Json ProductionConfig::to_json() const {
     validate();
-    return Json{Object{{"arena", arena.to_json()},
+    Object result{{"arena", arena.to_json()},
                        {"inference", inference.to_json()},
                        {"mcts", mcts.to_json()},
                        {"model_name", Json{model_name}},
@@ -681,7 +698,10 @@ Json ProductionConfig::to_json() const {
                        {"schema_version", Json{schema_version}},
                        {"self_play", self_play.to_json()},
                        {"training", training.to_json()},
-                       {"workers", workers.to_json()}}};
+                       {"workers", workers.to_json()}};
+    if (encoder_version != "diamond-camp-relative-v1")
+        result.emplace("encoder_version", Json{encoder_version});
+    return Json{std::move(result)};
 }
 
 ProductionConfig ProductionConfig::from_json(const Json& value) {
@@ -690,11 +710,11 @@ ProductionConfig ProductionConfig::from_json(const Json& value) {
         integer(field(input, "schema_version", "production config"), "schema_version");
     if (schema_version == 1)
         throw ConfigError(std::string(kV1MigrationError));
-    require_exact_keys(input,
+    require_keys(input,
                        {"arena", "inference", "mcts", "model_name", "model_version", "network",
                         "opening_suite", "promotion_statistics", "replay", "run_budget", "run_seed",
                         "runtime", "schema_version", "self_play", "training", "workers"},
-                       "production config");
+                       {"encoder_version"}, "production config");
     ProductionConfig result{
         .schema_version = schema_version,
         .model_name = string(field(input, "model_name", "production config"), "model_name"),
@@ -715,6 +735,8 @@ ProductionConfig ProductionConfig::from_json(const Json& value) {
         .promotion_statistics = PromotionStatisticsConfig::from_json(
             field(input, "promotion_statistics", "production config")),
         .run_seed = non_negative_seed(field(input, "run_seed", "production config"), "run_seed")};
+    if (const auto found = input.find("encoder_version"); found != input.end())
+        result.encoder_version = string(found->second, "encoder_version");
     result.validate();
     return result;
 }

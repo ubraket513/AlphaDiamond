@@ -8,6 +8,14 @@ build/
 /build-*/
 /out/
 dist/
+/.deps/
+
+# Keep the knowledge graph and report, while leaving extraction caches local.
+/graphify-out/*
+!/graphify-out/graph.json
+!/graphify-out/GRAPH_REPORT.md
+!/graphify-out/graph.html
+!/graphify-out/manifest.json
 
 # Native self-play extension: built in place, never committed.
 *.so

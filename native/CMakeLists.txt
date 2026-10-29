@@ -388,7 +388,9 @@ if(DIAMOND_BUILD_TRAINING)
 
     if(DIAMOND_BUILD_BENCHMARKS)
         add_executable(training_step_benchmark benchmarks/training_step_benchmark.cpp)
-        target_link_libraries(training_step_benchmark PRIVATE alphadiamond::diamond_training)
+        target_link_libraries(training_step_benchmark PRIVATE
+            alphadiamond::diamond_training alphadiamond::diamond_orchestration
+            alphadiamond::diamond_native_pipeline)
 
         add_executable(checkpoint_benchmark benchmarks/checkpoint_benchmark.cpp)
         target_link_libraries(checkpoint_benchmark PRIVATE alphadiamond::diamond_training)
@@ -724,6 +726,17 @@ if(DIAMOND_BUILD_TRAINING)
                 LABELS "cuda;training")
         endif()
         if(DIAMOND_BUILD_BENCHMARKS)
+            if(UNIX)
+            add_executable(training_step_replay_benchmark_test tests/training_step_replay_benchmark_test.cpp)
+            target_link_libraries(training_step_replay_benchmark_test PRIVATE
+                alphadiamond::diamond_orchestration alphadiamond::diamond_native_pipeline)
+            target_compile_features(training_step_replay_benchmark_test PRIVATE cxx_std_20)
+            add_test(NAME training_step_replay_benchmark_test
+                COMMAND training_step_replay_benchmark_test
+                    ${CMAKE_CURRENT_BINARY_DIR}/training-step-replay-scratch
+                    $<TARGET_FILE:training_step_benchmark>)
+            set_tests_properties(training_step_replay_benchmark_test PROPERTIES LABELS "benchmark;training")
+            endif()
         add_test(NAME benchmark_schema_test
                 COMMAND ${CMAKE_COMMAND}
                     -DTRAINING_BENCHMARK=$<TARGET_FILE:training_step_benchmark>

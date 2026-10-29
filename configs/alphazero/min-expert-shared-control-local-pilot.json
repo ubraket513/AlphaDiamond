@@ -76,7 +76,7 @@
   },
   "workers": {
     "games_per_iteration": 384,
-    "logical_lanes": 128,
+    "logical_lanes": 256,
     "retry_id": "attempt-0",
     "search_threads": 24
   },

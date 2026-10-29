@@ -24,6 +24,15 @@ New panel-launched trainers enable cuBLAS TF32 with
 `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1` and inherit the server's other environment
 variables. Set the same flag for direct CLI or Agent training launches.
 
+The three Min expert local-pilot presets use 24 search threads, 256 lanes,
+batch cap 128 and a 100µs batch wait. On this RTX 5080 machine, full ABBA runs
+with the canonical Min opening and cyclic checkpoint improved completed samples/s
+from 123.5608 to 171.2915 (+38.63%) with TF32 and 256 lanes versus FP32 and
+128 lanes; both settings aborted 3/768 games. Reverse and shared-control reuse
+these hardware settings as an extrapolation; they were not separately validated.
+This measures self-play throughput, not playing strength. Learner batch size and
+training budgets are unchanged.
+
 Active CLI and Agent jobs appear automatically through Linux process discovery.
 The list also includes active `min_expert_arena --out PATH` evaluations, with
 relative output paths resolved against the process working directory. Evaluation

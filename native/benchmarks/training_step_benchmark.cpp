@@ -2,7 +2,11 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
+#include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -12,13 +16,27 @@
 
 #include "diamond_model/deployment_artifact.hpp"
 #include "diamond_model/soo_model.hpp"
+#include "diamond_orchestration/config.hpp"
+#include "diamond_pipeline/replay_store.hpp"
 #include "diamond_support/build_provenance.hpp"
+#include "diamond_support/json.hpp"
+#include "diamond_training/checkpoint.hpp"
 #include "diamond_training/trainer.hpp"
 
 namespace {
 
+constexpr char usage[] =
+    "usage: training_step_benchmark [--artifact DIR] [--device cpu|cuda|cuda:N] "
+    "[--batch-size N] [--warmups N] [--repetitions N] [--threads N] "
+    "[--checkpoint DIR --config FILE --replay DISPOSABLE_COPY_ROOT --iteration N]\n"
+    "Replay mode requires a newly owned disposable replay copy. ReplayStore opens normally "
+    "and may delete orphan chunks; never pass the original training replay.\n";
+
 struct Args {
     std::filesystem::path artifact = "models/soo/2.0.0";
+    bool artifact_explicit = false;
+    std::filesystem::path checkpoint, config, replay;
+    std::uint64_t iteration = 0;
     std::string device = "cpu";
     std::uint64_t batch_size = 256;
     std::uint64_t warmups = 1;
@@ -31,12 +49,17 @@ Args parse_args(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string option = argv[i];
         if (i + 1 >= argc)
-            throw std::invalid_argument(
-                "usage: training_step_benchmark [--artifact DIR] [--device cpu|cuda|cuda:N] "
-                "[--batch-size N] [--warmups N] [--repetitions N] [--threads N]");
+            throw std::invalid_argument(usage);
         const std::string value = argv[++i];
         try {
-            if (option == "--artifact") args.artifact = value;
+            if (option == "--artifact") {
+                args.artifact = value;
+                args.artifact_explicit = true;
+            }
+            else if (option == "--checkpoint") args.checkpoint = value;
+            else if (option == "--config") args.config = value;
+            else if (option == "--replay") args.replay = value;
+            else if (option == "--iteration") args.iteration = std::stoull(value);
             else if (option == "--device")
                 args.device = value;
             else if (option == "--batch-size") args.batch_size = std::stoull(value);
@@ -51,6 +74,10 @@ Args parse_args(int argc, char** argv) {
     }
     if (args.batch_size == 0 || args.repetitions == 0 || args.threads < 0)
         throw std::invalid_argument("batch size, repetitions, and threads must be positive");
+    const bool real_replay = !args.checkpoint.empty() || !args.config.empty() || !args.replay.empty();
+    if (real_replay && (args.checkpoint.empty() || args.config.empty() || args.replay.empty() ||
+                        args.artifact_explicit))
+        throw std::invalid_argument("checkpoint/config/replay must be supplied together, without artifact");
     return args;
 }
 
@@ -72,24 +99,72 @@ int run(int argc, char** argv) {
     torch::manual_seed(7);
     if (args.threads > 0) torch::set_num_threads(args.threads);
     torch::set_num_interop_threads(1);
-    const auto artifact = diamond_model::validate_deployment_artifact(args.artifact, "soo");
-    auto compatibility = diamond_training::Compatibility::soo(
-        artifact.model_version, {.residual_blocks = artifact.residual_blocks, .width = artifact.width},
-        soo::encoding_version_from_name(artifact.encoder_version));
-    auto model = diamond_model::DiamondModel(artifact.width, artifact.residual_blocks,
-                                             artifact.input_features, artifact.value_size);
-    model->load_weights(artifact.weights);
+    std::optional<diamond_orchestration::ProductionConfig> config;
+    std::optional<diamond_model::DeploymentArtifact> artifact;
+    if (!args.checkpoint.empty()) {
+        std::ifstream input(args.config);
+        if (!input)
+            throw std::invalid_argument("cannot open benchmark config");
+        config = diamond_orchestration::ProductionConfig::from_json(diamond_support::parse_json(
+            std::string(std::istreambuf_iterator<char>(input), {})));
+        if (config->model_name != "Min")
+            throw std::invalid_argument("real replay benchmark requires Min config");
+    } else {
+        artifact = diamond_model::validate_deployment_artifact(args.artifact, "soo");
+    }
+    const int64_t width = config ? config->network.width : artifact->width;
+    const int64_t blocks = config ? config->network.residual_blocks : artifact->residual_blocks;
+    const auto compatibility = config
+        ? diamond_training::Compatibility::min(config->model_version, {blocks, width},
+              soo::encoding_version_from_name(config->encoder_version))
+        : diamond_training::Compatibility::soo(artifact->model_version, {blocks, width},
+              soo::encoding_version_from_name(artifact->encoder_version));
+    auto model = diamond_model::DiamondModel(width, blocks, compatibility.input_features(), config ? 3 : artifact->value_size);
+    if (artifact)
+        model->load_weights(artifact->weights);
     const auto device = diamond_training::resolve_device(args.device);
+    const diamond_training::TrainingConfig training = config
+        ? diamond_training::TrainingConfig{config->training.learning_rate, config->training.weight_decay,
+              config->training.policy_loss_domain == "legal" ? diamond_training::PolicyLossDomain::legal
+                                                             : diamond_training::PolicyLossDomain::full}
+        : diamond_training::TrainingConfig{.learning_rate = 1e-3, .weight_decay = 1e-4};
     diamond_training::Trainer trainer(model, compatibility,
-                                      {.learning_rate = 1e-3, .weight_decay = 1e-4}, device);
-    const std::vector<diamond_training::TrainingSample> samples(
-        static_cast<std::size_t>(args.batch_size), sample(compatibility, artifact.input_features));
+                                      training, device);
+    std::unique_ptr<diamond_pipeline::ReplayStore> replay;
+    std::string model_sha256, runtime_sha256, replay_sha256;
+    if (config) {
+        const auto checkpoint = diamond_training::load_checkpoint_v3(
+            args.checkpoint, trainer, device, diamond_training::CheckpointLoadIntent::exact_resume);
+        model_sha256 = runtime_sha256 = checkpoint.model_digest;
+        // Normal ReplayStore opening can clean orphan chunks. The caller must own this copy.
+        replay = std::make_unique<diamond_pipeline::ReplayStore>(args.replay, compatibility,
+            config->replay.capacity, config->replay.seed, diamond_pipeline::ReplayContents::full,
+            diamond_pipeline::ReplayOpenMode::must_exist);
+        replay_sha256 = replay->manifest_digest();
+    } else {
+        model_sha256 = artifact->model_sha256;
+        runtime_sha256 = artifact->runtime_sha256;
+    }
+    const auto initial_training_step = trainer.training_step();
+    std::vector<diamond_training::TrainingSample> samples;
+    if (!replay)
+        samples.assign(static_cast<std::size_t>(args.batch_size), sample(compatibility, artifact->input_features));
+    const auto select_samples = [&](uint64_t local_step) {
+        if (replay)
+            samples = replay->sample(static_cast<std::size_t>(args.batch_size),
+                diamond_pipeline::replay_sampling_seed(config->replay.seed, args.iteration, local_step));
+    };
     for (std::uint64_t i = 0; i < args.warmups; ++i)
+    {
+        select_samples(i);
         (void)trainer.train(samples);
+    }
     diamond_training::TrainingMetrics metrics{};
     std::vector<double> seconds;
     seconds.reserve(args.repetitions);
     for (std::uint64_t i = 0; i < args.repetitions; ++i) {
+        // Replay loading/selection are outside the measured normal learner step.
+        select_samples(args.warmups + i);
         const auto start = std::chrono::steady_clock::now();
         metrics = trainer.train(samples);
         seconds.push_back(
@@ -110,10 +185,17 @@ int run(int argc, char** argv) {
     std::cout << "],\"summary_seconds\":{\"min\":" << sorted.front()
               << ",\"median\":" << sorted[sorted.size() / 2] << ",\"max\":" << sorted.back()
               << ",\"range\":" << sorted.back() - sorted.front()
-              << "},\"domain\":{\"model_version\":\"" << artifact.model_version
-              << "\",\"model_sha256\":\"" << artifact.model_sha256 << "\",\"runtime_sha256\":\""
-              << artifact.runtime_sha256 << "\",\"width\":" << artifact.width
-              << ",\"residual_blocks\":" << artifact.residual_blocks
+              << "},\"domain\":{\"model_version\":\"" << compatibility.model_version
+              << "\",\"model_name\":\"" << compatibility.model_name
+              << "\",\"sample_kind\":\"" << (replay ? "replay" : "synthetic")
+              << "\",\"policy_loss_domain\":\"" << (training.policy_loss_domain == diamond_training::PolicyLossDomain::legal ? "legal" : "full")
+              << "\",\"replay_manifest_sha256\":\"" << replay_sha256
+              << "\",\"replay_seed\":" << (config ? config->replay.seed : 0)
+              << ",\"iteration\":" << args.iteration
+              << ",\"initial_training_step\":" << initial_training_step
+              << ",\"model_sha256\":\"" << model_sha256 << "\",\"runtime_sha256\":\""
+              << runtime_sha256 << "\",\"width\":" << width
+              << ",\"residual_blocks\":" << blocks
               << ",\"total_loss\":" << metrics.total_loss
               << ",\"policy_loss\":" << metrics.policy_loss
               << ",\"value_loss\":" << metrics.value_loss
@@ -135,6 +217,10 @@ int run(int argc, char** argv) {
 } // namespace
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--help") {
+        std::cout << usage;
+        return 0;
+    }
     try { return run(argc, argv); }
     catch (const std::exception& error) { std::cerr << "training_step_benchmark: " << error.what() << '\n'; return 1; }
 }

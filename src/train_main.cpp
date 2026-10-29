@@ -491,7 +491,8 @@ diamond_pipeline::IterationRequest iteration_job(const ProductionConfig& config,
         const auto group = config.self_play.turn_order_group == "all"
             ? std::nullopt
             : std::optional{soo::min_turn_order_group_from_name(config.self_play.turn_order_group)};
-        soo::balance_episode_turn_orders(job.match, job.jobs, group);
+        soo::balance_episode_turn_orders(job.match, job.jobs, group,
+                                        config.self_play.turn_order_weights);
     }
     job.training_batch_size = wiring.training_batch_size;
     job.training_steps = wiring.training_steps;

@@ -320,6 +320,11 @@ void SelfPlayConfig::validate() const {
         throw ConfigError("self_play.turn_order_group must be all, cyclic, or reverse");
     if (turn_order_group != "all" && !balance_turn_orders)
         throw ConfigError("specialist self-play requires balance_turn_orders");
+    if (!turn_order_weights.empty() && !balance_turn_orders)
+        throw ConfigError("self_play.turn_order_weights requires balance_turn_orders");
+    for (const auto weight : turn_order_weights)
+        if (weight <= 0)
+            throw ConfigError("self_play.turn_order_weights must contain positive integers");
 }
 
 Json SelfPlayConfig::to_json() const {
@@ -337,6 +342,11 @@ Json SelfPlayConfig::to_json() const {
         output.emplace("balance_turn_orders", Json{true});
     if (turn_order_group != "all")
         output.emplace("turn_order_group", Json{turn_order_group});
+    if (!turn_order_weights.empty()) {
+        Json::Array weights;
+        for (const auto weight : turn_order_weights) weights.emplace_back(weight);
+        output.emplace("turn_order_weights", Json{std::move(weights)});
+    }
     // Existing configurations keep their exact canonical hash with the feature off.
     if (repetition_temperature != 0.0)
         output.emplace("repetition_temperature", Json{repetition_temperature});
@@ -349,7 +359,7 @@ SelfPlayConfig SelfPlayConfig::from_json(const Json& value) {
                  {"bootstrap_prior", "max_game_seconds", "max_moves", "temperature",
                   "temperature_moves"},
                  {"seed", "bootstrap_prior_weight", "balance_turn_orders", "turn_order_group",
-                  "repetition_temperature"},
+                  "repetition_temperature", "turn_order_weights"},
                  "self_play");
     SelfPlayConfig result{
         .max_moves = integer(field(input, "max_moves", "self_play"), "self_play.max_moves"),
@@ -372,6 +382,13 @@ SelfPlayConfig SelfPlayConfig::from_json(const Json& value) {
     if (input.contains("turn_order_group"))
         result.turn_order_group =
             string(input.at("turn_order_group"), "self_play.turn_order_group");
+    if (input.contains("turn_order_weights")) {
+        const auto* weights = std::get_if<Json::Array>(&input.at("turn_order_weights").value);
+        if (!weights || weights->empty())
+            throw ConfigError("self_play.turn_order_weights must be a non-empty integer array");
+        for (const auto& weight : *weights)
+            result.turn_order_weights.push_back(integer(weight, "self_play.turn_order_weights"));
+    }
     if (input.contains("repetition_temperature"))
         result.repetition_temperature =
             number(input.at("repetition_temperature"), "self_play.repetition_temperature");
@@ -700,12 +717,23 @@ void ProductionConfig::validate() const {
     workers.validate();
     if (self_play.turn_order_group != "all" && model_name != "Min")
         throw ConfigError("self_play.turn_order_group requires Min");
-    const int64_t turn_order_cycle =
+    int64_t turn_order_cycle =
         model_name == "Soo" ? 2 : (self_play.turn_order_group == "all" ? 6 : 3);
+    if (!self_play.turn_order_weights.empty()) {
+        if (self_play.turn_order_weights.size() != static_cast<size_t>(turn_order_cycle))
+            throw ConfigError("self_play.turn_order_weights must match the selected turn orders");
+        turn_order_cycle = 0;
+        for (const auto weight : self_play.turn_order_weights) {
+            // Bound before addition: a cycle must fit this batch, and cannot overflow.
+            if (weight > workers.games_per_iteration - turn_order_cycle)
+                throw ConfigError("self_play.turn_order_weights cycle exceeds games_per_iteration");
+            turn_order_cycle += weight;
+        }
+    }
     if (self_play.balance_turn_orders &&
         workers.games_per_iteration % turn_order_cycle != 0)
-        throw ConfigError("balanced self-play requires games_per_iteration divisible by the number "
-                          "of turn orders");
+        throw ConfigError("balanced self-play requires games_per_iteration divisible by the "
+                          "turn-order cycle weight");
     inference.validate();
     replay.validate();
     training.validate();

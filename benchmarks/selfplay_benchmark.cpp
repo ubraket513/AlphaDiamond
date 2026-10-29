@@ -88,6 +88,7 @@ struct Options {
     double dirichlet_epsilon = 0.25;
     bool balance_turn_orders = false;
     std::string turn_order_group = "all";
+    std::vector<int64_t> turn_order_weights;
     std::optional<std::filesystem::path> scratch;
 };
 
@@ -391,7 +392,7 @@ Totals run_once(const Options& options, const soo::Match& match, const soo::Stat
             options.turn_order_group == "all"
                 ? std::nullopt
                 : std::optional{soo::min_turn_order_group_from_name(options.turn_order_group)};
-        soo::balance_episode_turn_orders(match, jobs, group);
+        soo::balance_episode_turn_orders(match, jobs, group, options.turn_order_weights);
     }
 
     soo::EpisodeMetrics metrics;
@@ -612,6 +613,7 @@ int main(int argc, char** argv) {
                 options.max_game_seconds = config.self_play.max_game_seconds;
             options.balance_turn_orders = config.self_play.balance_turn_orders;
             options.turn_order_group = config.self_play.turn_order_group;
+            options.turn_order_weights = config.self_play.turn_order_weights;
         }
         selfplay = episode_config(options, selfplay);
         torch::set_num_threads(static_cast<int>(options.torch_threads.value_or(selfplay.threads)));
@@ -740,6 +742,10 @@ int main(int argc, char** argv) {
             << "\",\"bootstrap_prior_weight\":" << selfplay.bootstrap_prior_weight
             << ",\"balance_turn_orders\":" << (options.balance_turn_orders ? "true" : "false")
             << ",\"turn_order_group\":\"" << options.turn_order_group << '"'
+            << ",\"turn_order_weights\":[";
+        for (size_t index = 0; index < options.turn_order_weights.size(); ++index)
+            std::cout << (index ? "," : "") << options.turn_order_weights[index];
+        std::cout << "]"
             << ",\"diagnostic_roots\":" << options.diagnostic_roots
             << ",\"diagnostic_batch\":" << options.diagnostic_batch
             << ",\"max_moves\":" << selfplay.max_moves

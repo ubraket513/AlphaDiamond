@@ -93,6 +93,10 @@ struct SelfPlayConfig final {
     // these settings select training data, not evaluator model ownership.
     bool balance_turn_orders = false;
     std::string turn_order_group = "all";
+    // Positive integer ratios in lexicographic player-ID order after group
+    // filtering. Empty keeps equal allocation and old configuration hashes.
+    // Min reverse: [1-3-2, 2-1-3, 3-2-1]; [1,2,1] requests 24/48/24 of 96 games.
+    std::vector<int64_t> turn_order_weights;
 
     void validate() const;
     diamond_support::JsonValue to_json() const;

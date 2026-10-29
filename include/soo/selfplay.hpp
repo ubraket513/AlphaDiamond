@@ -125,10 +125,12 @@ struct EpisodeJob {
     std::optional<Match> match; // Per-game turn order; absent keeps the batch default.
 };
 
-// Assign every supported permutation equally, preserving camps and seeds.
-// A selected Min group has three orders; otherwise use all orders. Opening jobs only.
+// Assign supported permutations, preserving camps and seeds. Empty weights give
+// equal counts; positive ratios follow lexicographic IDs after Min group filtering.
+// Jobs must fill whole weighted cycles. Only opening jobs can change turn order.
 void balance_episode_turn_orders(const Match& match, std::vector<EpisodeJob>& jobs,
-                                std::optional<MinTurnOrderGroup> group = std::nullopt);
+                                std::optional<MinTurnOrderGroup> group = std::nullopt,
+                                const std::vector<int64_t>& weights = {});
 
 // One recorded move.  The features are the *request* the evaluator answered, so
 // a sample is exactly what the network saw, not a re-encoding of it.

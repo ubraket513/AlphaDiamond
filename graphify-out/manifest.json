@@ -135,9 +135,9 @@
     "semantic_hash": ""
   },
   "docs/model-training/balanced_turn_orders.md": {
-    "mtime": 1793267411.6748781,
-    "seen": 1793267567.3606353,
-    "ast_hash": "962c4ef1e80a85828c5d5c926be10b9c",
+    "mtime": 1793284960.1803298,
+    "seen": 1793285051.6310062,
+    "ast_hash": "ace74a7c348ed8e768b8fa04b75e6f51",
     "semantic_hash": ""
   },
   "docs/model-training/baseline_768_completion_regression.md": {
@@ -765,9 +765,9 @@
     "semantic_hash": ""
   },
   "benchmarks/selfplay_benchmark.cpp": {
-    "mtime": 1793279783.9698925,
-    "seen": 1793280029.4618533,
-    "ast_hash": "2fcea1b056575d06f8987f749bc8d9a5",
+    "mtime": 1793285121.327482,
+    "seen": 1793285151.6077023,
+    "ast_hash": "fe97fe463b1fa955a26caa24590702fc",
     "semantic_hash": ""
   },
   "benchmarks/soo_evaluator_probe.cpp": {
@@ -963,9 +963,9 @@
     "semantic_hash": ""
   },
   "include/diamond_orchestration/config.hpp": {
-    "mtime": 1793279602.734364,
-    "seen": 1793279677.0012603,
-    "ast_hash": "9efbf121830ea101e7f2afb1e7cc03f0",
+    "mtime": 1793284922.1625862,
+    "seen": 1793285051.6308758,
+    "ast_hash": "93505540136a19a748af6b8bfcc64e66",
     "semantic_hash": ""
   },
   "include/diamond_orchestration/coordinator.hpp": {
@@ -1197,9 +1197,9 @@
     "semantic_hash": ""
   },
   "include/soo/selfplay.hpp": {
-    "mtime": 1793279602.735364,
-    "seen": 1793279677.0012841,
-    "ast_hash": "af7034f9f02523eca16b6cf184a7dcd9",
+    "mtime": 1793284922.1625862,
+    "seen": 1793285051.6309016,
+    "ast_hash": "6cad0325178ac14db2c314740db3b8d1",
     "semantic_hash": ""
   },
   "include/soo/state.hpp": {
@@ -1245,9 +1245,9 @@
     "semantic_hash": ""
   },
   "src/config.cpp": {
-    "mtime": 1793279602.735364,
-    "seen": 1793279677.0012927,
-    "ast_hash": "bc4ae164349c187a90bc38050d33d42e",
+    "mtime": 1793284960.1803298,
+    "seen": 1793285051.6309135,
+    "ast_hash": "686f3cd8d875641e5e248927760118cd",
     "semantic_hash": ""
   },
   "src/coordinator.cpp": {
@@ -1419,9 +1419,9 @@
     "semantic_hash": ""
   },
   "src/selfplay.cpp": {
-    "mtime": 1793249326.3622267,
-    "seen": 1793267567.360578,
-    "ast_hash": "fa2dccca7174b798add5af2d987db27b",
+    "mtime": 1793284922.1635861,
+    "seen": 1793285051.6309323,
+    "ast_hash": "10a0c4ffd9de0b860ceafec013d7ee01",
     "semantic_hash": ""
   },
   "src/soo_evaluator.cpp": {
@@ -1449,9 +1449,9 @@
     "semantic_hash": ""
   },
   "src/train_main.cpp": {
-    "mtime": 1793279602.736364,
-    "seen": 1793279677.0013123,
-    "ast_hash": "e3a7f990c789698d21b4fde0bdf01fee",
+    "mtime": 1793284922.1635861,
+    "seen": 1793285051.6309357,
+    "ast_hash": "a324aa484326de95be23a6eff1b71b82",
     "semantic_hash": ""
   },
   "src/trainer.cpp": {
@@ -1473,9 +1473,9 @@
     "semantic_hash": ""
   },
   "src/training_wiring.cpp": {
-    "mtime": 1793279602.735364,
-    "seen": 1793279677.0013144,
-    "ast_hash": "31e09bd1bf6ee883ffd193004403016f",
+    "mtime": 1793284922.1635861,
+    "seen": 1793285051.6309383,
+    "ast_hash": "04701ea576d18bee33e8fa76ac48da6b",
     "semantic_hash": ""
   },
   "tools/cmake.sh": {

@@ -518,7 +518,8 @@ struct EpisodeLane {
 }  // namespace
 
 void balance_episode_turn_orders(const Match& match, std::vector<EpisodeJob>& jobs,
-                                std::optional<MinTurnOrderGroup> group) {
+                                std::optional<MinTurnOrderGroup> group,
+                                const std::vector<int64_t>& weights) {
     if (match.count != 2 && match.count != 3)
         throw std::invalid_argument("balanced episodes require two or three players");
     if (group) {
@@ -538,16 +539,33 @@ void balance_episode_turn_orders(const Match& match, std::vector<EpisodeJob>& jo
             ordered.players[seat] = match.by_id(ids[seat]);
         if (!group || min_turn_order_group(ordered) == *group) orders.push_back(ordered);
     } while (std::next_permutation(ids.begin(), ids.end()));
-    if (jobs.size() % orders.size() != 0)
+    size_t cycle = orders.size();
+    if (!weights.empty()) {
+        if (weights.size() != orders.size())
+            throw std::invalid_argument("turn-order weights must match selected permutations");
+        cycle = 0;
+        for (const auto weight : weights) {
+            if (weight <= 0 || static_cast<uint64_t>(weight) > jobs.size() - cycle)
+                throw std::invalid_argument("positive turn-order weight cycle must fit the jobs");
+            cycle += static_cast<size_t>(weight);
+        }
+    }
+    if (jobs.size() % cycle != 0)
         throw std::invalid_argument("episode count must contain complete turn-order cycles");
     for (const auto& job : jobs)
         if (job.initial_state.turn_number != 1 || job.initial_state.finished_count != 0 ||
             job.initial_state.status != kInProgress)
             throw std::invalid_argument("turn-order balancing requires opening jobs");
-    for (size_t index = 0; index < jobs.size(); ++index) {
-        jobs[index].match = orders[index % orders.size()];
-        jobs[index].initial_state.current_player = jobs[index].match->players[0].id;
-    }
+    // Interleave one ratio cycle at a time. Assignment happens before workers
+    // start, so batching/lane scheduling cannot change the requested counts.
+    size_t index = 0;
+    while (index < jobs.size())
+        for (size_t order = 0; order < orders.size(); ++order)
+            for (int64_t copy = 0; copy < (weights.empty() ? 1 : weights[order]); ++copy) {
+                jobs[index].match = orders[order];
+                jobs[index].initial_state.current_player = orders[order].players[0].id;
+                ++index;
+            }
 }
 
 std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJob>& jobs,

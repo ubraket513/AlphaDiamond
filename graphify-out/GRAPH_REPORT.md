@@ -1,17 +1,17 @@
-# Graph Report - AlphaDiamond  (2026-10-29)
+# Graph Report - AlphaDiamond  (2026-10-30)
 
 ## Corpus Check
-- 306 files · ~238,268 words
+- 308 files · ~239,240 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 237 file(s) not represented in the graph (top: .f32 146, .jsonl 30, .csv 16)
 
 ## Summary
-- 4043 nodes · 8236 edges · 247 communities (233 shown, 14 thin omitted)
+- 4053 nodes · 8245 edges · 257 communities (241 shown, 16 thin omitted)
 - Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 531 edges (avg confidence: 0.88)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `13f54c44`
+- Built from commit: `1720b1e6`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -30,7 +30,7 @@
 - SearchSession
 - routes
 - State
-- MinRatingEvent
+- SooRatingEvent
 - Native Soo Self-Play — Phase 0 Design
 - Diamond — Controller Console
 - SearchSession3P
@@ -48,7 +48,7 @@
 - run_episodes
 - rating_store.cpp
 - Min training optimisation record — 2026-08-31
-- TrainingRunResources
+- execute_train_stage
 - CommandRequest
 - SelfPlayMetrics
 - EpisodeSearch
@@ -79,21 +79,21 @@
 - MaterializedOpeningSuite
 - CheckpointError
 - promotion.cpp
-- Lane
+- EvalOutcome
 - SearchResult
 - JsonParser
 - RTX 5060 Ti Parent-Bottleneck Investigation
 - Min A0 transition status — 2026-09-02
 - Min A0 전환 진단과 다음 실험
-- execute_stage
-- execute_train_stage
+- PipelineError
+- RunResult
 - AlphaDiamond Python-Zero Inventory
 - Json
 - rating_sync_main.cpp
 - Options
 - report.cpp
 - RTX 3060 Benchmark Findings
-- SooRatingEvent
+- apply_action
 - Compatibility
 - Native Soo Self-Play — Handoff
 - Native Soo Self-Play — Phase 1 Progress
@@ -102,7 +102,7 @@
 - CheckpointProvenance
 - SchedulerConfig
 - selfplay_benchmark.cpp
-- AlphaDiamond Python-Zero Proposed PR Sequence
+- min_expert_arena.cpp
 - CheckpointInfo
 - load_checkpoint
 - run
@@ -117,20 +117,20 @@
 - refresh
 - TrainingMetrics
 - StageTiming
-- replay_segment.cpp
+- legal_action_ids
 - Encoded
-- EloConfig
-- min_experts.cpp
+- MinRatedMatch
+- SooRatedMatch
 - HeldOutMetrics
 - Options
 - Args
 - RTX 3060 AlphaZero Training Implementation Plan
 - VisitTargetObservation
 - run_self_play
-- checkpoint_benchmark.cpp
+- checkpoint_main.cpp
 - DeploymentArtifact
 - ModelIndex
-- pipeline.cpp
+- save_episode_artifact
 - SelfPlayConfig
 - EvaluationStats
 - Engine/Training–Desktop 저장소 분리 분석
@@ -144,18 +144,18 @@
 - ReplayStore::ingest_iteration
 - 실행 단위와 순서
 - soo_model.cpp
-- Immutable Min comparative improvement plan
+- MinExpertRouter
 - MCTSConfig
 - Episode
 - CheckpointLineage
 - ParameterGroup
 - Rng
-- BatchItem
+- VacancyWithMinValueArm
 - min_learning_diagnostic.cpp
 - CPU Profiling Findings
 - TrainingConfig
-- MinOpeningBlockResult
-- ScheduleError
+- encoder.cpp
+- run_min_learning_diagnostic
 - IterationResult
 - runtime_sha256
 - checkpoint_export.cpp
@@ -176,14 +176,14 @@
 - CampDiagnostics
 - Options
 - EpisodeMetrics
-- min_bootstrap_probe.cpp
+- Min Vacancy-Prior Realizability Implementation Plan
 - Arguments
 - MaterializedOpening
 - PolicyTotals
 - VacancyDistillationConfig
 - ModelKey
 - EpisodeRecord
-- 9. Gate D — the Python callback, on CPU
+- WorkerConfig
 - Durable Iteration Loop and Replay Transactions Implementation Plan
 - Review Focus
 - ReplayConfig
@@ -199,46 +199,56 @@
 - LearningDiagnosticConfig
 - Deployment artifact format v3 current contract
 - Qt AlphaZero Analysis Console Implementation Plan
-- MCTSConfig
+- Coordinator batch-window fix validation
 - SooLeaderboardEntry
 - 4.4 Stable formats
 - Repository split dependency analysis
-- Min local CPU audit — 2026-09-11
+- Min Vacancy Realizability Diagnostic Handoff — 2026-09-02
 - OpeningBlockBootstrap
-- .advance
+- Binary Replay Segments Design
 - VectorNode
-- 2. Goals and non-goals
+- 학습 파이프라인 정리와 파일별 설명
 - LearningDiagnosticResult
 - Min iteration-25 learning diagnostic — 2026-09-01
 - Min serial-search sweep — 2026-09-01
+- play_arena_schedule
 - Q: How does the panel show native expert arena evaluation progress?
 - Q: How does the immutable Min comparative plan reuse frozen native specialist references?
+- VacancyDistillationResult
 - EpisodeJob
+- Resolved: the 768-game completion regression was a match-construction bug
+- VacancyTarget
 - Min next intervention — measured decision
-- decisions.md
-- NetworkConfig
+- Decisions
+- Min 512 by 12 local training
 - Chart.svelte
+- Q: How are weak turn orders weighted during training?
 - .submit
 - Goal-aware training implementation plan
-- BatchEvaluator
+- BatchItem
 - Python-zero final acceptance
 - 11. Gate E — stochastic MCTS
 - Historical storage guide and manifests
 - RatingEventOutbox
+- read_exact
+- moves_from
 - Phase
 - Phase
 - The replay path: measured before porting anything
 - diamond_rating
 - Native products, one core
-- string
+- json.cpp
 - Engine development build workflow
 - cmake.sh
 - Binary Replay Segments Implementation Plan
 - 0. Where things stand right now
 - Python-zero benchmark disposition
 - Min topology repair and fresh restart
-- The replay store is a durable dataset with a stateless sampler
+- Rating v2 Hugging Face synchronization
+- Repository split and SDK upgrades
+- GPU runs
 - CheckpointLoadIntent
+- Documentation
 - Status
 - Pipeline simplification implementation record
 - 2026-09-10-min-training-wrap-up.md
@@ -248,7 +258,7 @@
 - TrainingIterationWiring
 - EvalOutcome3P
 - LoadedCheckpoint
-- JsonValue
+- ReplayStore::ReplayStore
 - sync_ratings.sh
 - cpu8h-soo-20260819 — a pinned fixture, not a live run
 - run_min_serial_search_sweep.sh
@@ -275,12 +285,12 @@
 10. `CommandRequest` - 48 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `Expected CLI Examples` --references--> `load_checkpoint()`  [INFERRED]
-  docs/archive/plans/2026-08-20-rtx3060-alphazero-training.md → benchmarks/min_expert_arena.cpp
-- `Task 2: `max_game_seconds` configuration surface` --references--> `SelfPlayConfig`  [INFERRED]
-  docs/archive/plans/2026-08-20-rtx3060-alphazero-training.md → include/diamond_orchestration/config.hpp
+- `정리 범위` --references--> `ProductionConfig`  [INFERRED]
+  docs/archive/specs/2026-10-29-pipeline-simplification-design.md → include/diamond_orchestration/config.hpp
 - `재대조 결과와 확인 범위` --references--> `ModelPool`  [INFERRED]
   docs/archive/plans/2026-10-29-pipeline-simplification.md → include/diamond_pipeline/model_pool.hpp
+- `An observability gap this exposed` --references--> `SelfPlayResult`  [INFERRED]
+  docs/model-training/repetition_trigger_config_gap.md → include/diamond_pipeline/pipeline.hpp
 - `Task 1: Add the shared device resolver` --references--> `ResolvedDevice`  [INFERRED]
   docs/archive/plans/2026-08-25-cuda-device-runtime-and-checkpoint-portability.md → include/diamond_training/device.hpp
 - `7. Self-play, batching, and abort semantics` --references--> `TrainingSample`  [INFERRED]
@@ -289,51 +299,51 @@
 ## Import Cycles
 - None detected.
 
-## Communities (247 total, 14 thin omitted)
+## Communities (257 total, 16 thin omitted)
 
 ### Community 0 - "run_state.cpp"
 Cohesion: 0.06
 Nodes (42): Coordinator, describe_stage_, execute_stage_, CoordinatorError, StageCallback, StagePayload, RunStateError, RunStateStore (+34 more)
 
 ### Community 1 - "Match"
-Cohesion: 0.08
-Nodes (20): make_match(), one_move_finish(), VacancyArm, match_, Match, count, players, PlayerSpec (+12 more)
+Cohesion: 0.07
+Nodes (20): VacancyArm, match_, opening(), EpisodeJob, initial_state, match, seed, Match (+12 more)
 
 ### Community 2 - "string"
-Cohesion: 0.18
-Nodes (25): absolute_normal(), add_tensor(), deployment_runtime_sha256(), expected_weights(), integer_field(), is_hex_digest(), load_model_index(), read_bytes() (+17 more)
+Cohesion: 0.19
+Nodes (27): build_provenance_json(), absolute_normal(), add_tensor(), deployment_runtime_sha256(), expected_weights(), integer_field(), is_hex_digest(), load_model_index() (+19 more)
 
 ### Community 3 - "replay_store.cpp"
-Cohesion: 0.15
-Nodes (16): atomic_write(), encoding_from_string(), encoding_name(), extended_windows_path(), json_string_array(), next_splitmix(), read_file_bytes(), replay_sampling_seed() (+8 more)
+Cohesion: 0.10
+Nodes (18): Consequence for tests, The manifest is contents identity only, The replay store is a durable dataset with a stateless sampler, What changed, Why this is safe for resume, JsonValue, value, compatibility_from_json() (+10 more)
 
 ### Community 4 - "trainer.cpp"
 Cohesion: 0.05
 Nodes (51): DeviceRequest, cuda_index, requested_name, DeviceResolutionError, ModelRole, actor, learner, invalid_device_name() (+43 more)
 
 ### Community 5 - "cstdint"
-Cohesion: 0.10
-Nodes (9): MinTurnOrderGroup, cyclic, reverse, MinTurnOrderGroup, Batcher::collect(), SearchSession::finalize(), SearchSession::select(), Clock (+1 more)
+Cohesion: 0.13
+Nodes (5): SearchSession3P::finalize(), SearchSession3P::select(), SearchSession::finalize(), SearchSession::select(), Clock
 
 ### Community 6 - "AlphaDiamond Python-Zero Migration Design"
-Cohesion: 0.12
-Nodes (27): 10. Rollback strategy, 11. Approval decisions, 1. Decision summary, 3.1 Recommended: vertical-slice extinction, 3.2 Conservative alternative: bridge-first, 3.3 Rejected: aggressive big-bang, 3. Migration approaches, 4.1 CMake targets (+19 more)
+Cohesion: 0.10
+Nodes (30): 10. Rollback strategy, 11. Approval decisions, 1. Decision summary, 2. Goals and non-goals, 3.1 Recommended: vertical-slice extinction, 3.2 Conservative alternative: bridge-first, 3.3 Rejected: aggressive big-bang, 3. Migration approaches (+22 more)
 
 ### Community 7 - "ModelPool"
 Cohesion: 0.10
-Nodes (13): run_once(), ModelPool, active_, capacity_, device_, models_, precision_, staging_features_ (+5 more)
+Nodes (14): InferencePrecision, bf16, fp16, fp32, ModelPool, active_, capacity_, device_ (+6 more)
 
 ### Community 8 - "rating.cpp"
-Cohesion: 0.14
-Nodes (28): ParticipantIdentity, display_name, full_identity, participant_id, canonical_participant_id(), EloConfig::validate(), event_digest(), int_array() (+20 more)
+Cohesion: 0.12
+Nodes (31): ParticipantIdentity, display_name, full_identity, participant_id, canonical_participant_id(), event_digest(), expected_elo_score(), int_array() (+23 more)
 
 ### Community 9 - "App.svelte"
 Cohesion: 0.07
 Nodes (25): configText, detail, draft, error, evaluating, fields, followLog, job (+17 more)
 
 ### Community 10 - "RTX 3060 GPU Profiling Findings"
-Cohesion: 0.09
-Nodes (34): 64 simulations adopted in the canonical config, Adaptive wait: measured, and deliberately not merged, Bistability status: **eliminated**, Caveat: this host is not the host of the runs above, Coordinator batch-window fix validation, Correctness, CPU test suite, Effect on the recommended-work ranking (+26 more)
+Cohesion: 0.11
+Nodes (26): 64 simulations adopted in the canonical config, Adaptive wait: measured, and deliberately not merged, Correctness, Environment, Finding 2 — 64 simulations beat 32, decisively, Finding 3 — lane double-booking costs 35 %, Finding 4 — `TorchEvaluator` is dominated by per-row syncs, Finding 5 — lanes are busy 52 % of the time, and the tail is timer-bound (+18 more)
 
 ### Community 11 - "SearchSession"
 Cohesion: 0.05
@@ -344,16 +354,16 @@ Cohesion: 0.06
 Nodes (35): baseline_generated_from, baseline_tracked_python_file_count, category_definitions, A, B, C, D, current_tracked_python_file_count (+27 more)
 
 ### Community 13 - "State"
-Cohesion: 0.11
-Nodes (21): Mutation results, Steps 1–4 — prior, rules, state, encoder, State, current_player, finish_order, finished_count, occupancy, status (+13 more)
+Cohesion: 0.09
+Nodes (20): Controlled evidence, Finding, Implications for the proposed changes, Min local CPU audit — 2026-09-11, Reproduction and files, Training evidence recovered, State, current_player (+12 more)
 
-### Community 14 - "MinRatingEvent"
-Cohesion: 0.12
-Nodes (12): MinRatingEvent, completed, event_id, final_ranking, game_id, opening_id, participant_identities, participant_ids (+4 more)
+### Community 14 - "SooRatingEvent"
+Cohesion: 0.06
+Nodes (27): MinRatingEvent, completed, event_id, final_ranking, game_id, opening_id, participant_identities, participant_ids (+19 more)
 
 ### Community 15 - "Native Soo Self-Play — Phase 0 Design"
-Cohesion: 0.12
-Nodes (28): 0.1 Where the system's CPU goes, 0.2 What the multiprocessing architecture costs, 0.3 The search trajectory is not distorted by a constant evaluator, 0.4 Value-only inference (B0 ABI question), 0.5 What is *not* yet known, 0. Measurements this design rests on, 10. Go / no-go summary, 1. Current Soo self-play hot path (+20 more)
+Cohesion: 0.14
+Nodes (23): 0.1 Where the system's CPU goes, 0.2 What the multiprocessing architecture costs, 0.4 Value-only inference (B0 ABI question), 0.5 What is *not* yet known, 0. Measurements this design rests on, 10. Go / no-go summary, 1. Current Soo self-play hot path, 2. Proposed native module layout (+15 more)
 
 ### Community 16 - "Diamond — Controller Console"
 Cohesion: 0.05
@@ -369,7 +379,7 @@ Nodes (34): Options, artifact, artifact_explicit, balance_turn_orders, bootstrap
 
 ### Community 19 - "ProductionConfig"
 Cohesion: 0.07
-Nodes (23): 방향, 보존할 것, 상세 주석의 기준, 완료 증거와 최신 사용자 지시, 정리 범위, 학습 파이프라인 정리와 파일별 설명, ProductionConfig, arena (+15 more)
+Nodes (22): NetworkConfig, residual_blocks, width, ProductionConfig, arena, encoder_version, mcts, model_name (+14 more)
 
 ### Community 20 - "Totals"
 Cohesion: 0.06
@@ -384,60 +394,60 @@ Cohesion: 0.07
 Nodes (16): Task 2: Implement exact schema v2 and migrate tracked configs, PromotionStatisticsConfig, bootstrap_replicates, confidence_level, method, resampling_unit, seed, RunBudgetConfig (+8 more)
 
 ### Community 23 - "OpeningBlockSummary"
-Cohesion: 0.12
-Nodes (15): OpeningBlockSummary, aborted_matches, complete_block_scores, complete_blocks, completed_matches, incomplete_blocks, SooOpeningBlock, matches (+7 more)
+Cohesion: 0.08
+Nodes (24): MinOpeningBlock, matches, opening, MinOpeningBlockResult, opening_id, results, MinRatedResult, candidate_placement (+16 more)
 
 ### Community 24 - "fstream"
 Cohesion: 0.14
-Nodes (5): main(), read_f32(), read_text(), require_metadata(), Json
+Nodes (11): Json, JsonArray, JsonObject, main(), opening(), parse(), main(), read_f32() (+3 more)
 
 ### Community 25 - "ReplayStore::Impl"
 Cohesion: 0.11
 Nodes (18): ReplayContents, full, metadata_only, ReplayStore::Impl, aborted_records, authoritative_compatibility, capacity, chunk_digests (+10 more)
 
 ### Community 26 - "train_main.cpp"
-Cohesion: 0.13
-Nodes (13): arena_seed(), game_match(), iteration_job(), iteration_number(), opening(), ordered_match(), play_arena_schedule(), Result (+5 more)
+Cohesion: 0.14
+Nodes (24): Task 4: 기존 저장소에서 Qt를 SDK 소비자로 전환, Hugging Face handoff, aggregate_result(), authoritative_request(), candidate_checkpoint(), checkpoint_provenance(), creation_timestamp(), execute_save_candidate_stage() (+16 more)
 
 ### Community 27 - "EncodingVersion"
-Cohesion: 0.23
-Nodes (10): EncodingVersion, goals_v2, legacy_v1, encoding_version_from_name(), encoding_version_name(), Compatibility::family(), Compatibility::input_features(), Compatibility::min() (+2 more)
+Cohesion: 0.13
+Nodes (17): EncodingVersion, goals_v2, legacy_v1, MCTSConfig, c_puct, dirichlet_alpha, dirichlet_epsilon, encoding (+9 more)
 
 ### Community 28 - "integer"
-Cohesion: 0.18
-Nodes (19): ArenaConfig::from_json(), boolean(), InferenceConfig::from_json(), integer(), MCTSConfig::from_json(), NetworkConfig::from_json(), non_negative_seed(), number() (+11 more)
+Cohesion: 0.19
+Nodes (18): ArenaConfig::from_json(), boolean(), InferenceConfig::from_json(), integer(), MCTSConfig::from_json(), NetworkConfig::from_json(), non_negative_seed(), number() (+10 more)
 
 ### Community 29 - "run_episodes"
 Cohesion: 0.08
 Nodes (15): Batcher, arrival_, max_batch_, max_wait_us_, mutex_, queue_, stopped_, ReadyQueue (+7 more)
 
 ### Community 30 - "rating_store.cpp"
-Cohesion: 0.14
-Nodes (25): RatingError, atomic_write(), completed(), elo_config(), embedded_identities(), event_file_name(), fixed(), flush_directory() (+17 more)
+Cohesion: 0.12
+Nodes (29): RatingError, events_, EloConfig::validate(), atomic_write(), completed(), elo_config(), embedded_identities(), event_file_name() (+21 more)
 
 ### Community 31 - "Min training optimisation record — 2026-08-31"
 Cohesion: 0.12
-Nodes (22): Adopted optimisations, Arena removal from the B0 production loop, Automatic capacity pruning and progressive JSON retirement, Binary replay segments, Current steady-state budget, Fixed training invariants, Measured replay result, Min training optimisation record — 2026-08-31 (+14 more)
+Nodes (23): Adopted optimisations, Arena removal from the B0 production loop, Automatic capacity pruning and progressive JSON retirement, Binary replay segments, Current steady-state budget, Fixed training invariants, Measured replay result, Min training optimisation record — 2026-08-31 (+15 more)
 
-### Community 32 - "TrainingRunResources"
-Cohesion: 0.18
-Nodes (6): TrainingRunResources, compatibility_, replay_, replay_capacity_, replay_root_, replay_seed_
+### Community 32 - "execute_train_stage"
+Cohesion: 0.10
+Nodes (17): TrainingRunResources, compatibility_, replay_, replay_capacity_, replay_root_, replay_seed_, checkpoint_lineage(), execute_replay_ingest_stage() (+9 more)
 
 ### Community 33 - "CommandRequest"
 Cohesion: 0.09
-Nodes (27): CommandInitialization, native_checkpoint, none, scratch, warm_start, CommandRequest, candidate_path, champion_path (+19 more)
+Nodes (20): CommandInitialization, native_checkpoint, none, scratch, warm_start, CommandRequest, candidate_path, champion_path (+12 more)
 
 ### Community 34 - "SelfPlayMetrics"
 Cohesion: 0.06
 Nodes (42): search_targets, Checkpoint validation, Effective iteration-25 config, Min A0 Baseline — 2026-09-01, PR 1 verification and scope, Release artifact verification, SelfPlayMetrics, aborted_blocked_cells_total (+34 more)
 
 ### Community 35 - "EpisodeSearch"
-Cohesion: 0.12
-Nodes (7): EpisodeSearch, root_, root_captured_, root_encoded_, simulations_, three_, two_
+Cohesion: 0.09
+Nodes (10): EpisodeSearch, root_, root_captured_, root_encoded_, simulations_, three_, two_, Status (+2 more)
 
 ### Community 36 - "AlphaDiamond Milestone 2 Implementation Plan"
-Cohesion: 0.06
-Nodes (34): AlphaDiamond Milestone 2 Implementation Plan, File Structure, Global Constraints, Plan Self-Review, Task 10: Atomic Training Run State, Task 11: Iterative Training Coordinator and Resume, Task 12: Headless CLI and Complete CPU Smoke, Task 13: FP32 Profiling and Controlled Numeric Modes (+26 more)
+Cohesion: 0.09
+Nodes (30): AlphaDiamond Milestone 2 Implementation Plan, File Structure, Global Constraints, Plan Self-Review, Task 10: Atomic Training Run State, Task 11: Iterative Training Coordinator and Resume, Task 12: Headless CLI and Complete CPU Smoke, Task 13: FP32 Profiling and Controlled Numeric Modes (+22 more)
 
 ### Community 37 - "Arena"
 Cohesion: 0.09
@@ -452,20 +462,20 @@ Cohesion: 0.09
 Nodes (21): Options, arm, artifact, device, dirichlet_epsilon, games, lanes, match (+13 more)
 
 ### Community 40 - "RatingRegistry"
-Cohesion: 0.08
-Nodes (22): Task 3: Soo Elo and Replayable Registry, Bucket wrapper, Protocol input and output, Rating v2 Hugging Face synchronization, Family, min, soo, RatingRegistry (+14 more)
+Cohesion: 0.12
+Nodes (15): Task 3: Soo Elo and Replayable Registry, Family, min, soo, RatingRegistry, elo_, family_, identities_ (+7 more)
 
 ### Community 41 - "schedule.cpp"
-Cohesion: 0.19
-Nodes (18): Task 8: Streaming inference metrics and summaries, bootstrap_opening_blocks(), digest(), Json, materialize_opening_suite(), MaterializedOpening::validate(), MaterializedOpeningSuite::validate(), mean() (+10 more)
+Cohesion: 0.23
+Nodes (18): ScheduleError, digest(), int_array(), Json, match_id(), materialize_opening_suite(), MaterializedOpening::validate(), MaterializedOpeningSuite::validate() (+10 more)
 
 ### Community 42 - "Soo from scratch — training record"
 Cohesion: 0.07
 Nodes (45): 2. Which prior: `alphadiamond-min-probe`, 3. Soo as a Min teacher: rejected, 4. The scratch value head: zero, not random, 5. Not yet measured, 6. What the next machine needs, 7. Where to pick up, Build, Known-red, not caused by this work (+37 more)
 
 ### Community 43 - "ResolvedDevice"
-Cohesion: 0.10
-Nodes (20): run_once(), InferencePrecision, bf16, fp16, fp32, ResolvedDevice, canonical_name, cuda_index (+12 more)
+Cohesion: 0.15
+Nodes (22): CommandArtifactError, CommandInterruptedError, ResolvedDevice, canonical_name, cuda_index, requested_name, torch_device, actor_precision() (+14 more)
 
 ### Community 44 - "min_bootstrap_probe.cpp"
 Cohesion: 0.15
@@ -476,8 +486,8 @@ Cohesion: 0.10
 Nodes (26): 10. Checkpoint and initialization manifest v3, 11. Durable orchestration, 13. Metrics and benchmarks, 14. Testing and CI, 15. Delivery boundaries and defect coverage, 16. Operating and verification policy, 17. Completion and hardware gate, 1. Decision summary (+18 more)
 
 ### Community 46 - "RunState"
-Cohesion: 0.10
-Nodes (17): RunStage, complete, initialize, persist, promote_or_reject, promotion_arena, rating_benchmark, replay_ingest (+9 more)
+Cohesion: 0.11
+Nodes (26): StageOutcome, progress, result, RunStage, complete, initialize, promote_or_reject, promotion_arena (+18 more)
 
 ### Community 47 - "AlphaDiamondEngine"
 Cohesion: 0.25
@@ -485,7 +495,7 @@ Nodes (11): Threads dependency rediscovery, Torch exact version dependency redis
 
 ### Community 48 - "SelfPlayResult"
 Cohesion: 0.10
-Nodes (19): An observability gap this exposed, SelfPlayResult, aborted_diagnostics, aborted_games, completed_games, episodes, metrics, new_samples (+11 more)
+Nodes (18): SelfPlayResult, aborted_diagnostics, aborted_games, completed_games, episodes, metrics, new_samples, operation_id (+10 more)
 
 ### Community 49 - "EpisodeConfig"
 Cohesion: 0.10
@@ -504,24 +514,24 @@ Cohesion: 0.10
 Nodes (19): AlphaDiamond Python-Zero Migration Implementation Plan, Approval Checklist, Execution Handoff, Global Constraints, Planned File Structure, Task 10: Native Arena, Ratings, Reports, and CLI Cutover (PR 09), Task 11: Native Checkpoint/Release Commands and Data Boundary (PR 10), Task 12: Native Benchmark Disposition and Final Smokes (PR 11) (+11 more)
 
 ### Community 53 - "checkpoint.cpp"
-Cohesion: 0.24
-Nodes (23): CheckpointError, bool_field(), canonical_object_json(), compatibility_json(), exact_fields(), is_digest(), Json, lineage_json() (+15 more)
+Cohesion: 0.30
+Nodes (14): CheckpointError, bool_field(), exact_fields(), is_digest(), nullable_digest_field(), nullable_step_field(), nullable_string_field(), parse_lineage() (+6 more)
 
 ### Community 54 - "stdexcept"
-Cohesion: 0.18
-Nodes (4): IncompatibleCheckpointError, ModelPool::require_compatible(), checked_kl(), diagnose_policy_row()
+Cohesion: 0.11
+Nodes (6): IncompatibleCheckpointError, Batcher::collect(), ModelPool::require_compatible(), checked_kl(), diagnose_policy_row(), Clock
 
 ### Community 55 - "DiamondModelImpl"
-Cohesion: 0.05
-Nodes (29): Global Constraints, Min Vacancy-Prior Realizability Implementation Plan, Task 1: Reproducible operating-point config, Task 3: Freeze-aware distillation and held-out metrics, Task 4: Offline diagnostic CLI and provenance gates, Task 5: Format, regression verification, and experiment handoff, Authoritative execution commands, Implemented contracts (+21 more)
+Cohesion: 0.08
+Nodes (14): DiamondModelImpl, adjacency, blocks, input_projection, neighbour_index_, neighbour_missing_, neighbour_tables_version_, output_norm (+6 more)
 
 ### Community 56 - "main"
-Cohesion: 0.17
-Nodes (9): accumulate(), dominant_cycle_period(), episode_config(), main(), make_match(), opening(), percentile(), ratio() (+1 more)
+Cohesion: 0.11
+Nodes (13): accumulate(), diagnose_roots(), dominant_cycle_period(), episode_config(), main(), make_match(), parse_count(), parse_number() (+5 more)
 
 ### Community 57 - "Trainer"
 Cohesion: 0.12
-Nodes (13): PolicyLossDomain, full, legal, Trainer, compatibility_, config_, device_, model_ (+5 more)
+Nodes (12): PolicyLossDomain, full, legal, Trainer, compatibility_, config_, device_, optimizer_ (+4 more)
 
 ### Community 58 - "IterationRequest"
 Cohesion: 0.11
@@ -536,16 +546,16 @@ Cohesion: 0.20
 Nodes (6): OpeningSuiteConfig, count, id, max_depth, seed, version
 
 ### Community 61 - "CheckpointError"
-Cohesion: 0.25
-Nodes (14): collect_named_tensors(), fresh_model_like(), load_checkpoint_v2_weights(), load_checkpoint_v3(), load_checkpoint_weights(), load_exact_checkpoint(), load_model_archive(), load_optimizer_archive() (+6 more)
+Cohesion: 0.29
+Nodes (15): collect_named_tensors(), fresh_model_like(), load_checkpoint_v2_weights(), load_checkpoint_v3(), load_checkpoint_weights(), load_exact_checkpoint(), load_model_archive(), load_optimizer_archive() (+7 more)
 
 ### Community 62 - "promotion.cpp"
-Cohesion: 0.14
-Nodes (22): PromotionManifest, checkpoint_generation, checkpoint_sha256, model_family, payload, state, PromotionState, archival (+14 more)
+Cohesion: 0.13
+Nodes (23): PromotionManifest, checkpoint_generation, checkpoint_sha256, model_family, payload, state, PromotionState, archival (+15 more)
 
-### Community 63 - "Lane"
-Cohesion: 0.25
-Nodes (8): Lane, game_seed, move_count, outcome, salt, session, state, submitted_at
+### Community 63 - "EvalOutcome"
+Cohesion: 0.12
+Nodes (13): EvalOutcome, priors, value, values, Lane, game_seed, move_count, outcome (+5 more)
 
 ### Community 64 - "SearchResult"
 Cohesion: 0.12
@@ -567,13 +577,13 @@ Nodes (17): 1. Observability and legal-policy learning, 2. Serial-search sweep, 
 Cohesion: 0.16
 Nodes (17): Arm A: policy head만 학습, Arm B: trunk와 policy 전체 학습, Min A0 전환 진단과 다음 실험, teacher fit은 되지만 A0가 계속 실패하면, teacher fit이 성공하면, value 쪽도 한 번은 확인해야 합니다, 근거 1: simulations 부족이 아닙니다, 근거 2: MCTS teacher target 자체가 지나치게 평평합니다 (+9 more)
 
-### Community 69 - "execute_stage"
-Cohesion: 0.22
-Nodes (22): StageOutcome, progress, result, CommandArtifactError, CommandInterruptedError, candidate_checkpoint(), deployment_training_step(), execute_persist_stage() (+14 more)
+### Community 69 - "PipelineError"
+Cohesion: 0.18
+Nodes (10): DeadlineExceededError, PipelineError, ModelPool::evaluate(), ModelPool::install(), ModelPool::require_ready(), load_episode_artifact(), read_sample(), read_string() (+2 more)
 
-### Community 70 - "execute_train_stage"
-Cohesion: 0.15
-Nodes (20): Task 4: 기존 저장소에서 Qt를 SDK 소비자로 전환, Hugging Face handoff, checkpoint_lineage(), checkpoint_provenance(), creation_timestamp(), execute_initialize_stage(), execute_train_stage(), IterationSource (+12 more)
+### Community 70 - "RunResult"
+Cohesion: 0.13
+Nodes (14): RunResult, aborted_games, completed_games, completed_training_steps, final_checkpoint_model_digest, final_step, first_checkpoint_model_digest, new_samples (+6 more)
 
 ### Community 71 - "AlphaDiamond Python-Zero Inventory"
 Cohesion: 0.17
@@ -588,24 +598,24 @@ Cohesion: 0.26
 Nodes (14): EventSet, events, ids, fail(), is_event_file_name(), Json, load_events(), main() (+6 more)
 
 ### Community 74 - "Options"
-Cohesion: 0.06
-Nodes (29): main(), make_request(), Options, batch_size, device, games, lanes, repetitions (+21 more)
+Cohesion: 0.10
+Nodes (22): checkpoint_provenance(), main(), make_match(), make_request(), one_move_finish(), Options, batch_size, device (+14 more)
 
 ### Community 75 - "report.cpp"
 Cohesion: 0.22
 Nodes (12): CommandArgumentError, CommandService, dispatch_command(), emit_error(), is_verb(), Json, make_command_report(), parse_request() (+4 more)
 
 ### Community 76 - "RTX 3060 Benchmark Findings"
-Cohesion: 0.12
-Nodes (20): Baseline: CPU, Does concurrency convert idle GPU into throughput?, Environment, GPU runs, Headline, Is 64 simulations cheaper in wall-clock than 32?, `max_moves: 200` may be silently discarding training data, Open questions (+12 more)
+Cohesion: 0.14
+Nodes (17): Baseline: CPU, Does concurrency convert idle GPU into throughput?, Environment, Headline, Is 64 simulations cheaper in wall-clock than 32?, `max_moves: 200` may be silently discarding training data, Open questions, Recommendation (+9 more)
 
-### Community 77 - "SooRatingEvent"
-Cohesion: 0.13
-Nodes (13): SooRatingEvent, completed, event_id, game_id, loser_id, opening_id, participant_identities, participant_ids (+5 more)
+### Community 77 - "apply_action"
+Cohesion: 0.20
+Nodes (12): Simulation breakdown, 8. Phase 1 implementation plan, Steps 1–4 — prior, rules, state, encoder, Resolution, PlayerSpec, camp, id, target_camp (+4 more)
 
 ### Community 78 - "Compatibility"
-Cohesion: 0.09
-Nodes (16): Compatibility, action_space_version, board_topology_version, encoder_version, model_name, model_version, network_config, player_count (+8 more)
+Cohesion: 0.08
+Nodes (19): ResidentModel, actor, compatibility, Compatibility, action_space_version, board_topology_version, encoder_version, model_name (+11 more)
 
 ### Community 79 - "Native Soo Self-Play — Handoff"
 Cohesion: 0.09
@@ -613,55 +623,55 @@ Nodes (32): 1. What this project is, 2. Gate status, 4. Environment setup on a n
 
 ### Community 80 - "Native Soo Self-Play — Phase 1 Progress"
 Cohesion: 0.08
-Nodes (42): 10.0 The host, 10.1 The Python backend, re-measured on this host, 10.2 Risk 5 — does a real GPU forward behind the GIL recreate the ceiling?, 10.3 The A/B throughput table, 10.4 A caveat that had to be measured, not assumed, 10.5 What this means for `selfplay_backend = "native"`, 10.6 Verdict, 10. Gate D on the GPU host (+34 more)
+Nodes (41): 10.0 The host, 10.1 The Python backend, re-measured on this host, 10.2 Risk 5 — does a real GPU forward behind the GIL recreate the ceiling?, 10.3 The A/B throughput table, 10.4 A caveat that had to be measured, not assumed, 10.5 What this means for `selfplay_backend = "native"`, 10.6 Verdict, 10. Gate D on the GPU host (+33 more)
 
 ### Community 81 - "MaterializedOpeningSuite"
-Cohesion: 0.25
-Nodes (9): Task 2: Use complete Soo pairs and Min triples without pseudo-replicates, 12. Opening suites, arena, and promotion, MaterializedOpeningSuite, config, openings, suite_sha256, opening_ids(), schedule_min_triple() (+1 more)
+Cohesion: 0.26
+Nodes (11): Task 2: Use complete Soo pairs and Min triples without pseudo-replicates, 12. Opening suites, arena, and promotion, MaterializedOpeningSuite, config, openings, suite_sha256, opening_ids(), schedule_min_opening_blocks() (+3 more)
 
 ### Community 82 - "AlphaDiamond Engine Training repository"
 Cohesion: 0.18
 Nodes (11): Engine only CMake entry, Engine SDK and training package output, Separate inference and training build options, Historical frozen golden corpus decision, Historical decisions and current ownership, Independent Engine Desktop release decision, Python engine retirement, AlphaDiamond Engine Training repository (+3 more)
 
 ### Community 83 - "CheckpointProvenance"
-Cohesion: 0.22
-Nodes (9): CheckpointProvenance, creation_timestamp, environment_json, protocol_ids_json, replay_manifest_sha256, resolved_config_bytes, rng_state_status, rng_state_version (+1 more)
+Cohesion: 0.19
+Nodes (14): CheckpointProvenance, creation_timestamp, environment_json, protocol_ids_json, replay_manifest_sha256, resolved_config_bytes, rng_state_status, rng_state_version (+6 more)
 
 ### Community 84 - "SchedulerConfig"
 Cohesion: 0.12
 Nodes (17): SchedulerConfig, c_puct, dirichlet_alpha, dirichlet_epsilon, eval_latency_ms, games, max_batch, max_moves (+9 more)
 
 ### Community 85 - "selfplay_benchmark.cpp"
-Cohesion: 0.12
-Nodes (5): main(), parse_args(), run(), sample(), SooModelImpl
+Cohesion: 0.10
+Nodes (19): Args, repetitions, scratch, main(), parse_args(), run(), Json, main() (+11 more)
 
-### Community 86 - "AlphaDiamond Python-Zero Proposed PR Sequence"
+### Community 86 - "min_expert_arena.cpp"
 Cohesion: 0.08
-Nodes (22): AlphaDiamond Python-Zero Proposed PR Sequence, PR 00 — Baseline, acceptance, and branch-protection integrity, PR 01 — Close native contract coverage gaps, PR 02 — Retire duplicate Python action and canonical encoders, PR 03 — Productionize the native model and freeze training vectors, PR 04 — Native LibTorch training step, PR 05 — Native checkpoint, legacy import, and resume, PR 06 — Native replay schema and persistent store (+14 more)
+Nodes (19): AlphaDiamond Python-Zero Proposed PR Sequence, PR 00 — Baseline, acceptance, and branch-protection integrity, PR 01 — Close native contract coverage gaps, PR 02 — Retire duplicate Python action and canonical encoders, PR 03 — Productionize the native model and freeze training vectors, PR 04 — Native LibTorch training step, PR 05 — Native checkpoint, legacy import, and resume, PR 06 — Native replay schema and persistent store (+11 more)
 
 ### Community 87 - "CheckpointInfo"
 Cohesion: 0.18
 Nodes (17): CheckpointInfo, format_version, generation, lineage, model_digest, optimizer_digest, provenance, training_step (+9 more)
 
 ### Community 88 - "load_checkpoint"
-Cohesion: 0.27
-Nodes (10): compatibility(), compatibility_json(), Config, integer(), load_checkpoint(), main(), precision(), read() (+2 more)
+Cohesion: 0.23
+Nodes (12): compatibility(), compatibility_json(), Config, integer(), load_checkpoint(), main(), Path, precision() (+4 more)
 
 ### Community 89 - "run"
 Cohesion: 0.15
-Nodes (20): Counts, aborted, completed, placements, scheduled, integers(), Json, ordered_match() (+12 more)
+Nodes (19): Counts, aborted, completed, placements, scheduled, integers(), Json, ordered_match() (+11 more)
 
 ### Community 90 - "replay_segment.cpp"
-Cohesion: 0.23
-Nodes (6): decode_replay_segment(), decode_sample(), read_array(), Reader, bytes_, position_
+Cohesion: 0.17
+Nodes (16): append_bytes(), append_count(), append_float(), append_string(), append_u32(), append_u64(), compatibility_digest(), decode_replay_segment() (+8 more)
 
 ### Community 91 - "Topology"
 Cohesion: 0.17
 Nodes (7): Topology, camp_positions, canonical_to_physical, configured, neighbour, pairwise, physical_to_canonical
 
 ### Community 92 - "MCTS2P"
-Cohesion: 0.16
-Nodes (8): What one Python callback per node costs, What this does and does not license, 9.3 End-to-end: the native backend plays the same game, DeterministicEvaluator, Evaluator, UniformPriorEvaluator, MCTS2P, session_
+Cohesion: 0.10
+Nodes (15): What one Python callback per node costs, What this does and does not license, 9.1 The callback ABI, 9.2 GIL discipline, 9.3 End-to-end: the native backend plays the same game, 9.4 A bug only an end-to-end test could find, 9.5 What the boundary costs, 9.6 Moving the prior off the critical thread (+7 more)
 
 ### Community 93 - "RTX 3060 GPU Training Runbook"
 Cohesion: 0.13
@@ -672,8 +682,8 @@ Cohesion: 0.13
 Nodes (14): A0 transition gate after release, Active benchmark sweep, Additional disk cleanup (about 18:20 UTC), Config transition and real training resume, End-of-session learning assessment, Implemented before benchmark sweep, Iteration 24 completion and FP16 safety rollback, Iteration 25 incremental Arena (+6 more)
 
 ### Community 95 - "Training panel HTTP and native file specification"
-Cohesion: 0.10
-Nodes (35): Planned native expert arena visibility task, Planned training panel implementation and evaluation, Native expert arena active job requirement, Training panel HTTP and native file specification, Native expert arena grouped progress snapshots, Native durable training state and effective settings, Native train stage metrics and selfplay sidecar, alphadiamond-train native training CLI (+27 more)
+Cohesion: 0.11
+Nodes (34): Planned native expert arena visibility task, Planned training panel implementation and evaluation, Native expert arena active job requirement, Training panel HTTP and native file specification, Native expert arena grouped progress snapshots, Native durable training state and effective settings, Native train stage metrics and selfplay sidecar, alphadiamond-train native training CLI (+26 more)
 
 ### Community 96 - "Pipeline Simplification and File Commentary Implementation Plan"
 Cohesion: 0.13
@@ -692,28 +702,28 @@ Cohesion: 0.13
 Nodes (15): TrainingMetrics, backward_seconds, collation_seconds, forward_seconds, h2d_seconds, optimizer_seconds, peak_cuda_allocated_bytes, peak_cuda_memory_available (+7 more)
 
 ### Community 100 - "StageTiming"
-Cohesion: 0.09
-Nodes (23): Task 2: Vacancy teacher reconstruction, 1. Why Min could not start: a setting nothing read, decode_action(), encode_action(), PieceSet, StageTiming, apply_ns, encode_ns (+15 more)
+Cohesion: 0.08
+Nodes (22): Task 2: Vacancy teacher reconstruction, 1. Why Min could not start: a setting nothing read, decode_action(), PieceSet, StageTiming, apply_ns, encode_ns, evaluations (+14 more)
 
-### Community 101 - "replay_segment.cpp"
-Cohesion: 0.38
-Nodes (10): append_bytes(), append_count(), append_float(), append_string(), append_u32(), append_u64(), compatibility_digest(), digest() (+2 more)
+### Community 101 - "legal_action_ids"
+Cohesion: 0.18
+Nodes (9): 3.0.3 Arena — what the old numbers were actually measuring, 0.3 The search trajectory is not distorted by a constant evaluator, 4. Batch callback ABI, 9. Risks to preserving semantics, PolicyValue — reference and post-bootstrap, ValueOnly — the B0 production path, select_from_visits(), canonical_move_path() (+1 more)
 
 ### Community 102 - "Encoded"
-Cohesion: 0.12
-Nodes (21): Encoded, canonical_player_ids, feature_count, node_features, EvalOutcome, priors, value, values (+13 more)
+Cohesion: 0.19
+Nodes (16): Encoded, canonical_player_ids, feature_count, node_features, DeterministicEvaluator::evaluate(), mix(), mix_u32(), mix_u64() (+8 more)
 
-### Community 103 - "EloConfig"
-Cohesion: 0.12
-Nodes (16): EloConfig, initial_rating, k_factor, logistic_scale, rating_system_version, TrueSkillConfig, beta, draw_probability (+8 more)
+### Community 103 - "MinRatedMatch"
+Cohesion: 0.18
+Nodes (8): MinRatedMatch, match_id, opening_id, participant_ids, seat_assignment, turn_order, MinOpeningBlock::validate(), validate_min_rated_batch()
 
-### Community 104 - "min_experts.cpp"
-Cohesion: 0.23
-Nodes (9): canonical_geometry(), Geometry, min_turn_order_group(), min_turn_order_group_from_name(), min_turn_order_group_name(), MinExpertRouter::evaluate(), MinExpertRouter::prepare(), request_group() (+1 more)
+### Community 104 - "SooRatedMatch"
+Cohesion: 0.20
+Nodes (8): SooRatedMatch, match_id, opening_id, participant_ids, seat_assignment, turn_order, SooOpeningBlock::validate(), validate_soo_rated_batch()
 
 ### Community 105 - "HeldOutMetrics"
-Cohesion: 0.14
-Nodes (11): evaluate(), Evaluation, logits, metrics, values, HeldOutMetrics, full_cross_entropy, full_kl (+3 more)
+Cohesion: 0.18
+Nodes (10): Evaluation, logits, metrics, values, HeldOutMetrics, full_cross_entropy, full_kl, target_entropy (+2 more)
 
 ### Community 106 - "Options"
 Cohesion: 0.14
@@ -724,20 +734,20 @@ Cohesion: 0.14
 Nodes (12): Args, artifact, artifact_explicit, batch_size, checkpoint, config, device, iteration (+4 more)
 
 ### Community 108 - "RTX 3060 AlphaZero Training Implementation Plan"
-Cohesion: 0.11
-Nodes (25): Baseline test state, Benchmark Procedure, Expected CLI Examples, File/Component Map, Findings that change the design (discovered, not in the prompt), Global Constraints, Implementation Tasks, Pinned source-checkpoint facts (do not re-derive; do not hard-code `72` in code) (+17 more)
+Cohesion: 0.12
+Nodes (23): Baseline test state, Benchmark Procedure, File/Component Map, Findings that change the design (discovered, not in the prompt), Global Constraints, Implementation Tasks, Pinned source-checkpoint facts (do not re-derive; do not hard-code `72` in code), Rollback Criteria (+15 more)
 
 ### Community 109 - "VisitTargetObservation"
 Cohesion: 0.19
 Nodes (13): Task 3: Surface target statistics in self-play results and the durable sidecar, VisitTargetObservation, effective_actions, entropy, legal_actions, max_probability, normalized_entropy, top3_mass (+5 more)
 
 ### Community 110 - "run_self_play"
-Cohesion: 0.15
-Nodes (15): Building and finding output, Code guide, Data and historical records, Entrypoints and responsibilities, Following a training iteration, CancelledError, DeadlineExceededError, Historical archive map (+7 more)
+Cohesion: 0.21
+Nodes (13): Building and finding output, Code guide, Data and historical records, Entrypoints and responsibilities, Following a training iteration, CancelledError, Historical archive map, Code reading guide (+5 more)
 
-### Community 111 - "checkpoint_benchmark.cpp"
-Cohesion: 0.17
-Nodes (10): Args, repetitions, scratch, main(), parse_args(), run(), main(), print_info() (+2 more)
+### Community 111 - "checkpoint_main.cpp"
+Cohesion: 0.53
+Nodes (4): main(), print_info(), run(), unsupported_morph()
 
 ### Community 112 - "DeploymentArtifact"
 Cohesion: 0.15
@@ -747,13 +757,13 @@ Nodes (13): DeploymentArtifact, encoder_version, input_features, model_family, m
 Cohesion: 0.14
 Nodes (10): ModelIndex, defaults_, models, ModelIndexEntry, family, model_sha256, root, runtime_sha256 (+2 more)
 
-### Community 114 - "pipeline.cpp"
-Cohesion: 0.22
-Nodes (12): PipelineError, ingest_self_play(), load_episode_artifact(), read_sample(), read_string(), read_u64(), read_value(), save_episode_artifact() (+4 more)
+### Community 114 - "save_episode_artifact"
+Cohesion: 0.33
+Nodes (6): ingest_self_play(), save_episode_artifact(), write_sample(), write_string(), write_u64(), write_value()
 
 ### Community 115 - "SelfPlayConfig"
-Cohesion: 0.12
-Nodes (12): SelfPlayConfig, balance_turn_orders, bootstrap_prior, bootstrap_prior_weight, legacy_seed, max_game_seconds, max_moves, repetition_temperature (+4 more)
+Cohesion: 0.11
+Nodes (13): Task 2: `max_game_seconds` configuration surface, SelfPlayConfig, balance_turn_orders, bootstrap_prior, bootstrap_prior_weight, legacy_seed, max_game_seconds, max_moves (+5 more)
 
 ### Community 116 - "EvaluationStats"
 Cohesion: 0.14
@@ -776,8 +786,8 @@ Cohesion: 0.30
 Nodes (12): ensure_topology_configured(), camp_index(), camps_of(), canonical_cube(), Cube, x, y, z (+4 more)
 
 ### Community 121 - "VacancyMetrics"
-Cohesion: 0.12
-Nodes (16): Evaluation, metrics, probabilities, VacancyDistillationResult, final, initial, policy_kl, trainable_gradient_l2 (+8 more)
+Cohesion: 0.18
+Nodes (10): Evaluation, metrics, probabilities, VacancyMetrics, expected_progress, expected_progress_ratio, legal_kl, teacher_expected_progress (+2 more)
 
 ### Community 122 - "Min A0 Transition and Parallel MCTS Decision Implementation Plan"
 Cohesion: 0.13
@@ -792,8 +802,8 @@ Cohesion: 0.25
 Nodes (8): PolicyRowDiagnostics, full_cross_entropy, full_kl, legal_cross_entropy, legal_kl, legal_probability_mass, target_entropy, top1_agrees
 
 ### Community 125 - "ReplayStore::ingest_iteration"
-Cohesion: 0.19
-Nodes (6): chunk_body(), compatibility_json(), remove_file(), ReplayStore::ingest(), ReplayStore::ingest_iteration(), ReplayStore::prune()
+Cohesion: 0.36
+Nodes (4): chunk_body(), ReplayStore::ingest(), ReplayStore::ingest_iteration(), ReplayStore::prune()
 
 ### Community 126 - "실행 단위와 순서"
 Cohesion: 0.17
@@ -803,9 +813,9 @@ Nodes (11): Engine/Training–Desktop Repository Split Implementation Plan, Glob
 Cohesion: 0.20
 Nodes (10): apply_gelu(), copy_parameter(), DiamondModelImpl::DiamondModelImpl(), DiamondModelImpl::forward(), DiamondModelImpl::load_weights(), DiamondModelImpl::set_adjacency(), DirectionalResidualBlockImpl::forward(), read_tensor() (+2 more)
 
-### Community 128 - "Immutable Min comparative improvement plan"
-Cohesion: 0.29
-Nodes (9): Arena reference invocation identities, Frozen specialist reference arena contract, Binding comparative evaluation specification, Immutable Min comparative improvement plan, One fresh six arm confirmation family, Pessimistic paired screen selection rule, Preselected cyclic candidates and fixed screen, Reuse native expert router for references (+1 more)
+### Community 128 - "MinExpertRouter"
+Cohesion: 0.14
+Nodes (12): Execution ledger, Global constraints, Min Turn-Order Experts Implementation Plan, Review focus, Tasks, Binding comparative evaluation specification, Immutable Min comparative improvement plan, One fresh six arm confirmation family (+4 more)
 
 ### Community 129 - "MCTSConfig"
 Cohesion: 0.17
@@ -816,40 +826,40 @@ Cohesion: 0.17
 Nodes (11): Episode, aborted_reason, compatibility, completed, final_order, game_id, model_key, move_count (+3 more)
 
 ### Community 131 - "CheckpointLineage"
-Cohesion: 0.11
-Nodes (17): CheckpointInitializationMode, audited_legacy_import, resume, scratch, warm_start, CheckpointLineage, initialization_mode, iteration (+9 more)
+Cohesion: 0.10
+Nodes (20): CheckpointInitializationMode, audited_legacy_import, resume, scratch, warm_start, CheckpointLineage, initialization_mode, iteration (+12 more)
 
 ### Community 132 - "ParameterGroup"
 Cohesion: 0.17
 Nodes (11): ParameterGroup, input_projection, last_residual_block, output_norm, policy_destination, policy_source, residual_trunk, value_hidden (+3 more)
 
-### Community 134 - "BatchItem"
-Cohesion: 0.07
-Nodes (27): dominant_cycle_period(), fill_zero_values(), fold_to_soo_features(), require_finite_distribution(), SooPolicyArm, device_, folded_, model_ (+19 more)
+### Community 134 - "VacancyWithMinValueArm"
+Cohesion: 0.13
+Nodes (12): dominant_cycle_period(), fold_to_soo_features(), percentile(), require_finite_distribution(), SooPolicyArm, device_, folded_, model_ (+4 more)
 
 ### Community 135 - "min_learning_diagnostic.cpp"
-Cohesion: 0.31
-Nodes (7): count(), Json, main(), metrics(), parse(), read_config(), replay_root()
+Cohesion: 0.25
+Nodes (6): count(), main(), metrics(), parse(), read_config(), replay_root()
 
 ### Community 136 - "CPU Profiling Findings"
-Cohesion: 0.13
-Nodes (21): Batching wait experiment, Before vs after, Correctness, Correctness, CPU concurrency comparison, CPU NN batch scaling, CPU Profiling Findings, CPU root cause (+13 more)
+Cohesion: 0.14
+Nodes (20): Batching wait experiment, Before vs after, Correctness, Correctness, CPU concurrency comparison, CPU NN batch scaling, CPU Profiling Findings, CPU root cause (+12 more)
 
 ### Community 137 - "TrainingConfig"
 Cohesion: 0.18
 Nodes (7): TrainingConfig, batch_size, learning_rate, policy_loss_domain, seed, train_steps_per_iteration, weight_decay
 
-### Community 138 - "MinOpeningBlockResult"
-Cohesion: 0.18
-Nodes (10): MinOpeningBlockResult, opening_id, results, MinRatedResult, candidate_placement, match_id, SooRatedResult, candidate_won (+2 more)
+### Community 138 - "encoder.cpp"
+Cohesion: 0.29
+Nodes (8): encode_action(), canonical_legal_action_ids(), canonical_player_ids(), encode(), encoded_feature_count(), to_canonical_action(), SearchSession3P::prepare_expansion(), SearchSession::prepare_expansion()
 
-### Community 139 - "ScheduleError"
-Cohesion: 0.38
-Nodes (8): ScheduleError, int_array(), match_id(), MinRatedMatch::validate(), SooRatedMatch::validate(), string_array(), validate_participants(), validate_permutation()
+### Community 139 - "run_min_learning_diagnostic"
+Cohesion: 0.22
+Nodes (7): evaluate(), run_min_learning_diagnostic(), Phase 1: Add Observability Without Changing Behavior, Task 2: Implement pure MCTS visit-target statistics, Task 4: Add legal-set policy-fit diagnostics to `selfplay_benchmark`, Task 5: Add an in-memory learner diagnostic executable, Task 6: Verify PR 1 and document exactly what it does not change
 
 ### Community 140 - "IterationResult"
-Cohesion: 0.17
-Nodes (12): require_iteration(), IterationResult, aborted_games, completed_games, completed_training_steps, new_samples, operation_id, replay_size (+4 more)
+Cohesion: 0.18
+Nodes (11): IterationResult, aborted_games, completed_games, completed_training_steps, new_samples, operation_id, replay_size, requested_training_steps (+3 more)
 
 ### Community 141 - "runtime_sha256"
 Cohesion: 0.29
@@ -857,11 +867,11 @@ Nodes (7): Deployment artifact format v3, Metadata, Min, Native checkpoint expor
 
 ### Community 142 - "checkpoint_export.cpp"
 Cohesion: 0.33
-Nodes (6): export_checkpoint(), Json, parity(), read(), write(), write_i32()
+Nodes (5): export_checkpoint(), parity(), read(), write(), write_i32()
 
 ### Community 143 - "The repetition trigger is implemented but unreachable"
-Cohesion: 0.12
-Nodes (16): Consequences for other measurements, Prevention, Resolution, Resolved: the 768-game completion regression was a match-construction bug, What survives from it, What was wrong in the earlier analysis, Conclusion first, Correction to an earlier draft of this document (+8 more)
+Cohesion: 0.18
+Nodes (11): An observability gap this exposed, Conclusion first, Correction to an earlier draft of this document, The repetition trigger is implemented but unreachable, What changed here, What is still open, What the first measurement showed, and why it is void, Why it went unnoticed (+3 more)
 
 ### Community 144 - "LearningStepDiagnostic"
 Cohesion: 0.20
@@ -872,15 +882,15 @@ Cohesion: 0.42
 Nodes (7): initialize(), Json, main(), print_json(), promote(), run(), stage()
 
 ### Community 146 - "TrainingSample"
-Cohesion: 0.13
-Nodes (15): evaluate(), feature_tensor(), legal_log_probs(), run_vacancy_distillation(), teacher_tensors(), vacancy_target(), VacancyTarget, actions (+7 more)
+Cohesion: 0.19
+Nodes (11): evaluate(), feature_tensor(), legal_log_probs(), run_vacancy_distillation(), teacher_tensors(), vacancy_target(), TrainingSample, canonical_player_ids (+3 more)
 
 ### Community 147 - "ReplayStore"
 Cohesion: 0.10
 Nodes (13): Args, batch_size, pool_size, reopen_only, repetitions, scratch, episode(), main() (+5 more)
 
 ### Community 148 - "min_vacancy_realizability.cpp"
-Cohesion: 0.27
+Cohesion: 0.31
 Nodes (7): count(), Json, main(), metrics(), parse(), read_file(), replay_root()
 
 ### Community 150 - "Arena, Acceptance, CI, and Repository Tightening Implementation Plan"
@@ -908,8 +918,8 @@ Cohesion: 0.20
 Nodes (10): SearchResult3P, evaluator_calls, nodes_created, policy, q_vectors, root_actions, root_priors, selected_action (+2 more)
 
 ### Community 156 - "mcts3p.cpp"
-Cohesion: 0.14
-Nodes (14): ValueVector, VectorEdge, action, child, prior, value_sum, visits, SearchSession3P::backup() (+6 more)
+Cohesion: 0.20
+Nodes (10): ValueVector, VectorEdge, action, child, prior, value_sum, visits, SearchSession3P::backup() (+2 more)
 
 ### Community 157 - "CampDiagnostics"
 Cohesion: 0.20
@@ -923,37 +933,37 @@ Nodes (16): Options, arm, batch_size, checkpoint, checkpoint_out, config, device
 Cohesion: 0.20
 Nodes (10): EpisodeMetrics, batch_sizes, batches, boosted_moves, evaluations, evaluator_seconds, moves, repetition_moves (+2 more)
 
-### Community 160 - "min_bootstrap_probe.cpp"
-Cohesion: 0.43
-Nodes (7): Json, JsonArray, JsonObject, main(), opening(), parse(), percentile()
+### Community 160 - "Min Vacancy-Prior Realizability Implementation Plan"
+Cohesion: 0.33
+Nodes (8): Global Constraints, Min Vacancy-Prior Realizability Implementation Plan, Task 1: Reproducible operating-point config, Task 3: Freeze-aware distillation and held-out metrics, Task 4: Offline diagnostic CLI and provenance gates, Task 5: Format, regression verification, and experiment handoff, value_linear1, value_linear2
 
 ### Community 161 - "Arguments"
-Cohesion: 0.25
-Nodes (8): Arguments, config, cyclic, out, reference_cyclic, reference_reverse, reverse, shared
+Cohesion: 0.20
+Nodes (11): Arguments, config, cyclic, out, reference_cyclic, reference_reverse, reverse, shared (+3 more)
 
 ### Community 162 - "MaterializedOpening"
-Cohesion: 0.13
-Nodes (11): opening(), MaterializedOpening, depth, opening_id, seed, serialized_state, state_sha256, MinOpeningBlock (+3 more)
+Cohesion: 0.14
+Nodes (10): opening(), MaterializedOpening, depth, opening_id, seed, serialized_state, state_sha256, SooOpeningBlock (+2 more)
 
 ### Community 163 - "PolicyTotals"
-Cohesion: 0.13
-Nodes (13): diagnose_roots(), parse_count(), parse_number(), parse_options(), PolicyTotals, full_cross_entropy, full_kl, legal_cross_entropy (+5 more)
+Cohesion: 0.22
+Nodes (9): PolicyTotals, full_cross_entropy, full_kl, legal_cross_entropy, legal_kl, legal_mass, rows, target_entropy (+1 more)
 
 ### Community 164 - "VacancyDistillationConfig"
 Cohesion: 0.22
 Nodes (8): DistillationArm, policy_head, trunk_policy, VacancyDistillationConfig, arm, batch_size, evaluation_batch, steps
 
 ### Community 165 - "ModelKey"
-Cohesion: 0.22
-Nodes (7): Focused test, ModelKey, checkpoint_sha256, model_name, model_version, ModelPool::activate(), ModelPool::install()
+Cohesion: 0.29
+Nodes (6): Focused test, ModelKey, checkpoint_sha256, model_name, model_version, ModelPool::activate()
 
 ### Community 166 - "EpisodeRecord"
 Cohesion: 0.25
 Nodes (8): EpisodeRecord, aborted_reason, completed, game_id, move_count, retry_id, sample_count, seed
 
-### Community 167 - "9. Gate D — the Python callback, on CPU"
-Cohesion: 0.29
-Nodes (7): 9.1 The callback ABI, 9.2 GIL discipline, 9.4 A bug only an end-to-end test could find, 9.5 What the boundary costs, 9.6 Moving the prior off the critical thread, 9.7 What Gate D still needs from the GPU host, 9. Gate D — the Python callback, on CPU
+### Community 167 - "WorkerConfig"
+Cohesion: 0.22
+Nodes (5): WorkerConfig, games_per_iteration, logical_lanes, retry_id, search_threads
 
 ### Community 168 - "Durable Iteration Loop and Replay Transactions Implementation Plan"
 Cohesion: 0.22
@@ -965,22 +975,22 @@ Nodes (8): Global Constraints, Review Focus, Task 1: Native CLI bridge, Task 2: 
 
 ### Community 170 - "ReplayConfig"
 Cohesion: 0.29
-Nodes (3): ReplayConfig, capacity, seed
+Nodes (4): ReplayConfig, capacity, seed, ReplayConfig::from_json()
 
 ### Community 171 - "Retiring the Python engine"
 Cohesion: 0.29
 Nodes (6): Retiring the Python engine, The evidence collected before deleting, The order it happened in, and why that order, What cannot be done any more, on purpose, What was deleted, and what replaced it, What was never going to be ported
 
 ### Community 172 - "3. What is left"
-Cohesion: 0.15
-Nodes (12): 3.0.1 The A0 investigation — read this before changing anything, 3.0.2 Architecture scaling — tried both axes, both rejected, 3.0.3 Arena — what the old numbers were actually measuring, 3.0.4 Rolling a replay store back, 3.0 Done on the GPU host (progress doc §10), 3.1.0 Configuring the native backend, 3.1.1 Worth doing when PolicyValue matters, 3.1 The actual remaining work, in order (+4 more)
+Cohesion: 0.22
+Nodes (9): 3.0.1 The A0 investigation — read this before changing anything, 3.0.2 Architecture scaling — tried both axes, both rejected, 3.0.4 Rolling a replay store back, 3.0 Done on the GPU host (progress doc §10), 3.1.0 Configuring the native backend, 3.1.1 Worth doing when PolicyValue matters, 3.1 The actual remaining work, in order, 3.2 Known optimisation target, deliberately untouched (+1 more)
 
 ### Community 173 - "Native Windows Qt runtime"
-Cohesion: 0.20
+Cohesion: 0.18
 Nodes (10): Build and package, Compatibility notes, Gate record, Native Windows Qt runtime, Platform boundary, QML backend compatibility manifest, Runtime architecture, Search configuration and measured latency (+2 more)
 
 ### Community 174 - "ArenaConfig"
-Cohesion: 0.22
+Cohesion: 0.20
 Nodes (6): ArenaConfig, enabled, games, max_moves, promotion_threshold, seed
 
 ### Community 175 - "Development build cycle"
@@ -991,21 +1001,17 @@ Nodes (4): Desktop and the SDK, Development build cycle, Native engine and infer
 Cohesion: 0.22
 Nodes (5): InferenceConfig, max_batch_size, max_wait_us, request_queue_capacity, response_timeout_s
 
-### Community 177 - "README.md"
-Cohesion: 0.18
-Nodes (7): Historical data archive, Independent releases, Models and rollback, Repository split and SDK upgrades, Documentation, Historical documentation, Training panel
-
 ### Community 178 - "MinRating"
-Cohesion: 0.20
-Nodes (10): MinLeaderboardEntry, display_name, participant_id, rating, MinRating, exposure, mu, rated_games (+2 more)
+Cohesion: 0.22
+Nodes (9): MinLeaderboardEntry, display_name, participant_id, rating, MinRating, exposure, mu, rated_games (+1 more)
 
 ### Community 179 - "EpisodeDiagnostics"
 Cohesion: 0.13
 Nodes (15): AbortedGameDiagnostics, abort_reason, game_id, move_count, seed, state, EpisodeDiagnostics, camps (+7 more)
 
 ### Community 180 - "LearningDiagnosticConfig"
-Cohesion: 0.14
-Nodes (14): LearningDiagnosticConfig, batch_size, evaluation_batch, evaluation_samples, iteration, log_every, seed, steps (+6 more)
+Cohesion: 0.25
+Nodes (8): LearningDiagnosticConfig, batch_size, evaluation_batch, evaluation_samples, iteration, log_every, seed, steps
 
 ### Community 181 - "Deployment artifact format v3 current contract"
 Cohesion: 0.29
@@ -1015,13 +1021,13 @@ Nodes (7): Deployment artifact format v3 current contract, Model and runtime dig
 Cohesion: 0.31
 Nodes (9): Global Constraints, Qt AlphaZero Analysis Console Implementation Plan, Task 1: Search telemetry semantics and timing, Task 2: Structured worker result and telemetry math, Task 3: Persistent Soo runtime and controller lifecycle, Task 4: Analysis console and relocated history, Task 5: Regression and release verification, neural_evaluation_ms (+1 more)
 
-### Community 183 - "MCTSConfig"
-Cohesion: 0.29
-Nodes (7): MCTSConfig, c_puct, dirichlet_alpha, dirichlet_epsilon, encoding, seed, simulations
+### Community 183 - "Coordinator batch-window fix validation"
+Cohesion: 0.25
+Nodes (8): Bistability status: **eliminated**, Caveat: this host is not the host of the runs above, Coordinator batch-window fix validation, CPU test suite, Effect on the recommended-work ranking, Repeated GPU results, The code-level fix, Throughput impact
 
 ### Community 184 - "SooLeaderboardEntry"
-Cohesion: 0.33
-Nodes (6): SooLeaderboardEntry, display_name, games, participant_id, rating, RatingRegistry::soo_leaderboard()
+Cohesion: 0.40
+Nodes (5): SooLeaderboardEntry, display_name, games, participant_id, rating
 
 ### Community 185 - "4.4 Stable formats"
 Cohesion: 0.50
@@ -1031,25 +1037,25 @@ Nodes (4): 4.4 Stable formats, Checkpoint, Game and deployment artifact, Replay
 Cohesion: 0.29
 Nodes (3): Proposed runtime SDK surface, Repository split dependency analysis, SDK version ABI and packaging contract
 
-### Community 187 - "Min local CPU audit — 2026-09-11"
-Cohesion: 0.29
-Nodes (6): Controlled evidence, Finding, Implications for the proposed changes, Min local CPU audit — 2026-09-11, Reproduction and files, Training evidence recovered
+### Community 187 - "Min Vacancy Realizability Diagnostic Handoff — 2026-09-02"
+Cohesion: 0.25
+Nodes (7): Authoritative execution commands, Implemented contracts, Min Vacancy Realizability Diagnostic Handoff — 2026-09-02, Non-authoritative iteration-25 smoke, Status, Verification, sparse_policy
 
 ### Community 188 - "OpeningBlockBootstrap"
-Cohesion: 0.25
-Nodes (7): OpeningBlockBootstrap, complete_blocks, confidence_lower, confidence_upper, incomplete_blocks, point_estimate, promoted
+Cohesion: 0.18
+Nodes (11): Task 8: Streaming inference metrics and summaries, OpeningBlockBootstrap, complete_blocks, confidence_lower, confidence_upper, incomplete_blocks, point_estimate, promoted (+3 more)
 
-### Community 189 - ".advance"
-Cohesion: 0.50
-Nodes (3): Status, NeedsEvaluation, Ready
+### Community 189 - "Binary Replay Segments Design"
+Cohesion: 0.29
+Nodes (6): Acceptance, Binary Replay Segments Design, Chosen design, Goal, Rollout, Transactions and identity
 
 ### Community 190 - "VectorNode"
 Cohesion: 0.25
 Nodes (8): VectorNode, edge_begin, edge_count, expanded, seat, state, terminal, total_visits
 
-### Community 191 - "2. Goals and non-goals"
-Cohesion: 0.67
-Nodes (3): 2. Goals and non-goals, Goals, Non-goals
+### Community 191 - "학습 파이프라인 정리와 파일별 설명"
+Cohesion: 0.29
+Nodes (6): 방향, 보존할 것, 상세 주석의 기준, 완료 증거와 최신 사용자 지시, 정리 범위, 학습 파이프라인 정리와 파일별 설명
 
 ### Community 192 - "LearningDiagnosticResult"
 Cohesion: 0.17
@@ -1063,6 +1069,10 @@ Nodes (6): Commands, Held-out metrics, Inputs and immutability, Min iteration-25
 Cohesion: 0.33
 Nodes (6): Comparisons, Comparisons, Decision classification, full, Min serial-search sweep — 2026-09-01, smoke
 
+### Community 195 - "play_arena_schedule"
+Cohesion: 0.29
+Nodes (4): arena_seed(), opening(), play_arena_schedule(), training_metrics_json()
+
 ### Community 196 - "Q: How does the panel show native expert arena evaluation progress?"
 Cohesion: 0.40
 Nodes (4): Answer, Outcome, Q: How does the panel show native expert arena evaluation progress?, Source Nodes
@@ -1071,25 +1081,41 @@ Nodes (4): Answer, Outcome, Q: How does the panel show native expert arena evalu
 Cohesion: 0.40
 Nodes (4): Answer, Outcome, Q: How does the immutable Min comparative plan reuse frozen native specialist references?, Source Nodes
 
+### Community 198 - "VacancyDistillationResult"
+Cohesion: 0.33
+Nodes (6): VacancyDistillationResult, final, initial, policy_kl, trainable_gradient_l2, trainable_update_l2
+
 ### Community 199 - "EpisodeJob"
-Cohesion: 0.14
-Nodes (14): 1. Two defects, one untested function, 2. The fix, 3. Measured: a Min iteration on one RTX 4090, 4. The completion curve separates the two effects, 5. Where to pick up, 6. Setup notes for the next machine, Tested, and each assertion verified by breaking what it covers, The promotion arena: what it cost, what was fixed, what is still open (+6 more)
+Cohesion: 0.22
+Nodes (10): 1. Two defects, one untested function, 2. The fix, 3. Measured: a Min iteration on one RTX 4090, 4. The completion curve separates the two effects, 5. Where to pick up, 6. Setup notes for the next machine, Tested, and each assertion verified by breaking what it covers, The promotion arena: what it cost, what was fixed, what is still open (+2 more)
+
+### Community 200 - "Resolved: the 768-game completion regression was a match-construction bug"
+Cohesion: 0.33
+Nodes (5): Consequences for other measurements, Prevention, Resolved: the 768-game completion regression was a match-construction bug, What survives from it, What was wrong in the earlier analysis
+
+### Community 201 - "VacancyTarget"
+Cohesion: 0.40
+Nodes (4): VacancyTarget, actions, probabilities, progress
 
 ### Community 202 - "Min next intervention — measured decision"
 Cohesion: 0.29
 Nodes (6): Authorized change, Evidence and gate values, Expected improvement and rollback, Min next intervention — measured decision, Rejected branches, Selected branch
 
-### Community 204 - "decisions.md"
-Cohesion: 0.27
+### Community 203 - "Decisions"
+Cohesion: 0.40
 Nodes (5): 1. Training game execution requires the native extension, 2. The golden corpus is frozen as the normative game contract, 3. The Python engine and its oracle are deleted, Decisions, Phases these two open
 
-### Community 205 - "NetworkConfig"
-Cohesion: 0.29
-Nodes (3): NetworkConfig, residual_blocks, width
+### Community 205 - "Min 512 by 12 local training"
+Cohesion: 0.40
+Nodes (4): CPU inference measurements on October 30 2026, Heuristic free continuation, Heuristic removal readiness on October 30 2026, Min 512 by 12 local training
 
 ### Community 206 - "Chart.svelte"
-Cohesion: 0.33
-Nodes (4): chartData(), colors, data, { metrics, keys, labels, title, unit = '' }
+Cohesion: 0.29
+Nodes (5): chartData(), colors, data, { metrics, keys, labels, title, unit = '' }, Native SVG metric plot
+
+### Community 207 - "Q: How are weak turn orders weighted during training?"
+Cohesion: 0.40
+Nodes (4): Answer, Outcome, Q: How are weak turn orders weighted during training?, Source Nodes
 
 ### Community 208 - ".submit"
 Cohesion: 0.40
@@ -1099,9 +1125,9 @@ Nodes (5): Two attempted optimizations, both reverted, Finding 1 — the coordin
 Cohesion: 0.33
 Nodes (5): Execution ledger, Global constraints, Goal-aware training implementation plan, Review focus, Tasks and verification
 
-### Community 210 - "BatchEvaluator"
-Cohesion: 0.12
-Nodes (9): Execution ledger, Global constraints, Min Turn-Order Experts Implementation Plan, Review focus, Tasks, ArenaModelRouter, candidate_player_by_job_, MinExpertRouter (+1 more)
+### Community 210 - "BatchItem"
+Cohesion: 0.09
+Nodes (21): fill_zero_values(), UniformArm, Goal-aware training, Starting from an existing model, Verification and limits, ArenaModelRouter, candidate_player_by_job_, BatchEvaluator (+13 more)
 
 ### Community 211 - "Python-zero final acceptance"
 Cohesion: 0.33
@@ -1114,6 +1140,14 @@ Nodes (6): 11.1 What "parity" means here, and why it changes the testing, 11.2 W
 ### Community 213 - "Historical storage guide and manifests"
 Cohesion: 0.33
 Nodes (6): Contents, Historical fixture manifest, Historical storage guide and manifests, Immutable paths, Promotion, Sync
+
+### Community 215 - "read_exact"
+Cohesion: 0.50
+Nodes (3): load_topology_from_dir(), read_exact(), read_i32()
+
+### Community 216 - "moves_from"
+Cohesion: 0.50
+Nodes (4): 4. Findings, Ordering parity is the real content of Gate A, The step-beats-jump rule can never actually fire, moves_from()
 
 ### Community 217 - "Phase"
 Cohesion: 0.33
@@ -1135,9 +1169,9 @@ Nodes (3): alphadiamond-rating-sync, diamond_orchestration, diamond_rating
 Cohesion: 0.50
 Nodes (4): Build and validation, Frozen contracts, Historical evidence, Native products, one core
 
-### Community 223 - "string"
-Cohesion: 0.18
-Nodes (10): checkpoint_provenance(), source_git_commit(), build_provenance_json(), append_json(), append_string(), canonical_json(), string(), load_topology_from_dir() (+2 more)
+### Community 223 - "json.cpp"
+Cohesion: 0.32
+Nodes (3): append_json(), append_string(), canonical_json()
 
 ### Community 224 - "Engine development build workflow"
 Cohesion: 0.50
@@ -1148,8 +1182,8 @@ Cohesion: 0.43
 Nodes (5): Execution Notes, append_runtime_dir(), find_tool(), cmake.sh script, usage()
 
 ### Community 226 - "Binary Replay Segments Implementation Plan"
-Cohesion: 0.17
-Nodes (13): Binary Replay Segments Implementation Plan, Global Constraints, Self-review, Task 1: Deterministic binary-v1 codec, Task 2: Schema 5 mixed-format replay store, Task 3: Timed ingest and reopen comparison, Task 4: Boundary deployment and verification, Acceptance (+5 more)
+Cohesion: 0.39
+Nodes (7): Binary Replay Segments Implementation Plan, Global Constraints, Self-review, Task 1: Deterministic binary-v1 codec, Task 2: Schema 5 mixed-format replay store, Task 3: Timed ingest and reopen comparison, Task 4: Boundary deployment and verification
 
 ### Community 227 - "0. Where things stand right now"
 Cohesion: 0.50
@@ -1163,9 +1197,17 @@ Nodes (3): Comparison evidence, Python-zero benchmark disposition, Tool disposit
 Cohesion: 0.50
 Nodes (3): Bounded parameter measurements, Min topology repair and fresh restart, Self-play selection and startup gate
 
-### Community 232 - "The replay store is a durable dataset with a stateless sampler"
-Cohesion: 0.33
-Nodes (5): Consequence for tests, The manifest is contents identity only, The replay store is a durable dataset with a stateless sampler, What changed, Why this is safe for resume
+### Community 230 - "Rating v2 Hugging Face synchronization"
+Cohesion: 0.50
+Nodes (3): Bucket wrapper, Protocol input and output, Rating v2 Hugging Face synchronization
+
+### Community 231 - "Repository split and SDK upgrades"
+Cohesion: 0.67
+Nodes (3): Independent releases, Models and rollback, Repository split and SDK upgrades
+
+### Community 232 - "GPU runs"
+Cohesion: 0.67
+Nodes (3): GPU runs, Run 1 — trained model, 32 sims, `max_wait_ms: 2`, `max_moves: 2000`, Run 2 — untrained network, 32 sims, `max_wait_ms: 20`, `max_moves: 200`
 
 ### Community 233 - "CheckpointLoadIntent"
 Cohesion: 0.50
@@ -1195,9 +1237,9 @@ Nodes (3): EvalOutcome3P, priors, value
 Cohesion: 0.50
 Nodes (3): LoadedCheckpoint, identity, pool
 
-### Community 251 - "JsonValue"
-Cohesion: 0.20
-Nodes (10): ReplayOpenMode, create_if_missing, must_exist, JsonValue, value, compatibility_from_json(), integer(), legacy_sample() (+2 more)
+### Community 251 - "ReplayStore::ReplayStore"
+Cohesion: 0.16
+Nodes (15): ReplayOpenMode, create_if_missing, must_exist, atomic_write(), compatibility_json(), encoding_from_string(), encoding_name(), extended_windows_path() (+7 more)
 
 ### Community 254 - "sync_ratings.sh"
 Cohesion: 0.67
@@ -1225,13 +1267,13 @@ Nodes (4): Answer, Outcome, Q: How does the training panel read native training 
 
 ## Knowledge Gaps
 - **1091 isolated node(s):** `repetitions`, `scratch`, `device`, `repetitions`, `warmups` (+1086 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1987 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **14 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1994 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **16 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `string()` connect `string` to `run_state.cpp`, `string`, `replay_store.cpp`, `trainer.cpp`, `cstdint`, `rating.cpp`, `MinRatingEvent`, `Options`, `ProductionConfig`, `Totals`, `ProductionConfig::from_json`, `OpeningBlockSummary`, `fstream`, `ReplayStore::Impl`, `train_main.cpp`, `EncodingVersion`, `rating_store.cpp`, `CommandRequest`, `AlphaDiamond Milestone 2 Implementation Plan`, `Options`, `RatingRegistry`, `schedule.cpp`, `ResolvedDevice`, `RunState`, `SelfPlayResult`, `checkpoint.cpp`, `stdexcept`, `IterationRequest`, `MaterializedOpeningSuite`, `CheckpointError`, `promotion.cpp`, `JsonParser`, `execute_stage`, `execute_train_stage`, `rating_sync_main.cpp`, `Options`, `report.cpp`, `SooRatingEvent`, `Compatibility`, `MaterializedOpeningSuite`, `CheckpointProvenance`, `selfplay_benchmark.cpp`, `CheckpointInfo`, `load_checkpoint`, `run`, `replay_segment.cpp`, `replay_segment.cpp`, `EloConfig`, `Options`, `Args`, `checkpoint_benchmark.cpp`, `DeploymentArtifact`, `ModelIndex`, `pipeline.cpp`, `SelfPlayConfig`, `training_wiring.cpp`, `ReplayStore::ingest_iteration`, `soo_model.cpp`, `Episode`, `CheckpointLineage`, `min_learning_diagnostic.cpp`, `TrainingConfig`, `MinOpeningBlockResult`, `ScheduleError`, `IterationResult`, `checkpoint_export.cpp`, `release_main.cpp`, `min_vacancy_realizability.cpp`, `Options`, `min_bootstrap_probe.cpp`, `MaterializedOpening`, `ModelKey`, `EpisodeRecord`, `MinRating`, `EpisodeDiagnostics`, `SooLeaderboardEntry`, `TrainingIterationWiring`, `JsonValue`?**
+- **Why does `string()` connect `string` to `run_state.cpp`, `replay_store.cpp`, `trainer.cpp`, `cstdint`, `rating.cpp`, `State`, `SooRatingEvent`, `Options`, `ProductionConfig`, `Totals`, `ProductionConfig::from_json`, `OpeningBlockSummary`, `fstream`, `ReplayStore::Impl`, `train_main.cpp`, `EncodingVersion`, `rating_store.cpp`, `execute_train_stage`, `CommandRequest`, `AlphaDiamond Milestone 2 Implementation Plan`, `Options`, `RatingRegistry`, `schedule.cpp`, `ResolvedDevice`, `RunState`, `SelfPlayResult`, `checkpoint.cpp`, `stdexcept`, `IterationRequest`, `MaterializedOpeningSuite`, `CheckpointError`, `promotion.cpp`, `JsonParser`, `PipelineError`, `RunResult`, `rating_sync_main.cpp`, `Options`, `report.cpp`, `Compatibility`, `MaterializedOpeningSuite`, `CheckpointProvenance`, `selfplay_benchmark.cpp`, `min_expert_arena.cpp`, `CheckpointInfo`, `load_checkpoint`, `run`, `replay_segment.cpp`, `MinRatedMatch`, `SooRatedMatch`, `Options`, `Args`, `checkpoint_main.cpp`, `DeploymentArtifact`, `ModelIndex`, `SelfPlayConfig`, `training_wiring.cpp`, `ReplayStore::ingest_iteration`, `soo_model.cpp`, `Episode`, `CheckpointLineage`, `TrainingConfig`, `IterationResult`, `checkpoint_export.cpp`, `release_main.cpp`, `min_vacancy_realizability.cpp`, `Options`, `MaterializedOpening`, `ModelKey`, `EpisodeRecord`, `WorkerConfig`, `MinRating`, `EpisodeDiagnostics`, `SooLeaderboardEntry`, `play_arena_schedule`, `read_exact`, `json.cpp`, `TrainingIterationWiring`, `ReplayStore::ReplayStore`?**
   _High betweenness centrality (0.330) - this node is a cross-community bridge._
 - **Are the 4 inferred relationships involving `ProductionConfig` (e.g. with `Findings that change the design (discovered, not in the prompt)` and `Task 13A: Generalize the scheduler from lane IDs to evaluation tickets`) actually correct?**
   _`ProductionConfig` has 4 INFERRED edges - model-reasoned connections that need verification._
@@ -1239,9 +1281,9 @@ _Questions this graph is uniquely positioned to answer:_
   _1091 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `run_state.cpp` be split into smaller, more focused modules?**
   _Cohesion score 0.0635814889336016 - nodes in this community are weakly interconnected._
-- **Why does `State` connect `State` to `Match`, `cstdint`, `BatchItem`, `ModelPool`, `SearchSession`, `Native Soo Self-Play — Phase 0 Design`, `SearchSession3P`, `train_main.cpp`, `mcts3p.cpp`, `run_episodes`, `min_bootstrap_probe.cpp`, `MaterializedOpening`, `EpisodeSearch`, `Arena`, `EpisodeLane`, `ResolvedDevice`, `RunState`, `main`, `VectorNode`, `Lane`, `SearchResult`, `execute_stage`, `execute_train_stage`, `EpisodeJob`, `Options`, `StageTiming`?**
-  _High betweenness centrality (0.052) - this node is a cross-community bridge._
+- **Why does `ProductionConfig` connect `ProductionConfig` to `MCTSConfig`, `string`, `AlphaDiamond Python-Zero Migration Design`, `min_learning_diagnostic.cpp`, `TrainingConfig`, `State`, `ProductionConfig::from_json`, `train_main.cpp`, `execute_train_stage`, `WorkerConfig`, `ReplayConfig`, `ResolvedDevice`, `ArenaConfig`, `RunState`, `InferenceConfig`, `RTX 5060 Ti Worker-Scaling Findings`, `main`, `MaterializedOpeningSuite`, `학습 파이프라인 정리와 파일별 설명`, `play_arena_schedule`, `min_expert_arena.cpp`, `RTX 3060 GPU Training Runbook`, `RTX 3060 AlphaZero Training Implementation Plan`, `run_self_play`, `SelfPlayConfig`, `Min A0 Transition and Parallel MCTS Decision Implementation Plan`, `training_wiring.cpp`?**
+  _High betweenness centrality (0.049) - this node is a cross-community bridge._
 - **Are the 12 inferred relationships involving `State` (e.g. with `8. Phase 1 implementation plan` and `Steps 1–4 — prior, rules, state, encoder`) actually correct?**
   _`State` has 12 INFERRED edges - model-reasoned connections that need verification._
 - **Should `Match` be split into smaller, more focused modules?**
-  _Cohesion score 0.08465608465608465 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.0748663101604278 - nodes in this community are weakly interconnected._

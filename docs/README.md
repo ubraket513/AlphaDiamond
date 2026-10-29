@@ -9,6 +9,9 @@ Read the current guides in this order:
 5. [Model artifact v3](architecture/model_artifact_v3.md), [goal-aware training](model-training/goal-aware-training.md) and [Min specialists](model-training/min_turn_order_experts.md).
 6. [Training panel](../training-panel/README.md): current configuration selection, launching and monitoring.
 
+For the current large Min experiment, see [Min 512 by 12 local training](model-training/min_512x12_local.md)
+for heuristic-removal readiness, CPU inference measurements and continuation settings.
+
 `architecture/` contains product contracts and decisions. `development/` contains
 current contributor guidance. `model-training/` combines current operating guides
 with experiment analyses; dated result sections retain their recorded settings

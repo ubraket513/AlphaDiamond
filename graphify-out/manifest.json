@@ -1527,9 +1527,9 @@
     "semantic_hash": ""
   },
   "docs/README.md": {
-    "mtime": 1793267411.66078,
-    "seen": 1793267567.3606017,
-    "ast_hash": "a2243a02deb8ea606c0f04b928a61784",
+    "mtime": 1793291318.1696284,
+    "seen": 1793291351.1533484,
+    "ast_hash": "ec057fcc287bbf43f08a9ea0d4650477",
     "semantic_hash": ""
   },
   "docs/archive/inventories/2026-08-24-python-zero-inventory.md": {
@@ -1890,6 +1890,18 @@
     "mtime": 1791891776.1822882,
     "seen": 1793275499.6371534,
     "ast_hash": "d1f6d2049c823abdd50a80b638419a69",
+    "semantic_hash": ""
+  },
+  "docs/model-training/min_512x12_local.md": {
+    "mtime": 1793291410.4294376,
+    "seen": 1793291487.3110073,
+    "ast_hash": "b300fed19964805e9c3a45d1872deeba",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20261029_144846_f3ce7141_how_are_weak_turn_orders_weighted_during_training.md": {
+    "mtime": 1793285326.9305618,
+    "seen": 1793291351.1533954,
+    "ast_hash": "b642f764bf5f6c305a9273c34f1f079e",
     "semantic_hash": ""
   },
   "training-panel/package-lock.json": {

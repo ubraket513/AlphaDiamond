@@ -672,6 +672,15 @@ std::vector<TrainingSample> ReplayStore::sample(size_t count, uint64_t seed) con
 ReplaySamplingStats ReplayStore::last_sampling_stats() const noexcept {
     return impl_ ? impl_->sampling_stats : ReplaySamplingStats{};
 }
+std::vector<TrainingSample> ReplayStore::samples_at(std::span<const std::size_t> indices) const {
+    if (impl_->contents == ReplayContents::metadata_only)
+        throw std::logic_error("replay store was opened metadata-only and holds no samples");
+    std::vector<TrainingSample> out;
+    out.reserve(indices.size());
+    for (const auto index : indices) out.push_back(impl_->samples.at(index));
+    impl_->sampling_stats = {.selection_slots = indices.size(), .copied_samples = out.size()};
+    return out;
+}
 void ReplayStore::prune() {
     // Publish reachability first. Failure during later cleanup can leave extra
     // files, but must not make the manifest reference a deleted chunk.

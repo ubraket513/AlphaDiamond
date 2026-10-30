@@ -159,6 +159,8 @@ struct TrainingConfig final {
     double weight_decay = 1e-4;
     uint64_t seed = 0;
     std::string policy_loss_domain = "full";
+    // Zero preserves uniform replay; otherwise mix shuffled recent/history passes.
+    double recent_sample_fraction = 0.0;
 
     void validate() const;
     diamond_support::JsonValue to_json() const;

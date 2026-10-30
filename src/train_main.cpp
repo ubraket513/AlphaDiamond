@@ -481,6 +481,7 @@ diamond_pipeline::IterationRequest iteration_job(const ProductionConfig& config,
     }
     job.training_batch_size = wiring.training_batch_size;
     job.training_steps = wiring.training_steps;
+    job.recent_sample_fraction = config.training.recent_sample_fraction;
     job.iteration = static_cast<uint64_t>(iteration);
     return job;
 }
@@ -1174,7 +1175,20 @@ StageOutcome execute_train_stage(const CommandRequest& request, const Production
         const auto key =
             diamond_pipeline::ModelKey{compatibility.model_name, compatibility.model_version,
                                        diamond_training::canonical_model_digest(trainer.learner())};
-        trained = diamond_pipeline::train_replay(iteration_job(config, state, operation, key),
+        auto job = iteration_job(config, state, operation, key);
+        if (job.recent_sample_fraction > 0) {
+            const auto ingest = read_object(
+                stage_report_path(request, iteration, RunStage::replay_ingest), "replay ingest report");
+            const auto accepted = std::get<int64_t>(ingest.at("accepted_samples").value);
+            const auto duplicate = std::get<int64_t>(ingest.at("duplicate_samples").value);
+            if (accepted < 0 || duplicate < 0 ||
+                static_cast<uint64_t>(accepted) + static_cast<uint64_t>(duplicate) > replay->size())
+                throw CommandArtifactError("recent replay samples were lost before training");
+            if (std::get<std::string>(ingest.at("replay_manifest_sha256").value) != replay->manifest_digest())
+                throw CommandArtifactError("recent replay manifest differs from ingest report");
+            job.recent_sample_count = static_cast<std::size_t>(accepted + duplicate);
+        }
+        trained = diamond_pipeline::train_replay(job,
                                                  *replay, trainer, {},
             [&](const diamond_pipeline::TrainingResult& current) {
                 Object details{
@@ -1256,6 +1270,8 @@ StageOutcome execute_train_stage(const CommandRequest& request, const Production
             {"replay_open_seconds", Json{replay_open_seconds}},
             {"replay_sample_seconds", Json{trained.replay_sample_seconds}},
             {"replay_sample_max_seconds", Json{trained.replay_sample_max_seconds}},
+            {"recent_samples_drawn", must_train && config.training.recent_sample_fraction > 0
+                 ? Json{static_cast<int64_t>(trained.recent_samples_drawn)} : Json{}},
             {"training_step", Json{static_cast<int64_t>(trained.training_step)}},
             {"trained_checkpoint", Json{staged.string()}},
         },

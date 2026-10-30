@@ -7,6 +7,7 @@
 #include <bit>
 #include <fstream>
 #include <iterator>
+#include <utility>
 
 namespace diamond_training {
 namespace {
@@ -138,6 +139,17 @@ diamond_model::DeploymentArtifact export_checkpoint(const std::filesystem::path&
         write_i32(destination / "topology_canonical_to_physical.i32", topology.canonical_to_physical);
         Json commit{nullptr};
         if (info.provenance->source_git_commit != "unavailable") commit = Json{info.provenance->source_git_commit};
+        Object source{{"checkpoint_sha256", Json{info.model_digest}}, {"training_commit", commit},
+                      {"training_step", Json{static_cast<int64_t>(info.training_step)}}};
+        if (min) {
+            const auto config = std::get<Object>(
+                diamond_support::parse_json(info.provenance->resolved_config_bytes).value);
+            if (const auto self_play = config.find("self_play"); self_play != config.end()) {
+                const auto& settings = std::get<Object>(self_play->second.value);
+                if (const auto group = settings.find("turn_order_group"); group != settings.end())
+                    source.emplace("turn_order_group", group->second);
+            }
+        }
         const auto metadata = diamond_support::canonical_json(Json{Object{
             {"architecture", Json{Object{{"residual_blocks", Json{blocks}}, {"width", Json{width}}, {"type", Json{std::string("directional_residual")}}}}},
             {"corpus_seed", Json{int64_t{0}}}, {"dtype", Json{std::string("float32")}}, {"format_version", Json{int64_t{3}}},
@@ -145,7 +157,7 @@ diamond_model::DeploymentArtifact export_checkpoint(const std::filesystem::path&
             {"model_family", Json{std::string(min ? "min" : "soo")}}, {"model_version", Json{version}},
             {"model_sha256", Json{canonical_model_digest(model)}},
             {"runtime_sha256", Json{diamond_model::deployment_runtime_sha256(destination, width, blocks, features, values)}},
-            {"source", Json{Object{{"checkpoint_sha256", Json{info.model_digest}}, {"training_commit", commit}, {"training_step", Json{static_cast<int64_t>(info.training_step)}}}}},
+            {"source", Json{std::move(source)}},
             {"tensor_shapes", Json{Object{{"input", Json{Json::Array{Json{int64_t{1}}, Json{int64_t{73}}, Json{features}}}}, {"policy", Json{Json::Array{Json{int64_t{1}}, Json{int64_t{5329}}}}}, {"value", Json{Json::Array{Json{int64_t{1}}, Json{values}}}}}}}
         }});
         write(destination / "metadata.json", metadata.data(), metadata.size());

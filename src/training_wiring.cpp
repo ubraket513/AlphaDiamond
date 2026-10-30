@@ -89,6 +89,8 @@ validate_training_config_transition(const ProductionConfig& from, const Producti
          "training.train_steps_per_iteration");
     note(from.training.policy_loss_domain != to.training.policy_loss_domain,
          "training.policy_loss_domain");
+    note(from.training.recent_sample_fraction != to.training.recent_sample_fraction,
+         "training.recent_sample_fraction");
     note(from.mcts.repeat_window != to.mcts.repeat_window, "mcts.repeat_window");
     note(from.mcts.simulations_late != to.mcts.simulations_late, "mcts.simulations_late");
     note(from.self_play.repetition_temperature != to.self_play.repetition_temperature,
@@ -120,6 +122,7 @@ validate_training_config_transition(const ProductionConfig& from, const Producti
     immutable_projection.training.train_steps_per_iteration =
         from.training.train_steps_per_iteration;
     immutable_projection.training.policy_loss_domain = from.training.policy_loss_domain;
+    immutable_projection.training.recent_sample_fraction = from.training.recent_sample_fraction;
     immutable_projection.mcts.repeat_window = from.mcts.repeat_window;
     immutable_projection.mcts.simulations_late = from.mcts.simulations_late;
     immutable_projection.self_play.repetition_temperature = from.self_play.repetition_temperature;

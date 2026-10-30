@@ -302,8 +302,6 @@ DeploymentArtifact validate_deployment_artifact(const std::filesystem::path& roo
     static const std::set<std::string> shape_keys = {"input", "policy", "value"};
     static const std::set<std::string> source_keys = {
         "checkpoint_sha256", "training_commit", "training_step"};
-    static const std::set<std::string> source_keys_with_simulations = {
-        "checkpoint_sha256", "training_commit", "training_simulations", "training_step"};
 
     const JsonValue parsed = diamond_support::parse_json(read_text(root / "metadata.json"));
     const auto* object = std::get_if<JsonValue::Object>(&parsed.value);
@@ -339,12 +337,21 @@ DeploymentArtifact validate_deployment_artifact(const std::filesystem::path& roo
     if (model_version.empty()) throw std::runtime_error("metadata model_version is empty");
 
     const JsonValue::Object& architecture = object_field(*object, "architecture");
-    require_keys(architecture, architecture_keys, "architecture");
-    require_string(architecture, "type", "directional_residual");
-    const int64_t width = integer_field(architecture, "width");
-    const int64_t blocks = integer_field(architecture, "residual_blocks");
-    if (width <= 0 || blocks <= 0)
-        throw std::runtime_error("metadata architecture must be positive");
+    const bool moe = string_field(architecture, "type") == "min_turn_order_moe";
+    int64_t width = 0, blocks = 0;
+    if (moe) {
+        require_keys(architecture, {"type", "routing", "experts"}, "architecture");
+        require_string(architecture, "routing", "min-turn-order-geometry-v1");
+        if (family != "min" || input_features != 9)
+            throw std::runtime_error("turn-order MoE requires nine-feature Min encoding");
+    } else {
+        require_keys(architecture, architecture_keys, "architecture");
+        require_string(architecture, "type", "directional_residual");
+        width = integer_field(architecture, "width");
+        blocks = integer_field(architecture, "residual_blocks");
+        if (width <= 0 || blocks <= 0)
+            throw std::runtime_error("metadata architecture must be positive");
+    }
 
     const JsonValue::Object& shapes = object_field(*object, "tensor_shapes");
     require_keys(shapes, shape_keys, "tensor_shapes");
@@ -353,20 +360,77 @@ DeploymentArtifact validate_deployment_artifact(const std::filesystem::path& roo
     require_batched_shape(shapes, "value", {value_size});
 
     const JsonValue::Object& provenance = object_field(*object, "source");
-    require_keys(provenance,
-                 provenance.contains("training_simulations") ? source_keys_with_simulations
-                                                             : source_keys,
-                 "source");
+    auto expected_source_keys = source_keys;
+    if (provenance.contains("training_simulations")) expected_source_keys.insert("training_simulations");
+    if (provenance.contains("turn_order_group")) expected_source_keys.insert("turn_order_group");
+    require_keys(provenance, expected_source_keys, "source");
     require_nullable_digest(provenance, "checkpoint_sha256");
     require_nullable_commit(provenance, "training_commit");
     require_nullable_nonnegative_integer(provenance, "training_step");
     if (provenance.contains("training_simulations"))
         require_nullable_nonnegative_integer(provenance, "training_simulations");
+    std::string turn_order_group;
+    if (provenance.contains("turn_order_group")) {
+        turn_order_group = string_field(provenance, "turn_order_group");
+        if (family != "min" || (turn_order_group != "all" && turn_order_group != "cyclic" &&
+                                turn_order_group != "reverse"))
+            throw std::runtime_error("metadata turn_order_group is invalid");
+    }
 
     (void)integer_field(*object, "corpus_seed");
 
     const std::string model_hash = string_field(*object, "model_sha256");
     if (!is_hex_digest(model_hash)) throw std::runtime_error("metadata model_sha256 is invalid");
+    const std::string runtime_hash = string_field(*object, "runtime_sha256");
+    if (!is_hex_digest(runtime_hash)) throw std::runtime_error("metadata runtime_sha256 is invalid");
+    if (moe) {
+        require_keys(provenance, source_keys, "MoE source");
+        for (const auto& [name, value] : provenance)
+            if (!std::holds_alternative<std::nullptr_t>(value.value))
+                throw std::runtime_error("MoE source must retain provenance in its experts: " + name);
+        for (const char* name : kRuntimeFiles)
+            if (std::string_view(name) != "metadata.json" && std::filesystem::exists(root / name))
+                throw std::runtime_error("MoE root must not contain topology tables");
+        if (std::filesystem::exists(root / "weights") || std::filesystem::exists(root / "model.ts"))
+            throw std::runtime_error("MoE root must not contain its own model weights");
+        const auto& descriptors = object_field(architecture, "experts");
+        require_keys(descriptors, {"cyclic", "reverse"}, "MoE experts");
+        std::vector<DeploymentArtifact> experts;
+        for (const char* role : {"cyclic", "reverse"}) {
+            const auto& descriptor = object_field(descriptors, role);
+            require_keys(descriptor, {"path", "model_sha256", "runtime_sha256", "metadata_sha256"},
+                         "MoE expert descriptor");
+            const std::string relative = std::string("experts/") + role;
+            require_string(descriptor, "path", relative);
+            const auto child_root = root / relative;
+            if (std::filesystem::is_symlink(root / "experts") ||
+                std::filesystem::is_symlink(child_root))
+                throw std::runtime_error("MoE expert must not be a symlink");
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(child_root))
+                if (entry.is_symlink())
+                    throw std::runtime_error("MoE expert contains a symlink: " + entry.path().string());
+            const auto child_bytes = read_text(child_root / "metadata.json");
+            require_string(descriptor, "metadata_sha256", diamond_support::sha256(child_bytes));
+            const auto child_metadata = diamond_support::parse_json(child_bytes);
+            const auto* child = std::get_if<JsonValue::Object>(&child_metadata.value);
+            if (!child) throw std::runtime_error("MoE expert metadata must be an object");
+            require_string(object_field(*child, "architecture"), "type", "directional_residual");
+            auto expert = validate_deployment_artifact(child_root, "min");
+            require_string(descriptor, "model_sha256", expert.model_sha256);
+            require_string(descriptor, "runtime_sha256", expert.runtime_sha256);
+            if (expert.encoder_version != encoder_version || expert.input_features != input_features ||
+                expert.value_size != value_size || expert.turn_order_group != role)
+                throw std::runtime_error("MoE expert contract or turn-order provenance mismatch");
+            experts.push_back(std::move(expert));
+        }
+        const auto canonical = diamond_support::canonical_json(JsonValue{architecture});
+        if (model_hash != diamond_support::sha256("min-turn-order-moe:model\n" + canonical) ||
+            runtime_hash != diamond_support::sha256("min-turn-order-moe:runtime\n" + canonical))
+            throw std::runtime_error("MoE composite SHA-256 mismatch");
+        return DeploymentArtifact{root, {}, family, model_version, model_hash, runtime_hash,
+                                  0, 0, input_features, value_size, encoder_version, {},
+                                  std::move(experts)};
+    }
     // model.ts is the exporter's TorchScript graph. Nothing in the shipped
     // runtime loads it -- the model is built from the raw weight tensors, whose
     // integrity runtime_sha256 covers below -- so a release package leaves it
@@ -377,8 +441,6 @@ DeploymentArtifact validate_deployment_artifact(const std::filesystem::path& roo
         sha256_file(root / "model.ts") != model_hash) {
         throw std::runtime_error("deployment model SHA-256 mismatch");
     }
-    const std::string runtime_hash = string_field(*object, "runtime_sha256");
-    if (!is_hex_digest(runtime_hash)) throw std::runtime_error("metadata runtime_sha256 is invalid");
 
     const auto weights = root / "weights";
     if (!std::filesystem::is_directory(weights))
@@ -409,7 +471,7 @@ DeploymentArtifact validate_deployment_artifact(const std::filesystem::path& roo
 
     return DeploymentArtifact{root,       weights,        family,         model_version,
                               model_hash, runtime_hash,  width,          blocks,
-                              input_features, value_size, encoder_version};
+                              input_features, value_size, encoder_version, turn_order_group, {}};
 }
 
 DeploymentArtifact validate_deployment_artifact(const std::filesystem::path& root,
@@ -424,31 +486,94 @@ DeploymentArtifact validate_deployment_artifact(const std::filesystem::path& roo
 DeploymentArtifact write_runtime_deployment_artifact(
     const std::filesystem::path& source_root,
     const std::filesystem::path& destination_root) {
-    // Validate before copying so this routine never makes a release-shaped
-    // tree from malformed inputs.  The return value also retains the hashes a
-    // release caller needs when it writes index.json.
-    (void)validate_deployment_artifact(source_root);
+    const auto artifact = validate_deployment_artifact(source_root);
     if (std::filesystem::exists(destination_root))
         throw std::runtime_error("runtime artifact destination already exists: " +
                                  destination_root.string());
     if (absolute_normal(source_root) == absolute_normal(destination_root))
         throw std::runtime_error("runtime artifact destination must differ from source");
-
-    bool created = false;
+    if (destination_root.has_parent_path())
+        std::filesystem::create_directories(destination_root.parent_path());
+    if (!std::filesystem::create_directory(destination_root))
+        throw std::runtime_error("runtime artifact destination already exists: " +
+                                 destination_root.string());
     try {
-        std::filesystem::create_directories(destination_root);
-        created = true;
-        for (const char* name : kRuntimeFiles) {
-            std::filesystem::copy_file(source_root / name, destination_root / name);
+        if (artifact.experts.empty()) {
+            for (const char* name : kRuntimeFiles)
+                std::filesystem::copy_file(source_root / name, destination_root / name);
+            std::filesystem::copy(source_root / "weights", destination_root / "weights",
+                                  std::filesystem::copy_options::recursive);
+        } else {
+            std::filesystem::copy_file(source_root / "metadata.json", destination_root / "metadata.json");
+            write_runtime_deployment_artifact(artifact.experts[0].root,
+                                             destination_root / "experts/cyclic");
+            write_runtime_deployment_artifact(artifact.experts[1].root,
+                                             destination_root / "experts/reverse");
         }
-        std::filesystem::copy(source_root / "weights", destination_root / "weights",
-                              std::filesystem::copy_options::recursive);
         return validate_deployment_artifact(destination_root);
     } catch (...) {
-        if (created) {
-            std::error_code ignored;
-            std::filesystem::remove_all(destination_root, ignored);
+        std::error_code ignored;
+        std::filesystem::remove_all(destination_root, ignored);
+        throw;
+    }
+}
+
+DeploymentArtifact write_min_moe_deployment_artifact(
+    const std::filesystem::path& cyclic_root,
+    const std::filesystem::path& reverse_root,
+    const std::filesystem::path& destination_root,
+    const std::string& version) {
+    if (version.empty()) throw std::runtime_error("Min MoE version must not be empty");
+    const auto cyclic = validate_deployment_artifact(cyclic_root, "min");
+    const auto reverse = validate_deployment_artifact(reverse_root, "min");
+    if (!cyclic.experts.empty() || !reverse.experts.empty() ||
+        cyclic.turn_order_group != "cyclic" || reverse.turn_order_group != "reverse")
+        throw std::runtime_error("Min MoE requires cyclic and reverse leaf provenance");
+    if (cyclic.input_features != reverse.input_features || cyclic.input_features != 9 ||
+        cyclic.value_size != reverse.value_size || cyclic.encoder_version != reverse.encoder_version)
+        throw std::runtime_error("Min MoE experts have incompatible contracts");
+    if (destination_root.has_parent_path())
+        std::filesystem::create_directories(destination_root.parent_path());
+    if (!std::filesystem::create_directory(destination_root))
+        throw std::runtime_error("Min MoE destination already exists: " + destination_root.string());
+    try {
+        const std::array<DeploymentArtifact, 2> experts = {
+            write_runtime_deployment_artifact(cyclic.root, destination_root / "experts/cyclic"),
+            write_runtime_deployment_artifact(reverse.root, destination_root / "experts/reverse")};
+        JsonValue::Object descriptors;
+        for (size_t index = 0; index < experts.size(); ++index) {
+            const std::string role = index == 0 ? "cyclic" : "reverse";
+            const auto& expert = experts[index];
+            descriptors.emplace(role, JsonValue{JsonValue::Object{
+                {"path", JsonValue{"experts/" + role}},
+                {"model_sha256", JsonValue{expert.model_sha256}},
+                {"runtime_sha256", JsonValue{expert.runtime_sha256}},
+                {"metadata_sha256", JsonValue{diamond_support::sha256(read_text(expert.root / "metadata.json"))}}}});
         }
+        JsonValue::Object architecture{
+            {"type", JsonValue{std::string("min_turn_order_moe")}},
+            {"routing", JsonValue{std::string("min-turn-order-geometry-v1")}},
+            {"experts", JsonValue{std::move(descriptors)}}};
+        auto parsed = diamond_support::parse_json(read_text(cyclic.root / "metadata.json"));
+        auto metadata = std::get<JsonValue::Object>(std::move(parsed.value));
+        const auto canonical = diamond_support::canonical_json(JsonValue{architecture});
+        metadata["architecture"] = JsonValue{std::move(architecture)};
+        metadata["model_version"] = JsonValue{version};
+        metadata["model_sha256"] = JsonValue{diamond_support::sha256("min-turn-order-moe:model\n" + canonical)};
+        metadata["runtime_sha256"] = JsonValue{diamond_support::sha256("min-turn-order-moe:runtime\n" + canonical)};
+        metadata["source"] = JsonValue{JsonValue::Object{
+            {"checkpoint_sha256", JsonValue{nullptr}},
+            {"training_commit", JsonValue{nullptr}},
+            {"training_step", JsonValue{nullptr}}}};
+        const auto bytes = diamond_support::canonical_json(JsonValue{std::move(metadata)}) + "\n";
+        std::ofstream output(destination_root / "metadata.json", std::ios::binary);
+        output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        output.close();
+        if (!output) throw std::runtime_error("cannot write Min MoE metadata");
+        return validate_deployment_artifact(destination_root, "min");
+    } catch (...) {
+        std::error_code ignored;
+        std::filesystem::remove_all(destination_root, ignored);
         throw;
     }
 }

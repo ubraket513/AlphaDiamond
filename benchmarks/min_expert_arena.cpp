@@ -89,6 +89,8 @@ struct Arguments {
     std::optional<Path> control;
     std::optional<Path> reference_cyclic;
     std::optional<Path> reference_reverse;
+    std::string shared_group = "all";
+    bool paired = false;
 };
 
 Arguments arguments(int argc, char** argv) {
@@ -98,6 +100,7 @@ Arguments arguments(int argc, char** argv) {
         if (flag != "--cyclic-checkpoint" && flag != "--reverse-checkpoint" &&
             flag != "--shared-checkpoint" && flag != "--shared-control-checkpoint" &&
             flag != "--reference-cyclic-checkpoint" && flag != "--reference-reverse-checkpoint" &&
+            flag != "--shared-turn-order-group" && flag != "--population-mode" &&
             flag != "--config" && flag != "--out")
             throw std::invalid_argument("unknown argument: " + flag);
         if (index + 1 >= argc || std::string_view(argv[index + 1]).starts_with("--") ||
@@ -106,8 +109,8 @@ Arguments arguments(int argc, char** argv) {
         if (!values.emplace(flag, argv[index + 1]).second)
             throw std::invalid_argument("duplicate argument: " + flag);
     }
-    for (const std::string flag : {"--cyclic-checkpoint", "--reverse-checkpoint",
-                                   "--config", "--out"})
+    for (const std::string flag :
+         {"--cyclic-checkpoint", "--reverse-checkpoint", "--config", "--out"})
         if (!values.contains(flag))
             throw std::invalid_argument("required argument: " + flag);
     const bool shared = values.contains("--shared-checkpoint");
@@ -128,8 +131,24 @@ Arguments arguments(int argc, char** argv) {
         result.reference_cyclic = values.at("--reference-cyclic-checkpoint");
         result.reference_reverse = values.at("--reference-reverse-checkpoint");
     }
+    if (values.contains("--shared-turn-order-group")) {
+        if (!shared)
+            throw std::invalid_argument("shared turn-order group requires a shared checkpoint");
+        result.shared_group = values.at("--shared-turn-order-group").string();
+        if (result.shared_group != "all" && result.shared_group != "cyclic" &&
+            result.shared_group != "reverse")
+            throw std::invalid_argument("shared turn-order group must be all, cyclic, or reverse");
+    }
+    if (values.contains("--population-mode")) {
+        const auto mode = values.at("--population-mode").string();
+        if (mode != "single" && mode != "paired")
+            throw std::invalid_argument("population mode must be single or paired");
+        result.paired = mode == "paired";
+    }
     if (values.contains("--shared-control-checkpoint"))
         result.control = values.at("--shared-control-checkpoint");
+    if (result.paired && result.control)
+        throw std::invalid_argument("paired mode cannot include an additional shared control");
     if (std::filesystem::exists(result.out))
         throw std::invalid_argument("output directory must be new: " + result.out.string());
     return result;
@@ -194,9 +213,6 @@ LoadedCheckpoint load_checkpoint(const Path& root, std::string_view expected_gro
     if (source.self_play.turn_order_group != expected_group)
         throw std::invalid_argument("checkpoint turn_order_group must be " +
                                     std::string(expected_group) + ": " + root.string());
-    if (source.network != arena.network)
-        throw std::invalid_argument("checkpoint architecture differs from arena configuration: " +
-                                    root.string());
     const auto manifest_bytes = read(info.generation / "manifest.json");
     const auto manifest = diamond_support::parse_json(manifest_bytes);
     const auto& provenance = object(object(manifest).at("provenance"));
@@ -325,6 +341,15 @@ Json outcome(const ScheduledGame& game, const soo::Episode& episode) {
         placement = std::distance(episode.finish_order.begin(), candidate);
     }
     result.emplace("candidate_placement", placement ? Json{*placement} : Json{nullptr});
+    const auto first = episode.diagnostics.first_finisher;
+    if (first && std::find(game.matchup.seat_assignment.begin(), game.matchup.seat_assignment.end(),
+                           *first) == game.matchup.seat_assignment.end())
+        throw std::runtime_error("Min episode has an unknown first finisher");
+    if (episode.completed && (!first || *first != episode.finish_order.front()))
+        throw std::runtime_error("completed Min episode has inconsistent first finisher");
+    result.emplace("first_finisher", first ? Json{int64_t{*first}} : Json{nullptr});
+    result.emplace("candidate_won",
+                   first ? Json{*first == game.matchup.seat_assignment[0]} : Json{nullptr});
     result.emplace("completed", Json{episode.completed});
     result.emplace("finish_order", integers(episode.finish_order));
     result.emplace("move_count", Json{static_cast<int64_t>(episode.move_count)});
@@ -483,14 +508,14 @@ void run(const Arguments& args) {
     std::optional<LoadedCheckpoint> reference_reverse;
     std::optional<soo::MinExpertRouter> reference_experts;
     if (args.shared) {
-        shared = load_checkpoint(*args.shared, "all", config, device);
+        shared = load_checkpoint(*args.shared, args.shared_group, config, device);
     } else {
         reference_cyclic = load_checkpoint(*args.reference_cyclic, "cyclic", config, device);
         reference_reverse = load_checkpoint(*args.reference_reverse, "reverse", config, device);
         reference_experts.emplace(*reference_cyclic->pool, *reference_reverse->pool);
     }
-    soo::BatchEvaluator& reference = shared
-        ? static_cast<soo::BatchEvaluator&>(*shared->pool) : *reference_experts;
+    soo::BatchEvaluator& reference =
+        shared ? static_cast<soo::BatchEvaluator&>(*shared->pool) : *reference_experts;
     std::optional<LoadedCheckpoint> control;
     if (args.control)
         control = load_checkpoint(*args.control, "all", config, device);
@@ -512,6 +537,7 @@ void run(const Arguments& args) {
         {"schema_version", Json{int64_t{1}}},
         {"status", Json{"running"}},
         {"reference_mode", Json{shared ? "shared" : "expert-pair"}},
+        {"population_mode", Json{args.paired ? "paired" : "single"}},
         {"classifier_version", Json{std::string(kClassifierVersion)}},
         {"config", config.to_json()},
         {"config_file_sha256", Json{diamond_support::sha256(config_bytes)}},
@@ -531,6 +557,8 @@ void run(const Arguments& args) {
     try {
         soo::MinExpertRouter experts(*cyclic.pool, *reverse.pool);
         run_arm(args.out / "experts", config, games, experts, reference);
+        if (args.paired)
+            run_arm(args.out / "reference", config, games, reference, experts);
         if (control)
             run_arm(args.out / "shared-control", config, games, *control->pool, reference);
         invocation.insert_or_assign("status", Json{"complete"});
@@ -550,7 +578,9 @@ int main(int argc, char** argv) {
             std::cout << "min_expert_arena --cyclic-checkpoint DIR --reverse-checkpoint DIR "
                          "(--shared-checkpoint DIR | --reference-cyclic-checkpoint DIR "
                          "--reference-reverse-checkpoint DIR) --config FILE --out NEW_DIR "
-                         "[--shared-control-checkpoint DIR]\n";
+                         "[--shared-control-checkpoint DIR] "
+                         "[--shared-turn-order-group all|cyclic|reverse] "
+                         "[--population-mode single|paired]\n";
             return 0;
         }
         run(arguments(argc, argv));

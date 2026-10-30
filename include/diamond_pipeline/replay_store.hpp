@@ -64,6 +64,8 @@ class ReplayStore {
     // last_sampling_stats(), so const does not imply concurrent-call safety.
     // Metadata-only stores reject sampling, including a zero-count request.
     std::vector<TrainingSample> sample(std::size_t count, uint64_t seed) const;
+    // Copies in caller-specified order, including repeats; rejects invalid indices.
+    std::vector<TrainingSample> samples_at(std::span<const std::size_t> indices) const;
     ReplaySamplingStats last_sampling_stats() const noexcept;
     // Publishes retained episode descriptors before deleting unreachable chunks.
     void prune();

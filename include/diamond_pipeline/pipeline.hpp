@@ -39,6 +39,8 @@ struct IterationRequest {
     // Iteration index, which together with the store's replay seed and the
     // local step fixes every minibatch this iteration will draw.
     uint64_t iteration = 0;
+    double recent_sample_fraction = 0.0;
+    std::size_t recent_sample_count = 0;
 };
 
 struct IterationResult {
@@ -138,6 +140,7 @@ struct TrainingResult {
     // sampling cost rose with capacity would show up here first.
     double replay_sample_seconds = 0.0;
     double replay_sample_max_seconds = 0.0;
+    std::size_t recent_samples_drawn = 0;
 };
 
 // Durable self-play hand-off used between the coordinator's SELF_PLAY and

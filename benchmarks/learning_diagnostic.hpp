@@ -18,6 +18,8 @@ struct LearningDiagnosticConfig {
     std::size_t evaluation_batch = 0;
     std::size_t log_every = 0;
     uint64_t seed = 0;
+    std::size_t recent_samples = 0;
+    double recent_sample_fraction = 0.0;
 };
 struct HeldOutMetrics {
     double target_entropy = 0.0;
@@ -25,6 +27,8 @@ struct HeldOutMetrics {
     double full_kl = 0.0;
     double top1_agreement = 0.0;
     double value_mse = 0.0;
+    double legal_cross_entropy = 0.0;
+    double legal_kl = 0.0;
 };
 struct LearningStepDiagnostic {
     std::size_t local_step = 0;
@@ -44,8 +48,11 @@ struct LearningDiagnosticResult {
     HeldOutMetrics final;
     LearningDrift drift;
     std::vector<LearningStepDiagnostic> steps;
+    std::size_t recent_samples_drawn = 0;
+    std::size_t historical_samples_drawn = 0;
 };
 LearningDiagnosticResult run_min_learning_diagnostic(diamond_training::Trainer& trainer,
                                                      const ReplayStore& replay,
+                                                     const ReplayStore& evaluation_replay,
                                                      const LearningDiagnosticConfig& config);
 } // namespace diamond_pipeline

@@ -4,13 +4,16 @@
 // synchronous operation. Failures propagate; ingestion/training already performed
 // before an error are not rolled back as one transaction.
 #include "diamond_pipeline/pipeline.hpp"
+#include "diamond_pipeline/recent_replay.hpp"
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
 
 
@@ -391,15 +394,24 @@ TrainingResult train_replay(const IterationRequest& request, ReplayStore& replay
                             std::to_string(request.training_batch_size) + ", available " +
                             std::to_string(result.replay_size));
     }
-    // Sampling is stateless: the seed is a pure function of the replay seed,
-    // the iteration and the local step, so a TRAIN stage killed part-way and
-    // re-run from step 0 draws exactly the same minibatch sequence, and the
-    // replay store is never written during training.
+    if (!std::isfinite(request.recent_sample_fraction) || request.recent_sample_fraction < 0 ||
+        request.recent_sample_fraction >= 1)
+        throw PipelineError("recent sample fraction must be in [0, 1)");
+    std::optional<RecentReplay> recent;
+    if (request.recent_sample_fraction > 0 && request.training_steps != 0) {
+        recent.emplace(replay.size(), request.recent_sample_count, request.training_batch_size,
+                       request.recent_sample_fraction,
+                       replay_sampling_seed(replay.replay_seed(), request.iteration, 0));
+        if (request.training_steps < recent->coverage_steps())
+            throw PipelineError("training budget cannot cover every recent replay sample");
+    }
+    // Both samplers reconstruct the same sequence when a TRAIN stage restarts
+    // from step zero. Neither writes replay or durable RNG state during training.
     auto next_progress = std::chrono::steady_clock::now();
     for (std::size_t step = 0; step < request.training_steps; ++step) {
         if (stop.stop_requested()) throw CancelledError("native pipeline cancelled during training");
         const auto drawn = std::chrono::steady_clock::now();
-        auto samples = replay.sample(
+        auto samples = recent ? replay.samples_at(recent->next()) : replay.sample(
             request.training_batch_size,
             replay_sampling_seed(replay.replay_seed(), request.iteration, step));
         const auto sample_seconds =
@@ -409,6 +421,7 @@ TrainingResult train_replay(const IterationRequest& request, ReplayStore& replay
             std::max(result.replay_sample_max_seconds, sample_seconds);
         result.training_metrics.push_back(trainer.train(samples));
         ++result.completed_training_steps;
+        if (recent) result.recent_samples_drawn += recent->recent_per_batch();
         result.training_batch_sizes.push_back(samples.size());
         result.training_step = trainer.training_step();
         if (progress && (step + 1 == request.training_steps ||
@@ -430,7 +443,9 @@ IterationResult run_iteration(const IterationRequest& request, ModelPool& models
                               std::stop_token stop) {
     const auto self_play = run_self_play(request, models, stop);
     const auto ingest = ingest_self_play(replay, self_play.episodes);
-    const auto training = train_replay(request, replay, trainer, stop);
+    auto training_request = request;
+    training_request.recent_sample_count = self_play.new_samples;
+    const auto training = train_replay(training_request, replay, trainer, stop);
     return {.operation_id = request.operation_id,
             .completed_games = self_play.completed_games,
             .aborted_games = self_play.aborted_games,

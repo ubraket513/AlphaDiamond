@@ -2,6 +2,9 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
+#include <optional>
+#include "diamond_pipeline/recent_replay.hpp"
 #include <stdexcept>
 #include <unordered_map>
 
@@ -21,6 +24,7 @@ Evaluation evaluate(diamond_training::Trainer& trainer,
     const int64_t features = trainer.model()->input_features();
     const int64_t values = trainer.model()->value_size();
     std::vector<float> feature_data, policy_data(rows * soo::kActionSize, 0.0F), value_data;
+    std::vector<uint8_t> listed_actions(rows * soo::kActionSize, 0);
     feature_data.reserve(rows * soo::kBoardSize * features);
     value_data.reserve(rows * values);
     double entropy = 0.0;
@@ -31,6 +35,7 @@ Evaluation evaluate(diamond_training::Trainer& trainer,
         value_data.insert(value_data.end(), sample.value_target.begin(), sample.value_target.end());
         for (const auto& [action, probability] : sample.sparse_policy) {
             policy_data[static_cast<std::size_t>(row) * soo::kActionSize + action] = probability;
+            listed_actions[static_cast<std::size_t>(row) * soo::kActionSize + action] = 1;
             if (probability > 0.0F)
                 entropy -= probability * std::log(probability);
         }
@@ -54,13 +59,23 @@ Evaluation evaluate(diamond_training::Trainer& trainer,
     auto predicted = torch::cat(value_batches, 0);
     auto log_probs = torch::log_softmax(logits, 1);
     const double cross_entropy = -(targets * log_probs).sum(1).mean().item<double>();
+    const auto legal = torch::from_blob(listed_actions.data(), {rows, soo::kActionSize},
+                                        torch::TensorOptions().dtype(torch::kUInt8))
+                           .to(torch::kBool);
+    const auto legal_log_probs =
+        torch::log_softmax(
+            logits.masked_fill(legal.logical_not(), -std::numeric_limits<float>::infinity()), 1)
+            .masked_fill(legal.logical_not(), 0.0);
+    const double legal_ce = -(targets * legal_log_probs).sum(1).mean().item<double>();
     const double agreement =
         logits.argmax(1).eq(targets.argmax(1)).to(torch::kFloat32).mean().item<double>();
     return {.metrics = {.target_entropy = entropy / rows,
                         .full_cross_entropy = cross_entropy,
                         .full_kl = std::max(0.0, cross_entropy - entropy / rows),
                         .top1_agreement = agreement,
-                        .value_mse = torch::mse_loss(predicted, value_targets).item<double>()},
+                        .value_mse = torch::mse_loss(predicted, value_targets).item<double>(),
+                        .legal_cross_entropy = legal_ce,
+                        .legal_kl = std::max(0.0, legal_ce - entropy / rows)},
             .logits = logits.detach().clone(),
             .values = predicted.detach().clone()};
 }
@@ -68,13 +83,27 @@ Evaluation evaluate(diamond_training::Trainer& trainer,
 
 LearningDiagnosticResult run_min_learning_diagnostic(diamond_training::Trainer& trainer,
                                                      const ReplayStore& replay,
+                                                     const ReplayStore& evaluation_replay,
                                                      const LearningDiagnosticConfig& config) {
     if (trainer.compatibility().model_name != "Min")
         throw std::invalid_argument("learning diagnostic requires Min");
     if (!config.steps || !config.batch_size || !config.evaluation_samples ||
         !config.evaluation_batch)
         throw std::invalid_argument("learning diagnostic counts must be non-zero");
-    const auto held_out = replay.sample(config.evaluation_samples, config.seed ^ 0xd1a69057ULL);
+    if (config.batch_size > replay.size() || config.evaluation_samples > evaluation_replay.size())
+        throw std::invalid_argument("diagnostic counts exceed replay sizes");
+    std::optional<RecentReplay> recent;
+    if (config.recent_sample_fraction != 0.0) {
+        if (config.recent_samples == 0)
+            throw std::invalid_argument("recent replay requires newly ingested samples");
+        recent.emplace(replay.size(), config.recent_samples, config.batch_size,
+                       config.recent_sample_fraction,
+                       replay_sampling_seed(replay.replay_seed(), config.iteration, 0));
+        if (config.steps < recent->coverage_steps())
+            throw std::invalid_argument("training budget cannot cover every recent replay sample");
+    }
+    const auto held_out =
+        evaluation_replay.sample(config.evaluation_samples, config.seed ^ 0xd1a69057ULL);
     auto start = evaluate(trainer, held_out, config.evaluation_batch);
     LearningDiagnosticResult result;
     result.initial = start.metrics;
@@ -83,9 +112,14 @@ LearningDiagnosticResult run_min_learning_diagnostic(diamond_training::Trainer& 
         std::unordered_map<std::string, torch::Tensor> before;
         for (const auto& parameter : trainer.model()->named_parameters())
             before.emplace(parameter.key(), parameter.value().detach().clone());
-        auto samples = replay.sample(
-            config.batch_size, replay_sampling_seed(replay.replay_seed(), config.iteration, step));
+        auto samples =
+            recent ? replay.samples_at(recent->next())
+                   : replay.sample(config.batch_size, replay_sampling_seed(replay.replay_seed(),
+                                                                           config.iteration, step));
         const auto losses = trainer.train(samples);
+        const auto recent_count = recent ? recent->recent_per_batch() : 0;
+        result.recent_samples_drawn += recent_count;
+        result.historical_samples_drawn += samples.size() - recent_count;
         std::map<diamond_training::ParameterGroup, std::array<double, 3>> squares;
         for (const auto group : {diamond_training::ParameterGroup::input_projection,
                                  diamond_training::ParameterGroup::residual_trunk,

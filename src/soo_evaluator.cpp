@@ -6,11 +6,13 @@
 
 namespace diamond_model {
 
-SooEvaluator::SooEvaluator(SooModel model) : model_(std::move(model)) {
+SooEvaluator::SooEvaluator(SooModel model, torch::Device device)
+    : model_(std::move(model)), device_(device) {
     if (!model_) throw std::invalid_argument("SooEvaluator requires a model");
     if ((model_->input_features() != 4 && model_->input_features() != 6) ||
         model_->value_size() != 1)
         throw std::invalid_argument("SooEvaluator requires a supported Soo architecture");
+    model_->to(device_);
     model_->eval();
 }
 
@@ -32,11 +34,12 @@ soo::EvalOutcome SooEvaluator::evaluate(const soo::Encoded& encoded,
     auto features = torch::from_blob(
                          const_cast<float*>(encoded.node_features.data()),
                          {1, 73, features_per_node}, torch::kFloat32)
-                         .clone();
+                         .clone().to(device_);
     const auto [policy, value] = model_->forward(features);
-    const auto action_index = torch::tensor(legal_actions, torch::TensorOptions().dtype(torch::kLong));
+    const auto action_index = torch::tensor(legal_actions, torch::TensorOptions().dtype(torch::kLong).device(device_));
     const auto legal_logits = policy.index_select(1, action_index);
-    const auto probabilities = torch::softmax(legal_logits, 1).contiguous().view(-1);
+    const auto probabilities = torch::softmax(legal_logits, 1).to(torch::kCPU).contiguous().view(-1);
+    const auto cpu_value = value.to(torch::kCPU);
     const auto values = probabilities.data_ptr<float>();
     soo::EvalOutcome outcome;
     outcome.priors.reserve(legal_actions.size());
@@ -44,7 +47,7 @@ soo::EvalOutcome SooEvaluator::evaluate(const soo::Encoded& encoded,
         if (!std::isfinite(values[i])) throw std::runtime_error("Soo produced a non-finite prior");
         outcome.priors.push_back(static_cast<double>(values[i]));
     }
-    outcome.value = static_cast<double>(value.item<float>());
+    outcome.value = static_cast<double>(cpu_value.item<float>());
     if (!std::isfinite(outcome.value)) throw std::runtime_error("Soo produced a non-finite value");
     return outcome;
 }

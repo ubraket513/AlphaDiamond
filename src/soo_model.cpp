@@ -152,8 +152,10 @@ std::tuple<torch::Tensor, torch::Tensor> DiamondModelImpl::forward(const torch::
     // directly (checkpoint.cpp loads named_buffers()) without going through
     // set_adjacency. Rederiving on a version bump keeps the gather tables from
     // silently describing the previous topology; the check is an integer
-    // compare, not a synchronisation.
-    if (!neighbour_index_.defined() || adjacency._version() != neighbour_tables_version_)
+    // compare, not a synchronisation. Module::to also moves adjacency without
+    // bumping that version, so its derived tables must follow the device.
+    if (!neighbour_index_.defined() || adjacency._version() != neighbour_tables_version_ ||
+        neighbour_index_.device() != adjacency.device())
         refresh_neighbour_tables();
     auto nodes = input_projection->forward(features);
     for (auto& module : blocks) {

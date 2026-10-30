@@ -516,16 +516,25 @@ void TrainingConfig::validate() const {
         throw ConfigError("training.weight_decay must be a non-negative finite number");
     if (policy_loss_domain != "full" && policy_loss_domain != "legal")
         throw ConfigError("training.policy_loss_domain must be full or legal");
+    if (!std::isfinite(recent_sample_fraction) || recent_sample_fraction < 0 ||
+        recent_sample_fraction >= 1)
+        throw ConfigError("training.recent_sample_fraction must be in [0, 1)");
+    if (recent_sample_fraction > 0 && batch_size < 2)
+        throw ConfigError("recent replay requires training.batch_size >= 2");
 }
 
 Json TrainingConfig::to_json() const {
     validate();
-    return Json{Object{{"batch_size", Json{batch_size}},
-                       {"learning_rate", Json{learning_rate}},
-                       {"policy_loss_domain", Json{policy_loss_domain}},
-                       {"seed", Json{json_integer(seed, "training.seed")}},
-                       {"train_steps_per_iteration", Json{train_steps_per_iteration}},
-                       {"weight_decay", Json{weight_decay}}}};
+    Object result{{"batch_size", Json{batch_size}},
+                  {"learning_rate", Json{learning_rate}},
+                  {"policy_loss_domain", Json{policy_loss_domain}},
+                  {"seed", Json{json_integer(seed, "training.seed")}},
+                  {"train_steps_per_iteration", Json{train_steps_per_iteration}},
+                  {"weight_decay", Json{weight_decay}}};
+    // Preserve the canonical bytes of existing uniform-replay configurations.
+    if (recent_sample_fraction != 0)
+        result.emplace("recent_sample_fraction", Json{recent_sample_fraction});
+    return Json{std::move(result)};
 }
 
 TrainingConfig TrainingConfig::from_json(const Json& value) {
@@ -533,7 +542,7 @@ TrainingConfig TrainingConfig::from_json(const Json& value) {
     require_keys(input,
                  {"batch_size", "learning_rate", "seed", "train_steps_per_iteration",
                   "weight_decay"},
-                 {"policy_loss_domain"}, "training");
+                 {"policy_loss_domain", "recent_sample_fraction"}, "training");
     TrainingConfig result{
         .batch_size = integer(field(input, "batch_size", "training"), "training.batch_size"),
         .train_steps_per_iteration = integer(field(input, "train_steps_per_iteration", "training"),
@@ -545,7 +554,11 @@ TrainingConfig TrainingConfig::from_json(const Json& value) {
         .policy_loss_domain = input.contains("policy_loss_domain")
                                   ? string(field(input, "policy_loss_domain", "training"),
                                            "training.policy_loss_domain")
-                                  : "full"};
+                                  : "full",
+        .recent_sample_fraction = input.contains("recent_sample_fraction")
+                                      ? number(field(input, "recent_sample_fraction", "training"),
+                                               "training.recent_sample_fraction")
+                                      : 0.0};
     result.validate();
     return result;
 }

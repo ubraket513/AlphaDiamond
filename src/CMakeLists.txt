@@ -94,6 +94,7 @@ if(DIAMOND_BUILD_MODEL)
     add_library(diamond_model STATIC
         soo_model.cpp
         soo_evaluator.cpp
+        min_evaluator.cpp
     )
     add_library(alphadiamond::diamond_model ALIAS diamond_model)
     target_link_libraries(diamond_model PUBLIC alphadiamond::soo_core alphadiamond::diamond_artifact Torch::Torch)
@@ -110,6 +111,8 @@ if(DIAMOND_BUILD_MODEL)
     endif()
 
     if(DIAMOND_BUILD_BENCHMARKS)
+        add_executable(min_moe_probe "${PROJECT_SOURCE_DIR}/benchmarks/min_moe_probe.cpp")
+        target_link_libraries(min_moe_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search)
         add_executable(soo_libtorch_probe "${PROJECT_SOURCE_DIR}/benchmarks/soo_libtorch_probe.cpp")
         target_link_libraries(soo_libtorch_probe PRIVATE alphadiamond::diamond_model alphadiamond::soo_search ${TORCH_LIBRARIES})
         target_compile_features(soo_libtorch_probe PRIVATE cxx_std_20)
@@ -252,6 +255,16 @@ if(DIAMOND_BUILD_TRAINING)
         add_executable(replay_benchmark "${PROJECT_SOURCE_DIR}/benchmarks/replay_benchmark.cpp")
         target_link_libraries(replay_benchmark PRIVATE alphadiamond::diamond_pipeline)
 
+        add_executable(recent_replay_probe "${PROJECT_SOURCE_DIR}/benchmarks/recent_replay_probe.cpp")
+        target_link_libraries(recent_replay_probe PRIVATE alphadiamond::diamond_pipeline)
+
+        add_executable(weakness_replay_probe "${PROJECT_SOURCE_DIR}/benchmarks/weakness_replay_probe.cpp")
+        target_link_libraries(weakness_replay_probe PRIVATE alphadiamond::diamond_native_pipeline)
+
+        add_executable(recent_replay_integration "${PROJECT_SOURCE_DIR}/benchmarks/recent_replay_integration.cpp")
+        target_link_libraries(recent_replay_integration PRIVATE
+            alphadiamond::diamond_native_pipeline alphadiamond::diamond_orchestration)
+
         add_executable(selfplay_benchmark "${PROJECT_SOURCE_DIR}/benchmarks/selfplay_benchmark.cpp")
         target_link_libraries(selfplay_benchmark PRIVATE
             alphadiamond::diamond_native_pipeline
@@ -273,6 +286,10 @@ if(DIAMOND_BUILD_TRAINING)
 
         add_executable(min_expert_arena "${PROJECT_SOURCE_DIR}/benchmarks/min_expert_arena.cpp")
         target_link_libraries(min_expert_arena PRIVATE
+            alphadiamond::diamond_native_pipeline alphadiamond::diamond_orchestration)
+
+        add_executable(min_reanalysis "${PROJECT_SOURCE_DIR}/benchmarks/min_reanalysis.cpp")
+        target_link_libraries(min_reanalysis PRIVATE
             alphadiamond::diamond_native_pipeline alphadiamond::diamond_orchestration)
 
         add_executable(end_to_end_benchmark "${PROJECT_SOURCE_DIR}/benchmarks/end_to_end_benchmark.cpp")

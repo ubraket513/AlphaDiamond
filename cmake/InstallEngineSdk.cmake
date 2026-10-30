@@ -64,7 +64,8 @@ set(_ad_public_headers
     diamond_support/json.hpp diamond_model/deployment_artifact.hpp diamond_model/model_index.hpp
     diamond_orchestration/rating.hpp diamond_orchestration/rating_store.hpp)
 if(ALPHADIAMOND_ENGINE_HAS_MODEL)
-    list(APPEND _ad_public_headers diamond_model/soo_model.hpp diamond_model/soo_evaluator.hpp)
+    list(APPEND _ad_public_headers diamond_model/soo_model.hpp diamond_model/soo_evaluator.hpp
+        diamond_model/min_evaluator.hpp)
 endif()
 foreach(_header IN LISTS _ad_public_headers)
     get_filename_component(_directory "${_header}" DIRECTORY)

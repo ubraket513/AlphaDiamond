@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace diamond_model {
 
@@ -22,6 +23,8 @@ struct DeploymentArtifact {
     int64_t input_features = 0;     // per hole
     int64_t value_size = 0;         // value-head outputs
     std::string encoder_version;   // exact game_contract.encoder
+    std::string turn_order_group;  // optional Min training provenance
+    std::vector<DeploymentArtifact> experts; // empty for a leaf; [cyclic, reverse] for Min MoE
 };
 
 // Computes the existing format-v3 runtime manifest digest from topology and weights.
@@ -38,11 +41,19 @@ DeploymentArtifact validate_deployment_artifact(const std::filesystem::path& roo
 
 // Writes the release representation of a validated format-v3 artifact.  The
 // destination must not already exist.  Only metadata.json, the topology
-// tables, and weights/ are copied: that is precisely the runtime_sha256
-// manifest.  The destination is validated before it is returned.
+// tables, and weights/ are copied for leaves; MoE roots retain both runtime
+// expert bundles. The destination is validated before it is returned.
 DeploymentArtifact write_runtime_deployment_artifact(
     const std::filesystem::path& source_root,
     const std::filesystem::path& destination_root);
+
+// Composes two provenance-checked Min leaves without changing their identities.
+// The destination must not exist; only runtime files are copied.
+DeploymentArtifact write_min_moe_deployment_artifact(
+    const std::filesystem::path& cyclic_root,
+    const std::filesystem::path& reverse_root,
+    const std::filesystem::path& destination_root,
+    const std::string& version);
 
 // Soo-specific spelling kept for the existing probes and the Qt runtime.
 inline DeploymentArtifact validate_soo_deployment_artifact(

@@ -1,5 +1,9 @@
 # The repetition trigger is implemented but unreachable
 
+This analysis preserves historical commands, paths and measurements. For current
+source locations and build commands, use the [code guide](../development/code-guide.md)
+and [build cycle](../development/build-cycle.md).
+
 **Status:** wiring fixed; **the trigger must stay off in production.**
 
 ## Conclusion first
@@ -60,10 +64,10 @@ configuration):
 
 That trigger is implemented in the native engine. `EpisodeConfig::repeat_window`
 and `EpisodeConfig::simulations_late` are declared in
-[`native/include/soo/selfplay.hpp`](../../native/include/soo/selfplay.hpp), and
+[`native/include/soo/selfplay.hpp`](../../include/soo/selfplay.hpp), and
 the live logic -- `lane.seen_recently(key)` selecting the boosted budget, and
 `lane.remember(key, repeat_window)` maintaining the window -- is in
-[`native/src/selfplay.cpp`](../../native/src/selfplay.cpp).
+[`native/src/selfplay.cpp`](../../src/selfplay.cpp).
 
 **Nothing ever set either field to a non-zero value.** `native/src/config.cpp`
 parsed no such key, so no JSON config could reach them; `training_wiring.cpp`
@@ -94,7 +98,7 @@ serialised and forwarded to self-play.
 
 Both are **optional on read and always written**. The asymmetry is deliberate.
 `resume` parses a run's immutable `resolved-config.json` back through
-`ProductionConfig::from_json` ([`native/src/report.cpp`](../../native/src/report.cpp)),
+`ProductionConfig::from_json` ([`native/src/report.cpp`](../../src/report.cpp)),
 so making the keys required would have made every run directory created before
 this change unresumable. A new `require_keys` helper accepts a named optional
 set while still rejecting unknown keys, so strictness is preserved.

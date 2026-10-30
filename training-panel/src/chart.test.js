@@ -1,64 +1,126 @@
-import test from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chartData } from './chart.js';
-import { readFile, writeFile, rm } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
-import { compile } from 'svelte/compiler';
-import { render } from 'svelte/server';
+import { chartData, completedLossAverage, formatBytes, zoomRange } from './chart.js';
 
-// Equal spacing would misrepresent sparse durable training-step samples.
-test('chart x positions use actual training steps and a shared loss scale', () => {
-  const result = chartData([
-    { training_step: 10, total_loss: 4, policy_loss: 3 },
-    { training_step: 30, total_loss: 2, policy_loss: 1 },
-    { training_step: 90, total_loss: 0, policy_loss: 0 },
-  ], ['total_loss', 'policy_loss']);
-  assert.deepEqual(result.x, [10, 90]);
-  assert.deepEqual(result.y, [0, 4]);
-  assert.equal(result.lines[0].points, '0,0 25,50 100,100');
-  assert.equal(result.lines[1].points, '0,25 25,75 100,100');
+test('keeps numeric steps in order and missing measurements as gaps, not zeroes', () => {
+  const metrics = [
+    { training_step: 3, loss: 0 },
+    { training_step: 1, loss: 2 },
+    { training_step: 2, loss: null },
+    { training_step: 4, loss: Infinity },
+    { training_step: NaN, loss: 8 },
+  ];
+  assert.deepEqual(chartData(metrics, ['loss']), [{
+    key: 'loss', data: [{ x: 1, y: 2 }, { x: 2, y: null }, { x: 3, y: 0 }, { x: 4, y: null }],
+  }]);
+  assert.equal(metrics[0].training_step, 3);
 });
 
-test('a single durable metric produces finite visible chart coordinates', () => {
-  const result = chartData([{ training_step: 128, total_loss: 0 }], ['total_loss']);
-  assert.match(result.lines[0].points, /^\d+(\.\d+)?,\d+(\.\d+)?$/);
-  assert.doesNotMatch(result.lines[0].points, /NaN|Infinity/);
+test('supports empty data and independent series at the same steps', () => {
+  assert.deepEqual(chartData([], ['loss']), [{ key: 'loss', data: [] }]);
+  assert.deepEqual(chartData([{ training_step: 7, total: 3, value: 1 }], ['total', 'value']), [
+    { key: 'total', data: [{ x: 7, y: 3 }] },
+    { key: 'value', data: [{ x: 7, y: 1 }] },
+  ]);
 });
 
-test('empty metrics retain an empty chart instead of invented training data', () => {
-  assert.equal(chartData([], ['total_loss']), null);
+test('converts throughput to seconds, minutes or hours while preserving native values and gaps', () => {
+  const metrics = [
+    { training_step: 1, samples_per_second: 100, loss: 2 },
+    { training_step: 2, samples_per_second: 200, loss: 4 },
+    { training_step: 3, samples_per_second: null, loss: 1 },
+    { training_step: 4, samples_per_second: 0, loss: 0 },
+  ];
+  for (const factor of [1, 60, 3600]) {
+    const [throughput] = chartData(metrics, ['samples_per_second'], 1, 600, factor);
+    assert.deepEqual(throughput.data, [{ x: 1.5, y: 150 * factor }, { x: 3, y: null }, { x: 4, y: 0 }]);
+  }
+  const [loss] = chartData(metrics, ['loss'], 1, 600);
+  assert.deepEqual(loss.data, [{ x: 2.5, y: 1.75 }]);
+  assert.equal(metrics[0].samples_per_second, 100);
 });
 
-test('charts all 50000 valid native rows without exceeding function argument limits', () => {
-  const metrics = Array.from({ length: 50000 }, (_, index) => ({
+test('reports only completed global 1,000-step loss averages and holds through a partial bucket', () => {
+  const metrics = Array.from({ length: 2400 }, (_, index) => ({
+    training_step: index + 1, total_loss: index < 1000 ? 6 : 3, policy_loss: 2, value_loss: 1,
+  }));
+  assert.equal(completedLossAverage([]), null);
+  assert.equal(completedLossAverage(metrics.slice(0, 999)), null);
+  assert.deepEqual(completedLossAverage(metrics.slice(0, 1000)), {
+    training_step: 1000, total_loss: 6, policy_loss: 2, value_loss: 1,
+  });
+  assert.deepEqual(completedLossAverage(metrics), {
+    training_step: 2000, total_loss: 3, policy_loss: 2, value_loss: 1, previous_total_loss: 6,
+  });
+  assert.equal(metrics[0].total_loss, 6);
+  assert.equal(metrics.at(-1).training_step, 2400);
+});
+
+test('skips loss buckets with gaps, duplicates or missing measurements', () => {
+  const metrics = Array.from({ length: 2000 }, (_, index) => ({
     training_step: index + 1, total_loss: 3, policy_loss: 2, value_loss: 1,
   }));
-  const result = chartData(metrics, ['total_loss', 'policy_loss', 'value_loss']);
-  assert.deepEqual(result.x, [1, 50000]);
-  assert.deepEqual(result.y, [1, 3]);
-  assert.equal(result.lines.length, 3);
-  for (const [index, line] of result.lines.entries()) {
-    const points = line.points.split(' ');
-    assert.equal(points.length, 50000);
-    assert.equal(points[0], `0,${index * 50}`);
-    assert.equal(points.at(-1), `100,${index * 50}`);
-  }
+  assert.equal(completedLossAverage(metrics.filter(metric => metric.training_step !== 1500)).training_step, 1000);
+  assert.equal(completedLossAverage([...metrics, metrics.at(-1)]).training_step, 1000);
+  metrics[1499].value_loss = null;
+  assert.equal(completedLossAverage(metrics).training_step, 1000);
+  assert.equal(completedLossAverage(metrics.slice(1000)), null);
 });
 
-test('single-sample loss markers render at each actual series coordinate', async (t) => {
-  const filename = fileURLToPath(new URL('./Chart.svelte', import.meta.url));
-  const { js } = compile(await readFile(filename, 'utf8'), { filename, generate: 'server' });
-  // Compile beside the component so its real imports resolve, and remove the temporary module.
-  const compiled = new URL(`./.chart-test-${randomUUID()}.mjs`, import.meta.url);
-  t.after(() => rm(compiled, { force: true }));
-  await writeFile(compiled, js.code);
-  const { default: Chart } = await import(compiled.href);
-  const { body } = render(Chart, { props: {
-    metrics: [{ training_step: 128, total_loss: 3, policy_loss: 2, value_loss: 1 }],
-    keys: ['total_loss', 'policy_loss', 'value_loss'], labels: ['Total', 'Policy', 'Value'], title: 'Loss',
-  } });
-  const markers = [...body.matchAll(/<circle\b[^>]*\bcx="([^"]+)"[^>]*\bcy="([^"]+)"/g)]
-    .map(([, x, y]) => [Number(x), Number(y)]);
-  assert.deepEqual(markers, [[50, 0], [50, 50], [50, 100]]);
+test('compares only immediately consecutive completed loss buckets', () => {
+  const metrics = Array.from({ length: 3000 }, (_, index) => ({
+    training_step: index + 1, total_loss: index < 2000 ? 4 : 3, policy_loss: 2, value_loss: 1,
+  }));
+  assert.equal(completedLossAverage(metrics).previous_total_loss, 4);
+  assert.equal(completedLossAverage(metrics.slice(0, 1000)).previous_total_loss, undefined);
+  const gap = metrics.filter(metric => metric.training_step !== 1500);
+  assert.equal(completedLossAverage(gap).training_step, 3000);
+  assert.equal(completedLossAverage(gap).previous_total_loss, undefined);
+  metrics[1499].total_loss = Infinity;
+  assert.equal(completedLossAverage(metrics).previous_total_loss, undefined);
+});
+
+test('formats memory with a readable SI unit without treating missing data as zero', () => {
+  assert.equal(formatBytes(0), '0 B');
+  assert.equal(formatBytes(999), '999 B');
+  assert.equal(formatBytes(1000), '1 KB');
+  assert.equal(formatBytes(1250000), '1.25 MB');
+  assert.equal(formatBytes(1500000000), '1.5 GB');
+  assert.equal(formatBytes(2000000000000), '2 TB');
+  assert.equal(formatBytes(null), '—');
+  assert.equal(formatBytes(Infinity), '—');
+});
+
+test('averages equal step intervals and recomputes detail for the visible range', () => {
+  const metrics = Array.from({ length: 600 }, (_, i) => ({ training_step: i + 1, loss: i % 2 ? 4 : 0 }));
+  const full = chartData(metrics, ['loss'], 1, 600)[0].data;
+  assert.equal(full.length, 150);
+  assert.deepEqual(full[0], { x: 2.5, y: 2 });
+  assert.deepEqual(full.at(-1), { x: 598.5, y: 2 });
+  assert.deepEqual(chartData(metrics, ['loss'], 2, 3)[0].data, [{ x: 2, y: 4 }, { x: 3, y: 0 }]);
+  assert.equal(metrics[0].loss, 0);
+});
+
+test('does not average across missing values or manufacture points in empty intervals', () => {
+  const metrics = [
+    { training_step: 1, loss: 2 }, { training_step: 2, loss: 4 },
+    { training_step: 3, loss: null }, { training_step: 4, loss: 10 },
+    { training_step: 600, loss: 8 },
+  ];
+  assert.deepEqual(chartData(metrics, ['loss'], 1, 600)[0].data, [
+    { x: 1.5, y: 3 }, { x: 3, y: null }, { x: 4, y: 10 }, { x: 600, y: 8 },
+  ]);
+});
+
+test('zooms around the cursor while keeping its relative position', () => {
+  assert.deepEqual(zoomRange(100, 500, 200, 0.5, 0, 1000), [150, 350]);
+  assert.deepEqual(zoomRange(150, 350, 200, 2, 0, 1000), [100, 500]);
+});
+
+test('keeps zoom inside recorded steps and stops at one step or the full range', () => {
+  assert.deepEqual(zoomRange(0, 100, 20, 2, 0, 1000), [0, 200]);
+  assert.deepEqual(zoomRange(900, 1000, 980, 2, 0, 1000), [800, 1000]);
+  assert.deepEqual(zoomRange(100, 500, 200, 100, 0, 1000), [0, 1000]);
+  assert.deepEqual(zoomRange(100, 101, 100.5, 0.1, 0, 1000), [100, 101]);
+  assert.deepEqual(zoomRange(7, 7, 7, 0.5, 7, 7), [7, 7]);
 });

@@ -1,4 +1,8 @@
 guideline
+.github/
+.superpowers/
+.vscode/
+graphify-out/
 
 # Python build artifacts
 __pycache__/
@@ -11,13 +15,8 @@ dist/
 /.deps/
 
 # Keep the knowledge graph and report, while leaving extraction caches local.
-/graphify-out/*
-!/graphify-out/graph.json
-!/graphify-out/GRAPH_REPORT.md
-!/graphify-out/graph.html
-!/graphify-out/manifest.json
 
-# Native self-play extension: built in place, never committed.
+# Compiled libraries and offline helper caches are generated, never source.
 *.so
 *.pyd
 .pytest_cache/
@@ -27,32 +26,27 @@ dist/
 /.worktrees/
 
 # Training run output: checkpoints, replay and ledgers stay out of Git.
-# The step-80 checkpoint below is the one exception: CI's Gate D asserts its
-# digest, so it stays tracked until a bucket fixture fetch replaces it.
-/runtime/runs/**
-!/runtime/runs/soo/cpu8h-soo-20260819/
-!/runtime/runs/soo/cpu8h-soo-20260819/**
+# The step-80 checkpoint below remains as recorded historical Gate-D evidence.
+/archive/python-runtime/runs/**
+!/archive/python-runtime/runs/soo/
+!/archive/python-runtime/runs/soo/cpu8h-soo-20260819/
+!/archive/python-runtime/runs/soo/cpu8h-soo-20260819/**
 
 # GPU benchmark runs: keep the ledgers/configs as evidence, leave the
 # checkpoints and replay chunks out of Git (regenerate from latest.pt.cpu-backup).
-az-bench/**/*.pt
-az-bench/**/replay/
-az-bench/**/checkpoints/
+archive/benchmark-runs/**/*.pt
+archive/benchmark-runs/**/replay/
+archive/benchmark-runs/**/checkpoints/
 
-# Bucket synchronisation root: contents are mutable object storage, not source.
-/TrainAlphaDiamond/**
-!/TrainAlphaDiamond/README.md
-!/TrainAlphaDiamond/manifests/
-!/TrainAlphaDiamond/manifests/**
+# Optional bucket downloads live under ignored artifacts/downloads/.
+# Archived schema/manifests are documentation, not a mutable storage root.
 
 # Model weights are never source. Tracked exceptions are listed explicitly.
 *.pt
 *.pth
 *.ckpt
 *.safetensors
-!/runtime/runs/soo/cpu8h-soo-20260819/latest.pt
-!/tests/golden/training-v1/min/checkpoint-v1.pt
-!/tests/golden/training-v1/soo/checkpoint-v1.pt
+!/archive/python-runtime/runs/soo/cpu8h-soo-20260819/latest.pt
 
 # Agent tooling caches, not project sources
 .agents/

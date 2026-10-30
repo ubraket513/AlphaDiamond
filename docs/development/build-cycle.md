@@ -5,44 +5,36 @@ Ninja, sccache and mold. GNU Debug compilation uses `-O0 -g1 -pipe`; Release
 retains the compiler's optimized defaults. Link-time optimization defaults to
 off in every configuration. No optimization flags are added to dependencies.
 
-The native presets provide a safe fallback of eight build jobs and twelve
-CTest workers. `tools/build_resources.sh` is shared by Engine/
-Desktop Make and CI routes. It detects CPU affinity, cgroup CPU quotas, host/
-cgroup memory headroom (including ancestor limits), and reserves memory for the
-OS and linker. Make and Desktop launchers also constrain nested OpenMP/MKL work. Override `make` with `BUILD_JOBS=N`
-and `TEST_JOBS=N`, or a direct invocation with
-`cmake --build --preset … --parallel N` and `ctest --preset … --parallel N`.
-The Desktop shell helpers honor `CMAKE_BUILD_PARALLEL_LEVEL` and
-`CTEST_PARALLEL_LEVEL`.
+Direct build presets use eight build jobs unless overridden. `tools/build_resources.sh`
+detects CPU affinity, cgroup quotas and memory headroom and reserves memory for
+the OS/linker. Override `BUILD_JOBS=N` in Make or pass an explicit parallel count
+to CMake. Keep nested OpenMP/MKL work within the same host resource budget.
+Regression suites and existing GitHub CI are removed; validate through actual
+builds and direct CLI/product checks until the user designs new tests and CI.
 
 ## Native engine and inference
 
 ```sh
 make build
-make test-native
-make test-training
+make build PRESET=training-linux
 
 # Direct preset invocations always supply the detected counts explicitly.
 BUILD_JOBS=$(tools/build_resources.sh build)
-TEST_JOBS=$(tools/build_resources.sh test)
-cmake --preset native-gcc-mold
-cmake --build --preset native-gcc-mold --parallel "$BUILD_JOBS"
-ctest --preset native-gcc-mold --parallel "$TEST_JOBS"
+cmake --preset runtime-linux
+cmake --build --preset runtime-linux --parallel "$BUILD_JOBS"
 ```
 
-On Linux, default Make core/training routes select `native-ci-linux` and
-`native-training-linux`. The explicit `native-gcc-mold` runtime preset selects `/usr/bin/g++-15`, `$HOME/.local/bin/sccache`, Ninja
+On Linux, default Make core/training routes select `core-linux` and
+`training-linux`. The explicit `runtime-linux` runtime preset selects `/usr/bin/g++-15`, `sccache`, Ninja
 and `-fuse-ld=mold`. Install these tools before configuring; mold must be on
-the compiler's executable search path. `native-ci`, `native-runtime`,
-`native-training` also default to Debug
-and remain usable on other supported platforms. `native-asan` remains Debug.
+the compiler's executable search path. `core`, `runtime`,
+`training` also default to Debug
+and remain usable on other supported platforms. `asan` remains Debug.
 Use a fresh build directory when changing compiler or generator.
 
-`compile_commands.json` records the actual compile flags. The
-`development_toolchain` CTest builds a small executable with implicit Debug,
-explicit Debug and Release and checks generated commands: Debug requires `-O0 -g1 -pipe`, Release keeps
-`-O3`, and neither enables LTO. It also verifies the compiler launcher and mold
-when those tools are configured, then executes both binaries.
+`compile_commands.json` records the actual flags for direct inspection. Debug
+uses `-O0 -g1 -pipe`; Release keeps optimized defaults and LTO remains off unless
+explicitly selected.
 
 ## Desktop and the SDK
 
@@ -53,7 +45,7 @@ fields. Its helpers do not rebuild Engine or training. QML-only edits reuse the
 installed SDK and native compiler cache.
 
 See [SDK upgrades](../architecture/repository_split.md) for the explicit source
-fallback and relocation tests. Engine can configure/build/test with no Qt kit.
+build and package boundaries. Engine can configure/build with no Qt kit.
 
 ## Optimized final outputs
 
@@ -61,15 +53,42 @@ Select optimized builds explicitly for final training or runtime/SDK output:
 
 ```sh
 BUILD_JOBS=$(tools/build_resources.sh build)
-TEST_JOBS=$(tools/build_resources.sh test)
-cmake --preset native-training-release
-cmake --build --preset native-training-release --parallel "$BUILD_JOBS"
-ctest --preset native-training-release --parallel "$TEST_JOBS"
+cmake --preset training-release
+cmake --build --preset training-release --parallel "$BUILD_JOBS"
 ```
 
-`native-release` also retains Release output. On Linux, add `-G Ninja`,
+`release` also retains Release output. On Linux, add `-G Ninja`,
 `-DCMAKE_CXX_COMPILER=/usr/bin/g++-15`,
 `-DCMAKE_CXX_COMPILER_LAUNCHER="$HOME/.local/bin/sccache"` and
 `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold` to the first configure of these
 portable Release presets. Set shared/module linker flags similarly when needed.
 Release remains free of LTO unless explicitly enabled.
+
+## Build selections
+
+Use `core-linux`, `runtime-linux` or `training-linux` for
+Linux development. The old `native-ci`, `native-ci-linux` and `native-gcc-mold`
+preset names were replaced by these product names; existing build directories
+can be reconfigured explicitly with `-B`. No compatibility alias is retained.
+
+Model and training selection uses `DIAMOND_BUILD_MODEL` and
+`DIAMOND_BUILD_TRAINING`. Runtime builds exclude replay/learner code. Diagnostics
+and probes require the existing `DIAMOND_BUILD_BENCHMARKS=ON` option; ordinary
+training presets leave it off. Use a diagnostics build explicitly, for example:
+
+```sh
+cmake --preset training-linux -B build/diagnostics -DDIAMOND_BUILD_BENCHMARKS=ON
+cmake --build build/diagnostics --parallel "$(tools/build_resources.sh build)"
+```
+
+## Source and executable locations
+
+C++ implementations and target definitions live in `src/`, public interfaces in
+`include/`, and optional diagnostic entrypoints in `benchmarks/`. Preset names no
+longer use the former `native-` prefix. `tools/cmake.sh` supplies the portable
+toolchain wrapper. Each normal preset writes executables to
+`build/<preset>/bin/`; an explicit `-B build/NAME` writes to `build/NAME/bin/`.
+For example, the training Release CLI is
+`build/training-release/bin/alphadiamond-train`. Existing running jobs keep their
+original copied executable and resolved configuration. See the
+[code guide](code-guide.md) for entrypoint responsibilities.

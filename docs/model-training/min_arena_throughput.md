@@ -1,5 +1,9 @@
 # The promotion arena: what it cost, what was fixed, what is still open
 
+This analysis preserves historical commands, paths and measurements. For current
+source locations and build commands, use the [code guide](../development/code-guide.md)
+and [build cycle](../development/build-cycle.md).
+
 > **Continuation of [min_bootstrap.md](min_bootstrap.md).** That document's §6
 > listed the arena stage as known-red and its §7 made the B0 baseline the next
 > step. B0 cannot run without the arena, because every iteration runs it. This
@@ -141,6 +145,20 @@ More openings still do **not** fix the throughput half. They make groups bigger
 and multiply the number of games by the same factor, so wall time barely moves.
 
 ## 5. Where to pick up
+
+**2026-10-30 update:** `EpisodeJob::match` now exists, and the native arena adapter
+submits the entire schedule in one `run_episodes` call. Each job retains its
+ordered match, opening, seed and candidate owner; results return to the original
+`[block][cell]` order. The per-turn-order serialisation described below is
+resolved. The historical measurements above remain unchanged.
+
+CPU checks compared mixed-order scheduling with isolated groups for Min and Soo,
+including moves, visits, encodings and root model ownership. An old/new native
+Min evaluation with distinct frozen 16×1 checkpoints also produced identical
+36-game aggregates and all 31 completed rating events (five games reached the
+500-move cap). Evidence is in
+`artifacts/autonomy-20261030/arena-batching/validation.json`. GPU speed and
+floating-point trajectory parity have not been measured by these checks.
 
 1. **Per-job matches, if throughput is still binding.** The remaining
    serialisation is that `run_episodes` fixes one `Match` for the whole call, so

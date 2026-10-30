@@ -4,20 +4,10 @@ project(alphadiamond LANGUAGES CXX)
 
 include(cmake/DevelopmentToolchain.cmake)
 
-option(DIAMOND_BUILD_NATIVE_TESTS "Build portable native smoke tests" ON)
-option(DIAMOND_BUILD_LIBTORCH "Build native LibTorch model and training support" OFF)
-option(DIAMOND_BUILD_LIBTORCH_PROBE "Deprecated alias for DIAMOND_BUILD_LIBTORCH" OFF)
-if(DIAMOND_BUILD_LIBTORCH_PROBE)
-    set(DIAMOND_BUILD_LIBTORCH ON CACHE BOOL "Build native LibTorch model and training support" FORCE)
-endif()
-# The legacy umbrella still enables both components. New presets select them
-# explicitly so inference never implicitly enables training.
+# Inference and training are explicit product selections. Training uses models;
+# diagnostics are selected separately by DIAMOND_BUILD_BENCHMARKS.
 option(DIAMOND_BUILD_MODEL "Build native LibTorch inference models" OFF)
 option(DIAMOND_BUILD_TRAINING "Build native training, replay orchestration and release tools" OFF)
-if(DIAMOND_BUILD_LIBTORCH)
-    set(DIAMOND_BUILD_MODEL ON)
-    set(DIAMOND_BUILD_TRAINING ON)
-endif()
 if(DIAMOND_BUILD_TRAINING AND NOT DIAMOND_BUILD_MODEL)
     message(FATAL_ERROR "DIAMOND_BUILD_TRAINING requires DIAMOND_BUILD_MODEL=ON")
 endif()
@@ -38,56 +28,13 @@ else()
 endif()
 
 include(GNUInstallDirs)
-include(CTest)
 find_package(Threads REQUIRED)
 
-add_subdirectory(native)
+# Keep executable paths stable across single- and multi-configuration generators.
+# The generator expression prevents an extra Debug/Release directory.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/bin>")
 
-if(BUILD_TESTING)
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        find_program(DIAMOND_NINJA_EXECUTABLE ninja)
-        if(DIAMOND_NINJA_EXECUTABLE)
-            add_test(NAME development_toolchain COMMAND ${CMAKE_COMMAND}
-                -DSOURCE_DIR:PATH=${PROJECT_SOURCE_DIR}
-                -DBINARY_DIR:PATH=${CMAKE_BINARY_DIR}/development-toolchain-test
-                -DCXX_COMPILER:FILEPATH=${CMAKE_CXX_COMPILER}
-                -DCXX_LAUNCHER:FILEPATH=${CMAKE_CXX_COMPILER_LAUNCHER}
-                -DEXE_LINKER_FLAGS:STRING=${CMAKE_EXE_LINKER_FLAGS}
-                -P ${PROJECT_SOURCE_DIR}/native/tests/development_toolchain_test.cmake)
-            set_tests_properties(development_toolchain PROPERTIES LABELS "policy;toolchain" PROCESSORS 2)
-        endif()
-    endif()
-    add_test(NAME python_zero_policy
-        COMMAND ${CMAKE_COMMAND}
-            -DSOURCE_DIR:PATH=${PROJECT_SOURCE_DIR}
-            -P ${PROJECT_SOURCE_DIR}/cmake/VerifyPythonZero.cmake)
-    add_test(NAME repository_hygiene
-        COMMAND ${CMAKE_COMMAND}
-            -DSOURCE_DIR:PATH=${PROJECT_SOURCE_DIR}
-            -P ${PROJECT_SOURCE_DIR}/cmake/VerifyRepositoryHygiene.cmake)
-    add_test(NAME supported_commands_policy
-        COMMAND ${CMAKE_COMMAND}
-            -DSOURCE_DIR:PATH=${PROJECT_SOURCE_DIR}
-            -P ${PROJECT_SOURCE_DIR}/cmake/VerifySupportedCommands.cmake)
-    set_tests_properties(
-        python_zero_policy repository_hygiene supported_commands_policy
-        PROPERTIES LABELS policy)
-endif()
-
-if(BUILD_TESTING AND DIAMOND_BUILD_NATIVE_TESTS AND DIAMOND_BUILD_MODEL)
-        add_test(NAME runtime_boundary_test
-            COMMAND ${CMAKE_COMMAND}
-                -DSOURCE_DIR:PATH=${PROJECT_SOURCE_DIR}
-                -DBINARY_DIR:PATH=${CMAKE_BINARY_DIR}/native/runtime-boundary
-                -DCXX_COMPILER:FILEPATH=${CMAKE_CXX_COMPILER}
-                -DGENERATOR:STRING=${CMAKE_GENERATOR}
-                -DCXX_LAUNCHER:FILEPATH=${CMAKE_CXX_COMPILER_LAUNCHER}
-                -DEXE_LINKER_FLAGS:STRING=${CMAKE_EXE_LINKER_FLAGS}
-                -DTORCH_CUDA_ARCH_LIST:STRING=${TORCH_CUDA_ARCH_LIST}
-                -DTorch_DIR:PATH=${Torch_DIR}
-                -P ${PROJECT_SOURCE_DIR}/native/tests/runtime_boundary_test.cmake)
-        set_tests_properties(runtime_boundary_test PROPERTIES LABELS "runtime;contract")
-endif()
+add_subdirectory(src)
 
 # Packaging. Models ship *beside* the executable rather than compiled into it,
 # so a release can carry a different default model, and a model can be replaced,
@@ -96,7 +43,7 @@ endif()
 #   alphadiamond-release stage dist/models \
 #       --artifact artifacts/soo-spike --default soo
 #
-# then `cmake --build --preset native-release --target package`.
+# then `cmake --build --preset release --target package`.
 set(DIAMOND_MODELS_DIR "${CMAKE_SOURCE_DIR}/dist/models"
     CACHE PATH "models/ directory to bundle into the package")
 if(EXISTS "${DIAMOND_MODELS_DIR}/index.json")

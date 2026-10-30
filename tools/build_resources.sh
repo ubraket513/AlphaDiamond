@@ -1,11 +1,13 @@
 #!/usr/bin/env sh
 # Shared Engine/Desktop worker sizing. No interpreter or build-tree dependency.
 set -eu
-[ "$#" -eq 1 ] || { echo "usage: $0 build|test" >&2; exit 2; }
-case "$1" in build) per_worker_mb=2048; reserve_mb=1024 ;; test) per_worker_mb=512; reserve_mb=512 ;; *) exit 2 ;; esac
-# The alternate roots support deterministic checks against cgroup/proc fixtures.
-proc_root=${DIAMOND_RESOURCE_PROC_ROOT:-/proc}
-cgroup_root=${DIAMOND_RESOURCE_CGROUP_ROOT:-/sys/fs/cgroup}
+[ "$#" -eq 1 ] && [ "$1" = build ] || { echo "usage: $0 build" >&2; exit 2; }
+# Size compiler workers from this host's actual affinity, quota and available
+# memory. Leave room for the linker/desktop; Make's BUILD_JOBS is the override.
+per_worker_mb=2048
+reserve_mb=1024
+proc_root=/proc
+cgroup_root=/sys/fs/cgroup
 positive_integer() { case "$1" in ''|*[!0-9]*|0) return 1 ;; *) return 0 ;; esac; }
 cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || printf '%s' "${NUMBER_OF_PROCESSORS:-1}")
 if command -v nproc >/dev/null 2>&1; then cpus=$(unset OMP_NUM_THREADS OMP_THREAD_LIMIT; nproc); fi

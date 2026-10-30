@@ -17,9 +17,26 @@ retained training samples for each order. Equal game counts do not imply equal
 sample counts: game lengths differ, and aborted games are excluded from replay.
 Check these counters before interpreting a training run as balanced in practice.
 
+## Weighted allocation
+
+Optional `self_play.turn_order_weights` sets positive integer game ratios for
+the selected group. Entries follow lexicographic player-ID permutations after
+group filtering. For Min `reverse`, that is `[1-3-2, 2-1-3, 3-2-1]`: weights
+`[1,2,1]` allocate a 96-game batch as 24, 48 and 24 games. `all` uses the six
+orders `1-2-3, 1-3-2, 2-1-3, 2-3-1, 3-1-2, 3-2-1`; Soo uses its two orders.
+
+The array must match the selected orders, and games per iteration must be
+divisible by its sum. Omit the field for the original equal allocation and
+unchanged configuration hashes. Existing resume transitions record a ratio
+change at a clean self-play boundary. It affects future game requests; it does
+not reweight losses, resample or discard stored replay, change expert routing,
+or alter the heuristic. Per-order retained sample counts still depend on game
+length and completion. More requests for a weak order are a training hypothesis,
+not proof of improved strength; inspect order-specific outcomes separately.
+
 ## Local smoke run
 
-`configs/alphazero/min-balanced-orders-cpu-smoke.json` uses the verified step 20064
+`configs/experiments/min-balanced-orders-cpu-smoke.json` uses the verified step 20064
 deployment artifact as a weight-only warm start: fresh optimizer and fresh replay,
 six games, 32 simulations, eight learner updates, and one iteration. It tests the
 pipeline and local cost; it is not a strength experiment or a releasable model.
@@ -30,9 +47,9 @@ run directory. Arena is disabled for this smoke test.
 $env:PATH=(Resolve-Path dist/diamond-qt-soo).Path+';'+$env:PATH
 $env:OMP_NUM_THREADS='2'
 $env:MKL_NUM_THREADS='2'
-& build/native-package/native/alphadiamond-train.exe train `
+& build/training/bin/alphadiamond-train.exe train `
   --run-dir artifacts/balanced-orders/runs/min/cpu-smoke-20064 `
-  --config configs/alphazero/min-balanced-orders-cpu-smoke.json `
+  --config configs/experiments/min-balanced-orders-cpu-smoke.json `
   --warm-start artifacts/min-step20064-verified/models/min/2.0.0-min-test.20064
 ```
 

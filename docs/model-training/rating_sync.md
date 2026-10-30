@@ -24,9 +24,11 @@ tools/sync_ratings.sh \
   --bucket namespace/ratings-bucket \
   --outbox path/to/rating-outbox \
   --protocol protocol-v2.json \
-  --binary build/native-training/native/alphadiamond-rating-sync
+  --binary build/training/bin/alphadiamond-rating-sync
 ```
 
 It lists the complete remote event set, downloads it, rebuilds locally, re-lists before and after publishing `ratings/ratings.json`, and retries when that set changed. Local outbox receipts are atomically written only after a stable successful `ratings.json` upload. Authentication uses the existing `hf` login or `HF_TOKEN`; neither tokens nor command output are persisted by this script.
 
-Use `--dry-run` with a fake `hf` executable first in offline CI. It still checks authentication and downloads/materializes events, but performs no uploads and writes no receipts.
+Use `--dry-run` to preview synchronization without uploads or receipts. It still
+checks real authentication, downloads events and materializes local results;
+it is not an offline check or a read-only local operation.

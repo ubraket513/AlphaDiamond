@@ -6,7 +6,7 @@ mode=${1:-smoke}
 case "$mode" in
   smoke|pilot|control) ;;
   -h|--help)
-    echo 'LIBTORCH_ROOT=/path/to/torch [CXX=g++-14] bash tools/run_min_balanced_datacenter.sh smoke|pilot|control'
+    echo 'LIBTORCH_ROOT=/path/to/torch [CXX=g++-15] bash tools/run_min_balanced_datacenter.sh smoke|pilot|control'
     echo 'Optional: OUTPUT_ROOT, BUILD_DIR, BUILD_JOBS, TORCH_CUDA_ARCH_LIST, RUN_ID'
     exit 0 ;;
   *) echo 'Expected smoke, pilot, or control' >&2; exit 2 ;;
@@ -15,7 +15,7 @@ repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo"
 : "${LIBTORCH_ROOT:?Set LIBTORCH_ROOT to a CUDA-enabled LibTorch root (or the installed torch package directory)}"
 [[ $(uname -s) == Linux ]] || { echo 'This launcher requires Linux.' >&2; exit 2; }
-for tool in cmake ctest ninja hf unzip sha256sum nvidia-smi; do
+for tool in cmake ninja sccache mold hf unzip sha256sum nvidia-smi; do
   command -v "$tool" >/dev/null || { echo "Missing command: $tool" >&2; exit 2; }
 done
 [[ -f "$LIBTORCH_ROOT/share/cmake/Torch/TorchConfig.cmake" && -f "$LIBTORCH_ROOT/lib/libtorch_cuda.so" ]] || {
@@ -49,11 +49,12 @@ fi
 build=${BUILD_DIR:-$repo/build/min-balanced-datacenter}
 cmake -S "$repo" -B "$build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$LIBTORCH_ROOT" \
-  -DDIAMOND_BUILD_LIBTORCH=ON -DDIAMOND_BUILD_QT=OFF -DBUILD_TESTING=ON
-cmake --build "$build" --target alphadiamond-train selfplay_test config_test --parallel "${BUILD_JOBS:-4}"
-ctest --test-dir "$build" -R '^(selfplay_test|config_test)$' --output-on-failure
+  -DCMAKE_CXX_COMPILER="${CXX:-g++-15}" -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+  -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold \
+  -DDIAMOND_BUILD_MODEL=ON -DDIAMOND_BUILD_TRAINING=ON
+cmake --build "$build" --target alphadiamond-train --parallel "${BUILD_JOBS:-$(tools/build_resources.sh build)}"
 
-config="$repo/configs/alphazero/min-balanced-orders-cuda-$mode.json"
+config="$repo/configs/experiments/min-balanced-orders-cuda-$mode.json"
 run_id=${RUN_ID:-min-orders-$mode-$(date -u +%Y%m%dT%H%M%SZ)}
 [[ "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo 'Invalid RUN_ID.' >&2; exit 2; }
 run="$output/runs/min/$run_id"
@@ -65,7 +66,7 @@ mkdir -p "$run"
   git status --short
   nvidia-smi
 } > "$run/host.txt"
-"$build/native/alphadiamond-train" train --run-dir "$run" --config "$config" \
+"$build/bin/alphadiamond-train" train --run-dir "$run" --config "$config" \
   --warm-start "$artifact" | tee "$run/launch.json"
 printf '\nRun: %s\nInspect iterations/0/selfplay.metrics.json for per-order completion and retained samples.\n' "$run"
 printf 'Do not interpret the CLI processed-game total as the number of non-aborted games.\n'

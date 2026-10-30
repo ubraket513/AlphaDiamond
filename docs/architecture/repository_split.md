@@ -17,27 +17,28 @@ and preexisting local changes were excluded from extraction.
 
 ## Independent releases
 
-A UI-only change builds/tests/packages Desktop against the unchanged SDK lock.
-A trainer-only change builds/tests Engine and does not change Desktop's lock.
+A UI-only change builds/packages Desktop against the unchanged SDK lock.
+A trainer-only change builds Engine and does not change Desktop's lock.
 New encoder or architecture experiments cannot reach the app until a compatible
 SDK and model contract are deliberately accepted. Format-v3 metadata, tensor,
 encoder, rules, digest and model identity meanings remain unchanged.
 
 For an SDK upgrade:
 
-1. Build and test the intended Engine revision and configuration. Rebuild all
+1. Build the intended Engine revision and configuration. Rebuild all
    Runtime targets (including `engine_sdk_provenance`) before installation so
    revision/content evidence matches the installed libraries.
 2. Produce and validate an SDK with a new version, archive SHA-256 and manifest.
-   Run relocated consumer tests with producer source/build unavailable.
+   Inspect the installed package and exercise the relevant product entrypoints directly.
 3. In a separate Desktop change, update the exact SDK version, source revision,
    archive digest and platform/compiler/Torch/configuration/ABI lock together.
-4. Run Desktop controller, replay, no-model topology, Soo/Min inference, model
-   rejection, rating and profile compatibility tests, then package smokes.
+4. Build Desktop against that SDK and inspect relevant inference, topology,
+   model loading and package behavior directly. The old Desktop regression targets,
+   fixture consumers and GitHub CI workflows have been removed.
 
 Debug consumers use Debug SDKs; final optimized Release artifacts are selected
 explicitly. Linux development retains GCC, mold, Ninja, sccache and low-cost
-Debug compilation with LTO off. Build and test worker counts account for CPU,
+Debug compilation with LTO off. Build worker counts account for CPU,
 memory and nested threads in both repositories.
 
 ## Models and rollback
@@ -51,5 +52,5 @@ An SDK regression is rolled back by restoring the previous Desktop SDK lock and
 matching artifact. A model regression is rolled back by selecting the previous
 validated model index/default. Existing installation identity, saved games,
 model cache and rating outbox retain their established application paths.
-Windows package deployment smoke remains a platform CI gate when development
-is performed on Linux.
+Existing GitHub CI workflows have been removed. Windows packaging needs direct
+validation on a Windows host; a Linux build does not establish that result.

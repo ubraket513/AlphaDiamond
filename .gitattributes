@@ -13,14 +13,8 @@ blueprint/** linguist-vendored
 # *.html linguist-detectable=false
 # *.css linguist-detectable=false
 
-# Golden fixtures are read byte-for-byte by the native tests: the tables are
-# binary and the rules file is parsed with getline, so neither may be
-# line-ending-translated on checkout.
-tests/golden/topology/* binary
-tests/golden/**/*.f32 binary
-tests/golden/**/*.i64 binary
-tests/golden/*.txt text eol=lf
-tests/native/fixtures/positions.jsonl text eol=lf
+# Canonical topology tables are binary Runtime SDK inputs embedded by Desktop.
+data/topology/* binary
 
 # Promoted deployment artifacts are raw typed tensors and topology tables.
 models/**/*.f32 binary

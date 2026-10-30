@@ -9,9 +9,9 @@ The first Soo training run on the native self-play backend, from a randomly
 initialised network. Live document: configuration and reasoning are settled,
 results accumulate.
 
-Companion documents: [../native-selfplay/native_selfplay_handoff.md](../native-selfplay/native_selfplay_handoff.md)
+Companion documents: [../native-selfplay/native_selfplay_handoff.md](../archive/selfplay/native_selfplay_handoff.md)
 for the backend, §10–§12 of
-[../native-selfplay/native_selfplay_phase1_progress.md](../native-selfplay/native_selfplay_phase1_progress.md) for how
+[../native-selfplay/native_selfplay_phase1_progress.md](../archive/selfplay/native_selfplay_phase1_progress.md) for how
 it was gated.
 
 ---
@@ -131,19 +131,19 @@ initialization mode. The official Soo v2.0.0 deployment artifact is a warm
 start: model weights are imported, while optimizer and run state start clean.
 
 ```bash
-build/native-training/native/alphadiamond-train train \
-  --run-dir runtime/runs/soo/soo-production \
-  --config configs/alphazero/soo-production.json \
+build/training/bin/alphadiamond-train train \
+  --run-dir artifacts/runs/soo/soo-production \
+  --config configs/current/soo-production.json \
   --warm-start models/soo/2.0.0
 
-build/native-training/native/alphadiamond-train resume \
-  --run-dir runtime/runs/soo/soo-production
+build/training/bin/alphadiamond-train resume \
+  --run-dir artifacts/runs/soo/soo-production
 ```
 
 Use the focused CPU smoke before a long run:
 
 ```bash
-build/native-training/native/training_step_benchmark \
+build/training/bin/training_step_benchmark \
   --artifact models/soo/2.0.0 --device cpu \
   --batch-size 256 --warmups 1 --repetitions 5
 ```

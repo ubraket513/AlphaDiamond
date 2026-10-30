@@ -7,44 +7,45 @@ controller confirmation flow, model browsing, replay UI and packaging.
 
 | Component | Owner and location |
 |---|---|
-| Core and search | Engine: `native/include/soo/`, `native/src/` |
-| Training and pipeline | Engine: `native/include/diamond_training/`, `native/include/diamond_pipeline/` |
-| Orchestration | Engine: `native/include/diamond_orchestration/` |
-| Model and release | Engine: `native/include/diamond_model/`, `native/include/diamond_release/` |
+| Core and search | Engine: `include/soo/`, `src/` |
+| Training and pipeline | Engine: `include/diamond_training/`, `include/diamond_pipeline/` |
+| Orchestration | Engine: `include/diamond_orchestration/` |
+| Model and release | Engine: `include/diamond_model/`, `include/diamond_release/` |
 | Application | AlphaDiamondDesktop: `app/`, consuming an installed Runtime SDK |
 
 Runtime SDK exports core, search, support, artifact, rating and model libraries
 without replay/training/orchestration dependencies. Two-player Soo uses scalar
 values; three-player Min keeps one value per seat. Shared code preserves these
-semantics. Python is absent from supported builds, tests and runtime; the two
-allowlisted offline analysis summarizers are research tools only.
+semantics. Python is absent from supported builds and runtime; offline analysis
+summarizers are research tools only.
 
 ## Build and validation
 
 CMake owns targets and flags. Make is a resource-aware command facade.
 
-| Command | Coverage | Additional dependency |
+| Command | Product | Additional dependency |
 |---|---|---|
-| `make test-native` | Rules, encoders, search, self-play, replay and policies | Native toolchain |
-| `make test-training` | Model, training, checkpoint, arena, rating and CLI contracts | LibTorch |
-| `make test-native-asan` | Core contracts under ASan/UBSan | Sanitizer toolchain |
+| `make build` | Native core/search | Native toolchain |
+| `make build PRESET=training-linux` | Training/checkpoint/release executables on Linux | LibTorch |
+| `make build PRESET=asan` | Core compilation with ASan/UBSan | Sanitizer toolchain |
 
-Engine CI has native-core, native-sanitizers, native-training and native-format
-lanes, plus independent Runtime SDK and opt-in CUDA workflows. No Qt kit is
-needed. Desktop validates its pinned SDK in its own repository.
+Regression suites and existing GitHub CI workflows have been removed at the
+user's request. Future tests and CI are a separate design task. Validate changes
+with actual product builds and direct CLI checks; do not describe compilation
+alone as runtime sanitizer coverage. No Qt kit is needed for Engine.
 See [README](../../README.md) and [build cycle](../development/build-cycle.md).
 
-## Frozen contracts
+Benchmarks and probes are separate opt-in executables. Configure with
+`-DDIAMOND_BUILD_BENCHMARKS=ON` only when those tools are needed; ordinary
+training and Runtime SDK builds omit them.
 
-`tests/golden/` and `tests/native/fixtures/` preserve the retired oracle's
-answers and their provenance. Do not regenerate them from the implementation
-under test. Deliberate rule changes require versioned contracts and independently
-justified expectations. Ordered actions, evaluator requests, root statistics,
-stochastic distributions and lane scheduling retain their existing gates.
+## Runtime data and historical evidence
 
-`tests/golden/replay-v1/` is historical; current schema-4/5 replay tests construct
-stores natively. See [replay stateless sampling](replay_stateless_sampling.md).
-SDKs include only minimal runtime fixtures, not the full training corpus.
+The five `data/topology/` tables remain Runtime SDK data embedded by
+Desktop. Test-only golden vectors, synthetic SDK model fixtures, and their
+generators have been removed. Runtime model/format validation and SDK provenance
+remain enforced in product code. Dated documents and recorded experiments retain
+the historical evidence for earlier contracts and measurements.
 
 [Decisions](decisions.md), [retiring Python](retiring_the_python_engine.md) and
 dated reports preserve historical evidence. [Model format v3](model_artifact_v3.md)

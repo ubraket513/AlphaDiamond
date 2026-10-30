@@ -14,6 +14,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -160,6 +161,9 @@ struct CampDiagnostics {
 };
 
 struct EpisodeDiagnostics {
+    // A known winner remains meaningful if the remaining players hit a limit.
+    // This does not make an incomplete episode eligible for training or rating.
+    std::optional<uint8_t> first_finisher;
     uint8_t current_player = 0;
     std::vector<uint8_t> occupancy;
     std::vector<CampDiagnostics> camps;  // indexed by seat
@@ -288,9 +292,11 @@ struct EpisodeMetrics {
 // join; individual request pointers are borrowed only for their dispatch.
 // Worker/evaluator failures stop the run and propagate after joining; they are
 // not converted into completed games. Empty jobs immediately return no episodes.
+// Progress counts processed games, including aborts; callbacks are serialized.
 std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJob>& jobs,
                                   const EpisodeConfig& config, BatchEvaluator& batch_evaluator,
-                                  EpisodeMetrics& metrics);
+                                  EpisodeMetrics& metrics,
+                                  const std::function<void(std::size_t)>& progress = {});
 
 struct SchedulerMetrics {
     uint64_t evaluations = 0;

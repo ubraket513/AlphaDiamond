@@ -234,7 +234,8 @@ std::vector<Episode> load_episode_artifact(const std::filesystem::path& path,
 // completed episodes produce replay samples; aborted trajectories remain diagnostics.
 // Returned vectors own their data and may outlive the borrowed actor pool.
 SelfPlayResult run_self_play(const IterationRequest& request, ModelPool& models,
-                             std::stop_token stop) {
+                             std::stop_token stop,
+                             const std::function<void(std::size_t)>& progress) {
     if (request.operation_id.empty()) throw PipelineError("iteration operation_id is required");
     request.compatibility.validate();
     if (soo::encoding_version_name(request.selfplay.encoding) != request.compatibility.encoder_version)
@@ -249,7 +250,7 @@ SelfPlayResult run_self_play(const IterationRequest& request, ModelPool& models,
         return result;
     soo::EpisodeMetrics metrics;
     const auto episodes =
-        soo::run_episodes(request.match, request.jobs, request.selfplay, models, metrics);
+        soo::run_episodes(request.match, request.jobs, request.selfplay, models, metrics, progress);
     std::vector<soo::VisitTargetObservation> all_targets;
     std::vector<soo::VisitTargetObservation> completed_targets;
     std::vector<soo::VisitTargetObservation> aborted_targets;
@@ -372,7 +373,8 @@ ReplayIngestReport ingest_self_play(ReplayStore& replay, std::span<const Episode
 // sampling statistics. Cancellation is checked between steps, not inside a tensor
 // update. A later failure does not undo completed learner updates.
 TrainingResult train_replay(const IterationRequest& request, ReplayStore& replay,
-                            diamond_training::Trainer& trainer, std::stop_token stop) {
+                            diamond_training::Trainer& trainer, std::stop_token stop,
+                            const std::function<void(const TrainingResult&)>& progress) {
     if (request.operation_id.empty())
         throw PipelineError("iteration operation_id is required");
     request.compatibility.validate();
@@ -393,6 +395,7 @@ TrainingResult train_replay(const IterationRequest& request, ReplayStore& replay
     // the iteration and the local step, so a TRAIN stage killed part-way and
     // re-run from step 0 draws exactly the same minibatch sequence, and the
     // replay store is never written during training.
+    auto next_progress = std::chrono::steady_clock::now();
     for (std::size_t step = 0; step < request.training_steps; ++step) {
         if (stop.stop_requested()) throw CancelledError("native pipeline cancelled during training");
         const auto drawn = std::chrono::steady_clock::now();
@@ -407,6 +410,12 @@ TrainingResult train_replay(const IterationRequest& request, ReplayStore& replay
         result.training_metrics.push_back(trainer.train(samples));
         ++result.completed_training_steps;
         result.training_batch_sizes.push_back(samples.size());
+        result.training_step = trainer.training_step();
+        if (progress && (step + 1 == request.training_steps ||
+                         std::chrono::steady_clock::now() >= next_progress)) {
+            progress(result);
+            next_progress = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        }
     }
     result.training_step = trainer.training_step();
     return result;

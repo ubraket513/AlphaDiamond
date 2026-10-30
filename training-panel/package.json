@@ -7,6 +7,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "test": "node --test --test-concurrency=8 src/*.test.js",
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "start": "node server.mjs"
@@ -15,5 +16,8 @@
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "svelte": "5.57.3",
     "vite": "8.3.5"
+  },
+  "dependencies": {
+    "chart.js": "^4.6.1"
   }
 }

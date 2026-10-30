@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <span>
 #include <stop_token>
@@ -151,13 +152,15 @@ std::vector<Episode> load_episode_artifact(const std::filesystem::path& path,
 // token is not an immediate interrupt of run_episodes; scheduler limits govern the
 // in-flight games. CLI/Panel immediate Stop terminates the process externally.
 SelfPlayResult run_self_play(const IterationRequest& request, ModelPool& models,
-                             std::stop_token stop = {});
+                             std::stop_token stop = {},
+                             const std::function<void(std::size_t)>& progress = {});
 // Writes replay chunks/manifest through ReplayStore's existing ingestion contract.
 // Kept separate so the production coordinator can persist the self-play artifact
 // before ingestion and distinguish that side effect from learner updates.
 ReplayIngestReport ingest_self_play(ReplayStore& replay, std::span<const Episode> episodes);
 TrainingResult train_replay(const IterationRequest& request, ReplayStore& replay,
-                            diamond_training::Trainer& trainer, std::stop_token stop = {});
+                            diamond_training::Trainer& trainer, std::stop_token stop = {},
+                            const std::function<void(const TrainingResult&)>& progress = {});
 
 // Sequential convenience for benchmark callers. It is not transactional: ingested
 // replay and completed optimizer updates survive a later failure. The caller

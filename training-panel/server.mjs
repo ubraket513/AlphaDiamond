@@ -1,9 +1,11 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
-import { open, readFile, readdir, readlink, stat, mkdir, writeFile } from 'node:fs/promises';
+import { open, readFile, readdir, readlink, stat, mkdir, writeFile, rename } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resourceSnapshot } from './resources.mjs';
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const clockTicks = Number(execFileSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).trim());
@@ -66,12 +68,14 @@ async function nativeJobSummary({ pgid, ...job }) {
     const summary = await optionalFile(join(job.runDir, 'experts/summary.json'), true);
     return { ...job, state: { stage: 'EVALUATE' }, config: null, evaluation: { summary } };
   }
-  const [state, config] = await Promise.all([
+  const [state, config, progress] = await Promise.all([
     optionalFile(join(job.runDir, 'state.json'), true),
     optionalFile(join(job.runDir, 'active-config.json'), true)
       .then(config => config ?? optionalFile(join(job.runDir, 'resolved-config.json'), true)),
+    optionalFile(join(job.runDir, 'progress.json'), true),
   ]);
-  return { ...job, state, config };
+  return { ...job, state, config, progress: progress?.pid === job.pid &&
+    progress.stage === state?.stage && progress.iteration === state?.iteration ? progress : null };
 }
 
 async function logPath(job) {
@@ -209,7 +213,10 @@ export function createPanelServer({ root = repository, binary = process.env.ALPH
         throw httpError(403, 'Cross-origin requests are not allowed');
       if (request.method === 'GET' && pathname === '/api/status') {
         const processes = await discover(binary);
-        send(200, { jobs: await Promise.all(processes.map(nativeJobSummary)) });
+        const [jobs, resources] = await Promise.all([
+          Promise.all(processes.map(nativeJobSummary)), resourceSnapshot(),
+        ]);
+        send(200, { jobs, resources });
       } else if (request.method === 'GET' && /^\/api\/runs\/\d+(?:\/log)?$/.test(pathname)) {
         const pid = Number(pathname.split('/')[3]);
         const job = await nativeProcess(pid, binary, 0);
@@ -243,6 +250,12 @@ export function createPanelServer({ root = repository, binary = process.env.ALPH
         // Re-read identity before signalling; a supervisor's shared group must survive.
         const current = await nativeProcess(pid, binary, 0);
         if (!current || current.startTicks !== selected.startTicks) throw httpError(404, 'Native process exited');
+        const stop = { pid, startTicks: current.startTicks, requestedAt: new Date().toISOString(), source: 'training-panel' };
+        const temporary = join(current.runDir, `.user-stop-${randomUUID()}.tmp`);
+        await writeFile(temporary, JSON.stringify(stop) + '\n');
+        await rename(temporary, join(current.runDir, 'user-stop.json'));
+        const target = await nativeProcess(pid, binary, 0);
+        if (!target || target.startTicks !== current.startTicks) throw httpError(404, 'Native process exited');
         try { process.kill(current.pgid === pid ? -pid : pid, 'SIGKILL'); }
         catch (error) { if (error.code === 'ESRCH') throw httpError(404, 'Native process exited'); throw error; }
         send(200, { stopped: true });

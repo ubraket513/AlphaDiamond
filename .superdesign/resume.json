@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "/": {
+      "targetKind": "existing-ui",
+      "projectId": "c89efde1-dd82-4d4e-b5b9-d0604fb06bb3",
+      "baselineDraftId": "07d93b5c-8cfd-4bdb-bedc-80c760bce07c",
+      "activeDraftId": "07d93b5c-8cfd-4bdb-bedc-80c760bce07c",
+      "designSystemPath": ".superdesign/design-system.md",
+      "contextFiles": [
+        ".superdesign/design-system.md",
+        "training-panel/src/App.svelte",
+        "training-panel/src/Chart.svelte",
+        "training-panel/src/app.css"
+      ],
+      "fingerprints": {
+        ".superdesign/design-system.md": "87a191d848a80b63a74c20e362516b0361ca66790250b6ce31e19ce71bca5f1d",
+        "training-panel/src/App.svelte": "813d9397aa77929975d35472ea38d4bd514350b90dfc70aa2012af1fd6796471",
+        "training-panel/src/Chart.svelte": "5c39fb45ff00b99b98bea38a8d403eb11e3c3223e70dfadb30e6e738f145f01b",
+        "training-panel/src/app.css": "13f0f0dad9268d939f164abd24e3026cae07331e956cbc6bce93c9a9490146a3"
+      },
+      "components": [],
+      "drafts": {
+        "07d93b5c-8cfd-4bdb-bedc-80c760bce07c": {
+          "title": "AlphaDiamond Training Control - Light Mode",
+          "visualDirection": "spacious light mode; stage-first hierarchy, Chart.js plots, shared two-handle interval, adaptive SI memory units",
+          "currentVersion": 3
+        }
+      },
+      "updatedAt": "2026-10-29T17:01:41.156057+00:00"
+    }
+  }
+}

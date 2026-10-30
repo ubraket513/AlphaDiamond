@@ -48,6 +48,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace {
@@ -297,71 +299,37 @@ soo::Match ordered_match(const ProductionConfig& config, const auto& turn_order)
 
 using ArenaModelRouter = soo::ArenaModelRouter;
 
-// Every game of the arena schedule, indexed [block][cell] in schedule order.
-//
-// Games that share a turn order share a match, and a scheduler run fixes the
-// match -- but not the position, since every job carries its own start state.
-// So the grouping is by turn order across the whole schedule rather than within
-// an opening: with ten openings the six Min turn orders become six runs of
-// sixty concurrent games instead of sixty runs of one.
-//
-// Nothing else about a game changes. Each keeps its own seed, its own opening
-// and its own candidate seat. Search is greedy with no Dirichlet noise until a
-// repeated physical state activates a move-number-seeded temperature sample,
-// so a result does not depend on which games were in flight beside it --
-// asserted in selfplay_test, because the whole grouping rests on it.
+// Per-job matches batch all turn orders together without changing openings,
+// game seeds, root ownership or the [block][cell] result order.
 template <typename Block>
 std::vector<std::vector<soo::Episode>>
 play_arena_schedule(const ProductionConfig& config, const std::vector<Block>& blocks,
                     diamond_pipeline::ModelPool& candidate, diamond_pipeline::ModelPool& champion) {
-    struct Cell {
-        std::size_t block = 0;
-        std::size_t cell = 0;
-    };
-    struct Group {
-        std::remove_cvref_t<decltype(blocks.front().matches.front().turn_order)> turn_order;
-        std::vector<Cell> cells;
-    };
-    std::vector<Group> groups;
+    std::vector<soo::EpisodeJob> jobs;
+    std::vector<int> candidate_player_by_job;
     std::vector<std::vector<soo::Episode>> episodes;
     episodes.reserve(blocks.size());
-    for (std::size_t block = 0; block < blocks.size(); ++block) {
-        episodes.emplace_back(blocks[block].matches.size());
-        for (std::size_t cell = 0; cell < blocks[block].matches.size(); ++cell) {
-            const auto& turn_order = blocks[block].matches[cell].turn_order;
-            const auto found = std::find_if(groups.begin(), groups.end(), [&](const Group& group) {
-                return group.turn_order == turn_order;
-            });
-            if (found == groups.end())
-                groups.push_back(Group{.turn_order = turn_order, .cells = {{block, cell}}});
-            else
-                found->cells.push_back({block, cell});
-        }
-    }
-
-    for (const auto& group : groups) {
-        const auto match = ordered_match(config, group.turn_order);
-        std::vector<soo::EpisodeJob> jobs;
-        std::vector<int> candidate_player_by_job;
-        jobs.reserve(group.cells.size());
-        candidate_player_by_job.reserve(group.cells.size());
-        for (const auto& cell : group.cells) {
-            const auto& block = blocks[cell.block];
-            const auto& matchup = block.matches[cell.cell];
+    for (const auto& block : blocks) {
+        episodes.emplace_back(block.matches.size());
+        for (const auto& matchup : block.matches) {
+            const auto match = ordered_match(config, matchup.turn_order);
             jobs.push_back(
-                {opening(match, block.opening), arena_seed(block.opening, matchup.match_id)});
+                {opening(match, block.opening), arena_seed(block.opening, matchup.match_id), match});
             candidate_player_by_job.push_back(matchup.seat_assignment[0]);
         }
-        ArenaModelRouter evaluator(candidate, champion, candidate_player_by_job);
-        soo::EpisodeMetrics metrics;
-        auto played = soo::run_episodes(
-            match, jobs, diamond_orchestration::wire_arena_episode(config, jobs.size()), evaluator,
-            metrics);
-        if (played.size() != jobs.size())
-            throw std::runtime_error("arena did not return one game per matchup");
-        for (std::size_t index = 0; index < group.cells.size(); ++index)
-            episodes[group.cells[index].block][group.cells[index].cell] = std::move(played[index]);
     }
+    if (jobs.empty()) return episodes;
+    ArenaModelRouter evaluator(candidate, champion, std::move(candidate_player_by_job));
+    soo::EpisodeMetrics metrics;
+    auto played = soo::run_episodes(
+        game_match(config), jobs, diamond_orchestration::wire_arena_episode(config, jobs.size()),
+        evaluator, metrics);
+    if (played.size() != jobs.size())
+        throw std::runtime_error("arena did not return one game per matchup");
+    std::size_t index = 0;
+    for (auto& block : episodes)
+        for (auto& episode : block)
+            episode = std::move(played[index++]);
     return episodes;
 }
 
@@ -448,6 +416,23 @@ Array training_metrics_json(const std::vector<diamond_training::TrainingMetrics>
             {"value_loss", Json{metric.value_loss}},
         }});
     return values;
+}
+
+void write_progress(const CommandRequest& request, int64_t iteration, RunStage stage,
+                    std::size_t completed, std::size_t total, Object details = {}) {
+#ifdef _WIN32
+    const auto pid = GetCurrentProcessId();
+#else
+    const auto pid = getpid();
+#endif
+    details.emplace("pid", Json{static_cast<int64_t>(pid)});
+    details.emplace("iteration", Json{iteration});
+    details.emplace("stage", Json{std::string(stage_name(stage))});
+    details.emplace("completed", Json{static_cast<int64_t>(completed)});
+    details.emplace("total", Json{static_cast<int64_t>(total)});
+    write_json(root(request) / "progress.json", Json{std::move(details)});
+    std::clog << "[iteration " << iteration + 1 << "] " << stage_name(stage)
+              << ' ' << completed << '/' << total << '\n' << std::flush;
 }
 
 Object visit_target_json(const soo::VisitTargetSummary& summary) {
@@ -823,6 +808,8 @@ StageOutcome stage_report(const CommandRequest& request, int64_t iteration, RunS
     details.emplace("run_progress", Json{progress});
     Json result{std::move(details)};
     write_json(stage_report_path(request, iteration, stage), result);
+    std::clog << "[iteration " << iteration + 1 << "] " << stage_name(stage)
+              << " completed\n" << std::flush;
     return {.result = std::move(result), .progress = std::move(progress)};
 }
 
@@ -916,6 +903,7 @@ StageOutcome execute_self_play_stage(const CommandRequest& request, const Produc
                                      const diamond_training::ResolvedDevice& device,
                                      const ProductionConfig* predecessor) {
     constexpr auto stage = RunStage::self_play;
+    write_progress(request, iteration, stage, 0, config.workers.games_per_iteration);
     const auto per_iteration = iteration_root(request, iteration);
     const auto episodes_path = per_iteration / "selfplay.episodes";
     if (!std::filesystem::exists(episodes_path)) {
@@ -926,7 +914,10 @@ StageOutcome execute_self_play_stage(const CommandRequest& request, const Produc
         const auto key = models.install(compatibility, native_model);
         models.activate(key);
         const auto selfplay_job = iteration_job(config, state, operation, key);
-        const auto result = diamond_pipeline::run_self_play(selfplay_job, models, {});
+        const auto result = diamond_pipeline::run_self_play(selfplay_job, models, {},
+            [&](std::size_t finished) {
+                write_progress(request, iteration, stage, finished, selfplay_job.jobs.size());
+            });
         diamond_pipeline::save_episode_artifact(episodes_path, operation, result.episodes);
 
         // Engine counters the episode artifact cannot carry, written beside
@@ -1151,6 +1142,7 @@ StageOutcome execute_train_stage(const CommandRequest& request, const Production
                                  diamond_orchestration::TrainingRunResources& resources,
                                  const ProductionConfig* predecessor) {
     constexpr auto stage = RunStage::train;
+    write_progress(request, iteration, stage, 0, config.training.train_steps_per_iteration);
     const auto per_iteration = iteration_root(request, iteration);
     const auto staged = per_iteration / "trained-checkpoint";
     diamond_pipeline::TrainingResult trained;
@@ -1183,7 +1175,42 @@ StageOutcome execute_train_stage(const CommandRequest& request, const Production
             diamond_pipeline::ModelKey{compatibility.model_name, compatibility.model_version,
                                        diamond_training::canonical_model_digest(trainer.learner())};
         trained = diamond_pipeline::train_replay(iteration_job(config, state, operation, key),
-                                                 *replay, trainer, {});
+                                                 *replay, trainer, {},
+            [&](const diamond_pipeline::TrainingResult& current) {
+                Object details{
+                    {"metrics", training_metrics_json({current.training_metrics.back()}).front()}};
+                constexpr uint64_t loss_window = 1000;
+                const auto through = current.training_step / loss_window * loss_window;
+                const auto first = current.training_metrics.front().training_step;
+                // Omit a block whose beginning belongs to the preceding iteration.
+                if (through >= loss_window && through - loss_window + 1 >= first) {
+                    const auto begin = static_cast<std::size_t>(through - loss_window + 1 - first);
+                    double total_loss = 0.0;
+                    double policy_loss = 0.0;
+                    double value_loss = 0.0;
+                    for (std::size_t index = begin; index < begin + loss_window; ++index) {
+                        const auto& metric = current.training_metrics[index];
+                        total_loss += metric.total_loss;
+                        policy_loss += metric.policy_loss;
+                        value_loss += metric.value_loss;
+                    }
+                    Object average{
+                        {"training_step", Json{static_cast<int64_t>(through)}},
+                        {"total_loss", Json{total_loss / loss_window}},
+                        {"policy_loss", Json{policy_loss / loss_window}},
+                        {"value_loss", Json{value_loss / loss_window}},
+                    };
+                    if (begin >= loss_window) {
+                        double previous_total_loss = 0.0;
+                        for (std::size_t index = begin - loss_window; index < begin; ++index)
+                            previous_total_loss += current.training_metrics[index].total_loss;
+                        average.emplace("previous_total_loss", Json{previous_total_loss / loss_window});
+                    }
+                    details.emplace("loss_average", Json{std::move(average)});
+                }
+                write_progress(request, iteration, stage, current.completed_training_steps,
+                               current.requested_training_steps, std::move(details));
+            });
         try {
             (void)diamond_training::save_checkpoint_v3(
                 staged, trainer,
@@ -1584,6 +1611,8 @@ StageOutcome execute_stage(const CommandRequest& request, const ProductionConfig
     if (std::filesystem::exists(report_path))
         return load_stage_report(request, iteration, stage, operation);
     g_stage_started = std::chrono::steady_clock::now();
+    std::clog << "[iteration " << iteration + 1 << "] " << stage_name(stage)
+              << " started\n" << std::flush;
 
     const auto compatibility = wire(config);
     torch::manual_seed(static_cast<int64_t>(config.training.seed));
@@ -1711,23 +1740,33 @@ Object train(const CommandRequest& request, const ProductionConfig& config, bool
                         stage_report_path(request, transition_iteration, RunStage::self_play)))
                     throw CommandArtifactError(
                         "training config transition cannot replace started self-play work");
-                predecessor_config = previous;
+                const auto transition_path = root(request) / "config-transitions" /
+                    (std::to_string(transition_iteration) + ".json");
+                auto source = previous;
+                // Replacing an uncommitted transition must retain its checkpoint source.
+                if (std::filesystem::exists(transition_path)) {
+                    const auto pending = read_object(transition_path, "config transition");
+                    if (std::get<std::string>(pending.at("to_sha256").value) !=
+                        diamond_support::sha256(diamond_support::canonical_json(previous.to_json())))
+                        throw CommandArtifactError("pending config transition does not match active config");
+                    source = ProductionConfig::from_json(pending.at("from"));
+                }
+                predecessor_config = source;
                 Array changed_json;
                 changed_json.reserve(changed.size());
                 for (const auto& field : changed) changed_json.emplace_back(Json{field});
-                write_json(root(request) / "config-transitions" /
-                               (std::to_string(transition_iteration) + ".json"),
+                write_json(transition_path,
                            Json{Object{{"changed_fields", Json{std::move(changed_json)}},
-                                       {"from", previous.to_json()},
+                                       {"from", source.to_json()},
                                        {"from_sha256",
                                         Json{diamond_support::sha256(
-                                            diamond_support::canonical_json(previous.to_json()))}},
+                                            diamond_support::canonical_json(source.to_json()))}},
                                        {"iteration", Json{transition_iteration}},
                                        {"rollback_failed_gate",
                                         Json{request.rollback_failed_gate}},
                                        {"to", canonical_config},
                                        {"to_sha256", Json{config_sha256}}}});
-                write_json(predecessor_config_path, previous.to_json());
+                write_json(predecessor_config_path, source.to_json());
                 write_json(active_config_path, canonical_config);
             } else if (std::filesystem::exists(predecessor_config_path)) {
                 std::ifstream predecessor_input(predecessor_config_path, std::ios::binary);
@@ -1808,8 +1847,6 @@ Object evaluate(const CommandRequest& request, const ProductionConfig& config,
     const auto candidate_path = request.candidate_path;
     const auto champion_path = request.champion_path;
     const auto compatibility = wire(config);
-    auto candidate_model = model(config);
-    auto champion_model = model(config);
     diamond_pipeline::ModelPool candidate(1, device, actor_precision(config));
     diamond_pipeline::ModelPool champion(1, device, actor_precision(config));
     diamond_training::CheckpointInfo candidate_info;
@@ -1817,16 +1854,38 @@ Object evaluate(const CommandRequest& request, const ProductionConfig& config,
     diamond_pipeline::ModelKey candidate_key;
     diamond_pipeline::ModelKey champion_key;
     try {
-        candidate_info =
-            diamond_training::load_checkpoint_v2_weights(candidate_path, candidate_model, device);
-        champion_info =
-            diamond_training::load_checkpoint_v2_weights(champion_path, champion_model, device);
-        validate_board_adjacency(candidate_model->adjacency);
-        validate_board_adjacency(champion_model->adjacency);
-        candidate_key = candidate.install(compatibility, candidate_model);
-        champion_key = champion.install(compatibility, champion_model);
-        candidate.activate(candidate_key);
-        champion.activate(champion_key);
+        const auto load = [&](const std::filesystem::path& path,
+                              diamond_pipeline::ModelPool& pool) {
+            const auto inspected = diamond_training::inspect_checkpoint_v2(path);
+            // Native v2 has no architecture provenance and retains the run-config contract.
+            const auto source = inspected.provenance
+                ? ProductionConfig::from_json(diamond_support::parse_json(
+                      inspected.provenance->resolved_config_bytes))
+                : config;
+            const auto source_compatibility = wire(source);
+            auto expected = compatibility;
+            expected.model_version = source_compatibility.model_version;
+            expected.network_config = source_compatibility.network_config;
+            if (source_compatibility != expected)
+                throw CommandArtifactError(
+                    "evaluation checkpoint game contract does not match run config");
+            auto actor = model(source);
+            const auto loaded = diamond_training::load_checkpoint_v2_weights(
+                path, actor, device, source_compatibility);
+            if (loaded.generation != inspected.generation ||
+                loaded.model_digest != inspected.model_digest ||
+                (inspected.provenance &&
+                 (!loaded.provenance || loaded.provenance->resolved_config_bytes !=
+                                            inspected.provenance->resolved_config_bytes)))
+                throw CommandArtifactError("checkpoint changed while loading: " + path.string());
+            validate_board_adjacency(actor->adjacency);
+            pool.activate(pool.install(source_compatibility, actor));
+            return loaded;
+        };
+        candidate_info = load(candidate_path, candidate);
+        champion_info = load(champion_path, champion);
+        candidate_key = candidate.active_key();
+        champion_key = champion.active_key();
     } catch (const std::exception& error) {
         throw CommandArtifactError(error.what());
     }
@@ -1916,6 +1975,7 @@ Object evaluate(const CommandRequest& request, const ProductionConfig& config,
                 "arena.games must equal the complete Min opening schedule size");
         std::vector<diamond_orchestration::MinOpeningBlockResult> outcomes;
         int64_t placements[3]{};
+        Array first_place_observations;
         uint64_t sequence = 0;
         const auto schedule = play_arena_schedule(config, blocks, candidate, champion);
         for (std::size_t block_index = 0; block_index < blocks.size(); ++block_index) {
@@ -1928,6 +1988,18 @@ Object evaluate(const CommandRequest& request, const ProductionConfig& config,
                 const int candidate_player = cell.seat_assignment[0];
                 const auto& episode = played[index];
                 std::optional<int> placement;
+                Array turn_order;
+                for (const auto seat : cell.turn_order)
+                    turn_order.emplace_back(Json{int64_t{seat}});
+                const auto first = episode.diagnostics.first_finisher;
+                first_place_observations.emplace_back(Json{Object{
+                    {"game_id", Json{cell.match_id}},
+                    {"opening_id", Json{block.opening.opening_id}},
+                    {"turn_order", Json{std::move(turn_order)}},
+                    {"completed", Json{episode.completed}},
+                    {"candidate_won", first ? Json{*first == candidate_player} : Json{nullptr}},
+                    {"move_count", Json{int64_t{episode.move_count}}},
+                }});
                 if (episode.completed) {
                     const auto found = std::find(episode.finish_order.begin(),
                                                  episode.finish_order.end(), candidate_player);
@@ -1958,6 +2030,8 @@ Object evaluate(const CommandRequest& request, const ProductionConfig& config,
             }
             outcomes.push_back(std::move(block_result));
         }
+        write_json(root(request) / "first-place-observations.json",
+                   Json{std::move(first_place_observations)});
         const auto summary = diamond_orchestration::summarize_min_opening_blocks(blocks, outcomes);
         const auto statistics = diamond_orchestration::bootstrap_opening_blocks(
             summary, config.promotion_statistics, config.arena.promotion_threshold);

@@ -570,7 +570,8 @@ void balance_episode_turn_orders(const Match& match, std::vector<EpisodeJob>& jo
 
 std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJob>& jobs,
                                   const EpisodeConfig& config, BatchEvaluator& batch_evaluator,
-                                  EpisodeMetrics& metrics) {
+                                  EpisodeMetrics& metrics,
+                                  const std::function<void(std::size_t)>& progress) {
     if (jobs.empty()) return {};
     for (const auto& job : jobs) {
         const auto& selected = job.match ? *job.match : match;
@@ -627,6 +628,7 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
 
     std::vector<Episode> episodes(jobs.size());
     std::atomic<size_t> next_job{0};
+    std::atomic<size_t> finished_jobs{0};
 
     const int derived_lanes =
         config.lanes > 0 ? config.lanes : std::min<int>(static_cast<int>(jobs.size()),
@@ -645,6 +647,8 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
             const Match& match = lane.match;
             lane.job_index = index;
             lane.state = job.initial_state;
+            if (lane.state.finished_count != 0)
+                episodes[index].diagnostics.first_finisher = lane.state.finish_order.front();
             lane.game_seed = job.seed;
             lane.move_count = 0;
             if (config.max_game_duration && *config.max_game_duration > Clock::duration::zero()) {
@@ -659,6 +663,7 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                 episodes[index].finish_order.assign(
                     lane.state.finish_order.begin(),
                     lane.state.finish_order.begin() + lane.state.finished_count);
+                finished_jobs.fetch_add(1, std::memory_order_relaxed);
                 continue;
             }
             lane.recent.clear();
@@ -758,6 +763,7 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                     Episode& episode = episodes[lane.job_index];
                     episode.move_count = lane.move_count;
                     episode.max_game_seconds_exceeded = true;
+                    finished_jobs.fetch_add(1, std::memory_order_relaxed);
                     if (!seat(lane)) {
                         busy[static_cast<size_t>(w)] += seconds_since(work_start);
                         retire(lane);
@@ -812,6 +818,8 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                 lane.state = apply_action(
                     lane.state, match,
                     to_physical_action(move.selected_action, match, lane.state.current_player));
+                if (lane.state.finished_count != 0)
+                    episode.diagnostics.first_finisher = lane.state.finish_order.front();
                 ++lane.move_count;
                 lane.observe(dynamics_key(lane.state), 64);
                 {
@@ -890,6 +898,7 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                     // The lane does not retire with its game: it takes the next
                     // queued job, so a straggler costs its own lane and no
                     // other.
+                    finished_jobs.fetch_add(1, std::memory_order_relaxed);
                     if (!seat(lane)) {
                         busy[static_cast<size_t>(w)] += seconds_since(work_start);
                         retire(lane);
@@ -934,6 +943,7 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
 
     std::thread evaluator([&] {
       try {
+        auto next_progress = Clock::now();
         std::vector<int> batch;
         std::vector<BatchItem> items;
         while (batcher.collect(batch)) {
@@ -975,6 +985,10 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
                 }
             }
             ready.push_many(batch);
+            if (progress && Clock::now() >= next_progress) {
+                progress(finished_jobs.load(std::memory_order_relaxed));
+                next_progress = Clock::now() + std::chrono::seconds(1);
+            }
         }
       } catch (...) {
         fail(std::current_exception());
@@ -993,6 +1007,7 @@ std::vector<Episode> run_episodes(const Match& match, const std::vector<EpisodeJ
     // At this point all threads have joined, so propagating it releases no
     // lane or evaluator references that could still be used asynchronously.
     if (failure) std::rethrow_exception(failure);
+    if (progress) progress(finished_jobs.load(std::memory_order_relaxed));
 
     for (const Episode& episode : episodes) {
         metrics.moves += static_cast<uint64_t>(episode.move_count);
